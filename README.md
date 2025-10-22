@@ -86,6 +86,12 @@ EfficientSAM3 is trained through a three-stage progressive distillation:
 - Refine the complete EfficientSAM3 pipeline using SAM3 official dataset
 - Joint optimization of distilled encoder + compressed memory + mask decoder
 - Preserve Promptable Concept Segmentation capabilities while maintaining efficiency
+</br>
+
+> **tl;dr:**  
+> Stage 1: Distill the SAM3 encoder via sam1 dataset.  
+> Stage 2: Align the efficient perceiver and memory bank with the encoder via sam2 dataset.  
+> Stage 3: Fine-tune the complete EfficientSAM3 pipeline via sam3 dataset.  
 
 </details>
 

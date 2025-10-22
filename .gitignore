@@ -33,7 +33,7 @@
 *.tif
 *.tiff
 *.webp
-*.svg
+
 
 # Video files
 *.mp4
@@ -131,7 +131,6 @@ datasets/
 
 # Allowlist dataset helper scripts and lists inside data/
 !data/
-data/*
 !data/download_coco.sh
 !data/download_lvis.sh
 !data/download_sa_v.sh
@@ -142,7 +141,7 @@ data/*
 !data/download_sa1b.sh
 !data/sa-v.txt
 !data/sa-1b.txt
-
+!data/reorg_sa1b.py
 
 
 !images
