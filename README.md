@@ -11,10 +11,6 @@ Visual Information Lab, University of Bristol
 
 - [Table of Contents](#table-of-contents)
 - [Updates](#updates)
-  - [Stage 1: Encoder Distillation (Image-Level Segmentation)](#stage-1-encoder-distillation-image-level-segmentation)
-  - [Stage 2: Temporal Memory Distillation (Video Tracking)](#stage-2-temporal-memory-distillation-video-tracking)
-  - [Stage 3: End-to-End Fine-Tuning (Concept Segmentation)](#stage-3-end-to-end-fine-tuning-concept-segmentation)
-  - [tl;dr](#tldr)
 - [Installation](#installation)
 - [Inference](#inference)
 - [Training and Evaluation](#training-and-evaluation)
@@ -94,9 +90,9 @@ EfficientSAM3 is trained through a three-stage progressive distillation:
 - Preserve Promptable Concept Segmentation capabilities while maintaining efficiency
 
 ### tl;dr
-Stage 1: We distill the SAM3 encoder using SAM1 data.
-Stage 2: We align the distilled encoder to a perceiver and an efficient memory bank using SAM2 data.
-Stage 3: We fine-tune the complete pipeline using SAM3 data.
+Stage 1: We distill the SAM3 encoder using SAM1 data. <br>
+Stage 2: We align the distilled encoder to a perceiver and an efficient memory bank using SAM2 data. <br>
+Stage 3: We fine-tune the complete pipeline using SAM3 data. <br>
 
 </details>
 
