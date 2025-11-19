@@ -36,7 +36,7 @@ Visual Information Lab, University of Bristol
 
 ---
 
-[SAM3](https://ai.meta.com/sam3) (Segment Anything Model 3) has introduced powerful **Promptable Concept Segmentation (PCS)** capabilities, enabling semantic understanding and temporal object tracking beyond traditional mask generation. However, SAM3's massive vision backbone and dense memory bank make it impractical for real-time, on-device applications where computational resources and latency constraints are critical.
+[SAM3](https://github.com/facebookresearch/sam3) (Segment Anything Model 3) has introduced powerful **Promptable Concept Segmentation (PCS)** capabilities, enabling semantic understanding and temporal object tracking beyond traditional mask generation. However, SAM3's massive vision backbone and dense memory bank make it impractical for real-time, on-device applications where computational resources and latency constraints are critical.
 
 **EfficientSAM3** addresses this challenge by distilling SAM3's capabilities into lightweight architectures suitable for edge devices, enabling high-quality concept segmentation on mobile phones, embedded systems, and resource-constrained platforms.
 
@@ -56,7 +56,7 @@ Visual Information Lab, University of Bristol
 |-----------|----------------|---------|
 | **Teacher Models** | [SAM](https://github.com/facebookresearch/segment-anything) (Segment Anything Model) | Foundation for image-level encoder distillation |
 | | [SAM2](https://github.com/facebookresearch/sam2) | Temporal memory and video tracking distillation |
-| | SAM3 | Promptable Concept Segmentation (PCS) capabilities |
+| | [SAM3](https://github.com/facebookresearch/sam3) | Promptable Concept Segmentation (PCS) capabilities |
 | **Datasets** | [SA-1B](https://ai.meta.com/datasets/segment-anything/) | Image segmentation dataset |
 | | [SA-V](https://ai.meta.com/datasets/segment-anything-video/) | Video object segmentation dataset |
 | | SAM3 Data | Concept segmentation dataset |
@@ -240,14 +240,14 @@ If you use EfficientSAM3 in your research, please cite:
 
 This repository is licensed under the [Apache 2.0 License](https://www.apache.org/licenses/LICENSE-2.0).
 
-This project builds upon [SAM](https://github.com/facebookresearch/segment-anything), [SAM2](https://github.com/facebookresearch/sam2), SAM3, [EdgeSAM](https://github.com/chongzhou96/EdgeSAM), [EdgeTAM](https://github.com/facebookresearch/EdgeTAM), [EfficientTAM](https://github.com/yformer/EfficientTAM), [RepViT](https://github.com/THU-MIG/RepViT), [TinyViT](https://github.com/wkcn/TinyViT), and [EfficientViT](https://github.com/mit-han-lab/efficientvit). Please refer to their respective licenses for usage terms.
+This project builds upon [SAM](https://github.com/facebookresearch/segment-anything), [SAM2](https://github.com/facebookresearch/sam2), [SAM3](https://github.com/facebookresearch/sam3), [EdgeSAM](https://github.com/chongzhou96/EdgeSAM), [EdgeTAM](https://github.com/facebookresearch/EdgeTAM), [EfficientTAM](https://github.com/yformer/EfficientTAM), [RepViT](https://github.com/THU-MIG/RepViT), [TinyViT](https://github.com/wkcn/TinyViT), and [EfficientViT](https://github.com/mit-han-lab/efficientvit). Please refer to their respective licenses for usage terms.
 
 ## Acknowledgments
 
 This work is inspired by and builds upon:
 - **[SAM](https://github.com/facebookresearch/segment-anything)** (Meta AI) - Foundation segmentation model
 - **[SAM2](https://github.com/facebookresearch/sam2)** - Video object segmentation capabilities
-- **SAM3** - Promptable Concept Segmentation
+- **[SAM3](https://github.com/facebookresearch/sam3)** - Promptable Concept Segmentation
 - **[EdgeSAM](https://github.com/chongzhou96/EdgeSAM)** - Efficient encoder distillation techniques
 - **[EdgeTAM](https://github.com/facebookresearch/EdgeTAM)** - Perceiver-based memory compression for tracking
 - **[EfficientTAM](https://github.com/yformer/EfficientTAM)** - Efficient temporal attention mechanisms

@@ -128,6 +128,7 @@ logs/
 data/
 dataset/
 datasets/
+paper
 
 # Allowlist dataset helper scripts and lists inside data/
 !data/
