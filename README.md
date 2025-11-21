@@ -1,7 +1,8 @@
 ### EfficientSAM3: Progressive Hierachical Knowledge Distillation (PhD) from SAM1, 2 and 3
-[Chengxi Simon Zeng](https://simonzeng7108.github.io/about/), [Yuxuan Jiang](https://YuxuanJJ.github.io/), [Aaron Zhang](https://fan-aaron-zhang.github.io/)
+[Chengxi Simon Zeng](https://simonzeng7108.github.io/about/)<sup>†</sup>, [Yuxuan Jiang](https://YuxuanJJ.github.io/), [Gao Ge](https://scholar.google.com/citations?user=j2_80ewAAAAJ&hl=en), [Shuai Wang](https://shuaiwang97.github.io/), [Fan Aaron Zhang](https://fan-aaron-zhang.github.io/)
+Visual Information Lab, University of Bristol; MultiX lab, University of Amsterdam
 
-Visual Information Lab, University of Bristol
+<sup>†</sup>Tech Lead & Corresponding Author
 
 [[Paper](https://arxiv.org/abs/2511.15833)] [[Project Page](https://simonzeng7108.github.io/efficientsam3/)] [[Hugging Face](https://huggingface.co/Simon7108528/EfficientSAM3)]
 
@@ -106,7 +107,7 @@ Stage 3: We fine-tune the complete pipeline using SAM3 data. <br>
 
 ## Installation
 
-The code requires `python>=3.8`. We recommend `torch==2.0.0` and `torchvision==0.15.1`. Please refer to the [official PyTorch installation instructions](https://pytorch.org/get-started/locally/).
+The code requires `python>=3.12`. We recommend `torch>=2.7.0` and `torchvision>=0.18.0`. Please refer to the [official PyTorch installation instructions](https://pytorch.org/get-started/locally/).
 
 Clone the repository locally:
 
@@ -114,16 +115,16 @@ Clone the repository locally:
 git clone https://github.com/SimonZeng7108/efficientsam3.git && cd efficientsam3
 ```
 
-Install additional dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
 Install EfficientSAM3:
 
 ```bash
 pip install -e .
+```
+
+For Stage 1 training dependencies:
+
+```bash
+pip install -e ".[stage1]"
 ```
 
 ---
@@ -229,7 +230,7 @@ If you use EfficientSAM3 in your research, please cite:
 ```bibtex
 @misc{efficientsam3,
   title={EfficientSAM3: Progressive Hierachical Knowledge Distillation (PhD) from SAM1, 2 and 3},
-  author={Zeng, Chengxi Simon and Jiang, Yuxuan and Zhang, Aaron},
+  author={Zeng, Chengxi Simon and Jiang, Yuxuan and Ge, Gao  and Wang, Shuai and Zhang, Fan Aaron},
   institution={University of Bristol},
   year={2025},
   howpublished={\url{https://github.com/SimonZeng7108/efficientsam3}}
