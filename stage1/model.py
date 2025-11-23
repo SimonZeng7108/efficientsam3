@@ -91,14 +91,21 @@ class SAM3TeacherEncoder(nn.Module):
         self.img_size = 1008
 
     def forward(self, x):
-        backbone_out = self.sam3.backbone.forward_image(x)
-        feats = backbone_out["vision_features"]
-        feats = F.interpolate(
-            feats,
-            size=(self.embed_size, self.embed_size),
-            mode="bilinear",
-            align_corners=False,
-        )
+        # Distill the raw backbone features (1024 channels) to allow
+        # the student to be a drop-in replacement for the backbone.
+        # Access the ViT trunk directly through the vision_backbone
+        backbone_out = self.sam3.backbone.vision_backbone.trunk(x)
+        # ViT returns a list of features, we want the last one
+        feats = backbone_out[-1]
+        
+        # Interpolate if needed (though usually trunk output is already at the target resolution)
+        if feats.shape[-1] != self.embed_size or feats.shape[-2] != self.embed_size:
+            feats = F.interpolate(
+                feats,
+                size=(self.embed_size, self.embed_size),
+                mode="bilinear",
+                align_corners=False,
+            )
         return feats
 
 

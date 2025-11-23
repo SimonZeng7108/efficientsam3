@@ -192,15 +192,15 @@ For dataset setup and download scripts (`data/download_*.sh`) covering COCO, DAV
 
 | Model Name | Backbone | Parameters | Stage 1 Weights<br/>(Encoder Distilled) | Stage 2 Weights<br/>(Memory Module Trained) | Stage 3 Weights<br/>(End-to-End Fine-Tuned) |
 |------------|----------|------------|----------------------------------------|---------------------------------------------|---------------------------------------------|
-| **ES-RV-S** | RepViT-M0.9 | 5.1M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
-| **ES-RV-M** | RepViT-M1.1 | 6.8M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
-| **ES-RV-L** | RepViT-M2.3 | 8.2M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
-| **ES-TV-S** | TinyViT-5M | 5.4M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
-| **ES-TV-M** | TinyViT-11M | 11M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
-| **ES-TV-L** | TinyViT-21M | 21M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
-| **ES-EV-S** | EfficientViT-B0 | 0.7M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
-| **ES-EV-M** | EfficientViT-B1 | 4.8M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
-| **ES-EV-L** | EfficientViT-B2 | 15M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
+| **ES-RV-S** | RepViT-M0.9 | 4.72M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
+| **ES-RV-M** | RepViT-M1.1 | 7.77M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
+| **ES-RV-L** | RepViT-M2.3 | 22.40M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
+| **ES-TV-S** | TinyViT-5M | 5.07M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
+| **ES-TV-M** | TinyViT-11M | 10.55M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
+| **ES-TV-L** | TinyViT-21M | 20.62M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
+| **ES-EV-S** | EfficientViT-B0 | 0.68M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
+| **ES-EV-M** | EfficientViT-B1 | 4.64M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
+| **ES-EV-L** | EfficientViT-B2 | 14.98M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
 
 ---
 

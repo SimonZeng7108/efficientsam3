@@ -48,10 +48,14 @@ back into the full SAM3 checkpoint for deployment.
    | Student Model | Backbone | Params | vs. Teacher Encoder (461M) |
    | :--- | :--- | :--- | :--- |
    | **ES-EV-S** | EfficientViT-B0 | **0.68M** | **99.85% smaller** |
+   | **ES-EV-M** | EfficientViT-B1 | **4.64M** | **99.00% smaller** |
+   | **ES-EV-L** | EfficientViT-B2 | **14.98M** | **96.76% smaller** |
    | **ES-RV-S** | RepViT-M0.9 | **4.72M** | **98.98% smaller** |
+   | **ES-RV-M** | RepViT-M1.1 | **7.77M** | **98.32% smaller** |
+   | **ES-RV-L** | RepViT-M2.3 | **22.40M** | **95.15% smaller** |
    | **ES-TV-S** | TinyViT-5M | **5.07M** | **98.90% smaller** |
    | **ES-TV-M** | TinyViT-11M | **10.55M** | **97.72% smaller** |
-   | **ES-RV-L** | RepViT-M2.3 | **22.40M** | **95.15% smaller** |
+   | **ES-TV-L** | TinyViT-21M | **20.62M** | **95.53% smaller** |
 
 7. **Shape Verification** – All 9 student backbones have been verified to produce the correct embedding shape (72x72) to match the SAM3 teacher (stride 14 at 1008x1008 input).
    - **RepViT & EfficientViT**: Passed natively.
@@ -196,13 +200,26 @@ from valid pixels. The training script supports DDP + AMP by default.
 ### Step 3 — Package the Student with SAM3 Heads
 
 After training, merge the distilled encoder with the full SAM3 checkpoint so it
-can run end-to-end inference (prompt encoder + mask decoder):
+can run end-to-end inference (prompt encoder + mask decoder).
 
+**Example for EfficientViT-B0 (ES-EV-S):**
 ```bash
 python stage1/convert_stage1_weights.py \
-  --student-ckpt output/stage1/repvit_m1/ES-RV-M/default/ckpt_epoch_29.pth \
+  --student-ckpt output/stage1/es_ev_s/ckpt_epoch_49.pth \
   --sam3-ckpt sam3_checkpoints/sam3.pt \
-  --output output/efficient_sam3_repvit_m1.pt
+  --output output/efficient_sam3_efficientvit_b0.pt \
+  --target-prefix detector.backbone.vision_backbone.trunk.model. \
+  --replace-prefix detector.backbone.vision_backbone.trunk.
+```
+
+**Example for RepViT-M1.1 (ES-RV-M):**
+```bash
+python stage1/convert_stage1_weights.py \
+  --student-ckpt output/stage1/repvit_m1/ckpt_epoch_29.pth \
+  --sam3-ckpt sam3_checkpoints/sam3.pt \
+  --output output/efficient_sam3_repvit_m1.pt \
+  --target-prefix detector.backbone.vision_backbone.trunk.model. \
+  --replace-prefix detector.backbone.vision_backbone.trunk.
 ```
 
 **Final output structure**:
@@ -214,12 +231,12 @@ output/
 │   └── embeddings/           # Embeddings (reused by all students)
 ├── stage1/                   # Student training
 │   └── repvit_m1/            # Checkpoints
-└── efficient_sam3_repvit_m1.pt  # Final merged model
+└── efficient_sam3_efficientvit_b0.pt  # Final merged model
 ```
 
 The script copies student encoder weights into the SAM3 checkpoint under
-`image_encoder.*` and preserves all other components (prompt encoder, mask
-decoder). Use `--target-prefix` to change the encoder prefix if needed.
+`detector.backbone.vision_backbone.trunk.model.*` and preserves all other components (prompt encoder, mask
+decoder). The `--replace-prefix` argument ensures the original teacher backbone is removed.
 
 ### Helper Scripts
 

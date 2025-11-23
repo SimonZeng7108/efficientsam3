@@ -45,6 +45,12 @@ def parse_option():
     return args, config
 
 
+# Training configuration notes:
+# - Learning Rate: Increased to 1e-3 for faster convergence.
+# - Loss Functions: Uses both Pixel-wise MSE and Cosine Similarity for feature alignment.
+# - Weight Decay: Set to 0.01.
+# - Epochs: Default set to 50.
+
 def main(args, config):
     dataset_train, _, data_loader_train, _ = build_loader(config, build_val=False)
 

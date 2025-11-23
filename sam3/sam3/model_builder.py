@@ -651,50 +651,166 @@ def download_ckpt_from_hf():
     return checkpoint_path
 
 
-def _create_efficientvit_vision_backbone(
-    compile_mode=None, enable_inst_interactivity=True, efficientvit_model="b0"
+import torch.nn.functional as F
+
+class StudentEncoder(nn.Module):
+    def __init__(self, backbone, in_channels, embed_dim, embed_size, img_size):
+        super().__init__()
+        self.backbone = backbone
+        self.embed_size = embed_size
+        self.img_size = img_size
+        self.head = nn.Sequential(
+            nn.Conv2d(in_channels, embed_dim, kernel_size=1, bias=False),
+            nn.BatchNorm2d(embed_dim),
+            nn.GELU(),
+            nn.Conv2d(embed_dim, embed_dim, kernel_size=3, padding=1),
+        )
+
+    def forward(self, x):
+        feats = self.backbone(x)
+        feats = self.head(feats)
+        if feats.shape[-1] != self.embed_size or feats.shape[-2] != self.embed_size:
+            feats = F.interpolate(
+                feats,
+                size=(self.embed_size, self.embed_size),
+                mode="bilinear",
+                align_corners=False,
+            )
+        return feats
+
+def _create_student_vision_backbone(
+    backbone_type, model_name, compile_mode=None, enable_inst_interactivity=True
 ) -> Sam3DualViTDetNeck:
-    """Create EfficientSAM3 visual backbone with EfficientViT and neck."""
-    from sam3.backbones.efficientvit.efficientvit.backbone import (
-        efficientvit_backbone_b0,
-        efficientvit_backbone_b1,
-        efficientvit_backbone_b2,
-    )
+    """Create EfficientSAM3 visual backbone with a student backbone and neck."""
     
     # Position encoding
     position_encoding = _create_position_encoding(precompute_resolution=1008)
     
-    # EfficientViT backbone
-    if efficientvit_model == "b0":
-        efficientvit_backbone = efficientvit_backbone_b0()
-    elif efficientvit_model == "b1":
-        efficientvit_backbone = efficientvit_backbone_b1()
-    elif efficientvit_model == "b2":
-        efficientvit_backbone = efficientvit_backbone_b2()
-    else:
-        raise ValueError(f"Unknown EfficientViT model: {efficientvit_model}")
-    
-    # Create a wrapper to make EfficientViT compatible with Sam3DualViTDetNeck
-    # The neck expects a trunk with channel_list attribute
-    class EfficientViTTrunkWrapper(nn.Module):
-        def __init__(self, efficientvit_backbone):
-            super().__init__()
-            self.backbone = efficientvit_backbone
-            # Get the output channel dimension from the backbone
-            self.channel_list = [efficientvit_backbone.width_list[-1]]
+    if backbone_type == "efficientvit":
+        from sam3.backbones.efficientvit.efficientvit.backbone import (
+            efficientvit_backbone_b0,
+            efficientvit_backbone_b1,
+            efficientvit_backbone_b2,
+        )
+        if model_name == "b0":
+            backbone = efficientvit_backbone_b0()
+        elif model_name == "b1":
+            backbone = efficientvit_backbone_b1()
+        elif model_name == "b2":
+            backbone = efficientvit_backbone_b2()
+        else:
+            raise ValueError(f"Unknown EfficientViT model: {model_name}")
         
-        def forward(self, tensor_list):
-            # EfficientViT expects a single tensor, not a list
-            x = tensor_list[0] if isinstance(tensor_list, list) else tensor_list
-            out = self.backbone(x)
-            # Return as list to match expected format
-            return [out['stage_final']]
+        class EfficientViTTrunkWrapper(nn.Module):
+            def __init__(self, model):
+                super().__init__()
+                self.model = model
+                self.channel_list = [model.width_list[-1]]
+            
+            def forward(self, x):
+                x = x[0] if isinstance(x, list) else x
+                out = self.model(x)
+                return out['stage_final']
+        
+        wrapped_backbone = EfficientViTTrunkWrapper(backbone)
+        in_channels = wrapped_backbone.channel_list[0]
+
+    elif backbone_type == "repvit":
+        from sam3.backbones.repvit import (
+            repvit_m0_9, repvit_m1_1, repvit_m2_3
+        )
+        name_map = {
+            "m0.9": repvit_m0_9, "m0_9": repvit_m0_9,
+            "m1.1": repvit_m1_1, "m1_1": repvit_m1_1,
+            "m2.3": repvit_m2_3, "m2_3": repvit_m2_3,
+        }
+        if model_name not in name_map:
+             raise ValueError(f"Unknown RepViT model: {model_name}")
+        
+        backbone = name_map[model_name](distillation=False)
+        
+        class RepViTTrunkWrapper(nn.Module):
+            def __init__(self, model):
+                super().__init__()
+                self.model = model
+                # Infer channels
+                dummy = torch.zeros(1, 3, 224, 224)
+                with torch.no_grad():
+                    for f in model.features:
+                        dummy = f(dummy)
+                self.channel_list = [dummy.shape[1]]
+
+            def forward(self, x):
+                for f in self.model.features:
+                    x = f(x)
+                return x
+
+        wrapped_backbone = RepViTTrunkWrapper(backbone)
+        in_channels = wrapped_backbone.channel_list[0]
+
+    elif backbone_type == "tinyvit":
+        from sam3.backbones.tiny_vit import (
+            tiny_vit_5m_224, tiny_vit_11m_224, tiny_vit_21m_224
+        )
+        name_map = {
+            "5m": tiny_vit_5m_224,
+            "11m": tiny_vit_11m_224,
+            "21m": tiny_vit_21m_224,
+        }
+        if model_name not in name_map:
+             raise ValueError(f"Unknown TinyViT model: {model_name}")
+        
+        backbone = name_map[model_name](img_size=1008)
+
+        class TinyViTTrunkWrapper(nn.Module):
+            def __init__(self, model):
+                super().__init__()
+                self.model = model
+                self.channel_list = [model.norm_head.normalized_shape[0]]
+
+            def forward(self, x):
+                x = self.model.patch_embed(x)
+                for layer in self.model.layers:
+                    x = layer(x)
+                # Reshape from (B, L, C) to (B, C, H, W)
+                B, L, C = x.shape
+                H, W = self.model.layers[-1].input_resolution
+                x = x.view(B, H, W, C).permute(0, 3, 1, 2).contiguous()
+                return x
+
+        wrapped_backbone = TinyViTTrunkWrapper(backbone)
+        in_channels = wrapped_backbone.channel_list[0]
+
+    else:
+        raise ValueError(f"Unknown backbone type: {backbone_type}")
     
-    wrapped_backbone = EfficientViTTrunkWrapper(efficientvit_backbone)
+    # Wrap with StudentEncoder to include the projection head
+    student_encoder = StudentEncoder(
+        backbone=wrapped_backbone,
+        in_channels=in_channels,
+        embed_dim=1024, # SAM3 expects 1024 channels
+        embed_size=72,
+        img_size=1008,
+    )
     
+    # Add channel_list to student_encoder so Sam3DualViTDetNeck can read it
+    student_encoder.channel_list = [1024]
+
+    # Wrap student_encoder to return a list as expected by Sam3DualViTDetNeck
+    class ListWrapper(nn.Module):
+        def __init__(self, model):
+            super().__init__()
+            self.model = model
+            self.channel_list = model.channel_list
+            
+        def forward(self, x):
+            return [self.model(x)]
+            
+    final_trunk = ListWrapper(student_encoder)
+
     vit_neck: Sam3DualViTDetNeck = _create_vit_neck(
         position_encoding,
-        wrapped_backbone,
+        final_trunk,
         enable_inst_interactivity=enable_inst_interactivity,
     )
     return vit_neck
@@ -709,10 +825,13 @@ def build_efficientsam3_image_model(
     enable_segmentation=True,
     enable_inst_interactivity=False,
     compile=False,
-    efficientvit_model="b0",
+    backbone_type="efficientvit",
+    model_name="b0",
+    # Legacy argument support
+    efficientvit_model=None,
 ):
     """
-    Build EfficientSAM3 image model with EfficientViT backbone
+    Build EfficientSAM3 image model with a student backbone
 
     Args:
         bpe_path: Path to the BPE tokenizer vocabulary
@@ -723,21 +842,28 @@ def build_efficientsam3_image_model(
         enable_segmentation: Whether to enable segmentation head
         enable_inst_interactivity: Whether to enable instance interactivity (SAM 1 task)
         compile: To enable compilation, set to True
-        efficientvit_model: EfficientViT model variant ('b0', 'b1', 'b2')
+        backbone_type: Type of backbone ('efficientvit', 'repvit', 'tinyvit')
+        model_name: Model variant (e.g. 'b0', 'm1.1', '5m')
+        efficientvit_model: Deprecated, use backbone_type and model_name instead
 
     Returns:
         An EfficientSAM3 image model
     """
+    if efficientvit_model is not None:
+        backbone_type = "efficientvit"
+        model_name = efficientvit_model
+
     if bpe_path is None:
         bpe_path = os.path.join(
             os.path.dirname(__file__), "..", "assets", "bpe_simple_vocab_16e6.txt.gz"
         )
-    # Create visual components with EfficientViT
+    # Create visual components with student backbone
     compile_mode = "default" if compile else None
-    vision_encoder = _create_efficientvit_vision_backbone(
+    vision_encoder = _create_student_vision_backbone(
+        backbone_type=backbone_type,
+        model_name=model_name,
         compile_mode=compile_mode,
         enable_inst_interactivity=enable_inst_interactivity,
-        efficientvit_model=efficientvit_model,
     )
 
     # Create text components

@@ -36,7 +36,7 @@ else
   TORCHRUN_ARGS+=(--nnodes 1 --master_port "${MASTER_PORT}")
 fi
 
-torchrun "${TORCHRUN_ARGS[@]}" \
+PYTHONPATH=. torchrun "${TORCHRUN_ARGS[@]}" \
   stage1/train_stage1.py \
   --cfg "${CFG}" \
   --data-path "${DATA_PATH}" \

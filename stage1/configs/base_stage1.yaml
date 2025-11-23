@@ -4,14 +4,44 @@ MODEL:
   RESUME: ''
 
 TRAIN:
-  EPOCHS: 30
-  BASE_LR: 5.0e-4
-  WARMUP_LR: 5.0e-7
-  MIN_LR: 5.0e-6
+  START_EPOCH: 0
+  EPOCHS: 50
   WARMUP_EPOCHS: 5
-  WEIGHT_DECAY: 0.05
+  WEIGHT_DECAY: 0.01
+  BASE_LR: 1e-3
+  WARMUP_LR: 1e-6
+  MIN_LR: 1e-5
   CLIP_GRAD: 5.0
+  AUTO_RESUME: True
+  ACCUMULATION_STEPS: 1
+  USE_CHECKPOINT: False
+  LAYER_LR_DECAY: 1.0
+  EVAL_BN_WHEN_TRAINING: False
   FIND_UNUSED_PARAMETERS: False
+
+  LR_SCHEDULER:
+    NAME: 'cosine'
+    DECAY_EPOCHS: 30
+    DECAY_RATE: 0.1
+
+  OPTIMIZER:
+    NAME: 'adamw'
+    EPS: 1e-8
+    BETAS: (0.9, 0.999)
+    MOMENTUM: 0.9
+
+# -----------------------------------------------------------------------------
+# Misc
+# -----------------------------------------------------------------------------
+AMP_ENABLE: True
+OUTPUT: ''
+TAG: 'default'
+SAVE_FREQ: 1
+PRINT_FREQ: 10
+SEED: 0
+EVAL_MODE: False
+THROUGHPUT_MODE: False
+LOCAL_RANK: 0
 
 DATA:
   IMG_SIZE: 1008
@@ -21,11 +51,19 @@ DATA:
   NUM_WORKERS: 8
 
 DISTILL:
-  EMBED_DIM: 256
+  ENABLED: True
+  ENCODER_ONLY: True
+  EMBED_DIM: 1024
   EMBED_SIZE: 72
-  TEACHER_EMBED_PATH: output/stage1_teacher/embeddings/
-  NO_RAND: True
+  NUM_EMBED: 5184
   PIXEL_WISE: 1.0
+  CHANNEL_WISE: 0.0
+  CORRELATION: 0.0
+  COSINE: 1.0
+  TEACHER_EMBED_PATH: 'data/teacher_embeddings'
+  SAVE_TEACHER_EMBED: False
+  NO_RAND: True
+  MAX_ALLOWED_PROMPTS: -1
 
 OUTPUT: output/stage1
 TAG: default

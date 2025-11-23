@@ -13,7 +13,7 @@ DATA:
 
 
 DISTILL:
-  EMBED_DIM: 256
+  EMBED_DIM: 1024
   EMBED_SIZE: 72
   SAVE_TEACHER_EMBED: True
   TEACHER_EMBED_PATH: output/stage1_teacher/embeddings/

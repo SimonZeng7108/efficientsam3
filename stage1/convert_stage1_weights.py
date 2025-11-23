@@ -32,8 +32,9 @@ def parse_args():
         add_help=True,
     )
     parser.add_argument(
-        "student_ckpt",
+        "--student-ckpt",
         type=str,
+        required=True,
         help="Path to the Stage-1 checkpoint (expects 'model' key).",
     )
     parser.add_argument(
@@ -107,10 +108,8 @@ def main():
     replaced = 0
     appended = 0
     for key, value in teacher_sd.items():
-        # Strip 'detector.' prefix if present
-        if key.startswith("detector."):
-            key = key[len("detector."):]
-            
+        # Note: We do NOT strip 'detector.' prefix because sam3._load_checkpoint expects it.
+        
         if replace_prefix and key.startswith(replace_prefix):
             replaced += 1
             continue
