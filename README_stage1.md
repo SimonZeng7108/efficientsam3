@@ -94,7 +94,8 @@ bash stage1/scripts/save_stage1_embeddings.sh \
   CFG=stage1/configs/teacher/sam_vit_huge_sa1b.yaml \
   DATA_PATH=data/sa-1b \
   OUTPUT=output/stage1_teacher \
-  GPUS=8
+  GPUS=8 \
+  BATCH_SIZE=32
 
 # Optional: verify saved blobs after the export
 bash stage1/scripts/save_stage1_embeddings.sh \

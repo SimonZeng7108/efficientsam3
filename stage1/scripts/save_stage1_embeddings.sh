@@ -27,6 +27,7 @@ NNODES="${NNODES:-1}"
 NODE_RANK="${NODE_RANK:-0}"
 RDZV_BACKEND="${RDZV_BACKEND:-c10d}"
 RDZV_ENDPOINT="${RDZV_ENDPOINT:-localhost:${MASTER_PORT}}"
+BATCH_SIZE="${BATCH_SIZE:-}"
 
 TORCHRUN_ARGS=(--nproc_per_node "${GPUS}")
 if [ "${NNODES}" -gt 1 ]; then
@@ -35,10 +36,18 @@ else
   TORCHRUN_ARGS+=(--nnodes 1 --master_port "${MASTER_PORT}")
 fi
 
+PY_ARGS=(
+  --cfg "${CFG}"
+  --data-path "${DATA_PATH}"
+  --output "${OUTPUT}"
+)
+
+if [ -n "${BATCH_SIZE}" ]; then
+  PY_ARGS+=(--batch-size "${BATCH_SIZE}")
+fi
+
 PYTHONPATH=. python -m torch.distributed.run "${TORCHRUN_ARGS[@]}" \
   stage1/save_embedding_stage1.py \
-  --cfg "${CFG}" \
-  --data-path "${DATA_PATH}" \
-  --output "${OUTPUT}" \
+  "${PY_ARGS[@]}" \
   "$@"
 

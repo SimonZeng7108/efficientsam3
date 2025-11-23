@@ -21,7 +21,7 @@ set -- "${EXTRA_ARGS[@]}"
 CFG="${CFG:-stage1/configs/es_rv_m.yaml}"
 DATA_PATH="${DATA_PATH:-data/sa-1b}"
 OUTPUT="${OUTPUT:-output/stage1}"
-BATCH_SIZE="${BATCH_SIZE:-8}"
+BATCH_SIZE="${BATCH_SIZE:-}"
 GPUS="${GPUS:-8}"
 MASTER_PORT="${MASTER_PORT:-29502}"
 NNODES="${NNODES:-1}"
@@ -36,11 +36,18 @@ else
   TORCHRUN_ARGS+=(--nnodes 1 --master_port "${MASTER_PORT}")
 fi
 
+PY_ARGS=(
+  --cfg "${CFG}"
+  --data-path "${DATA_PATH}"
+  --output "${OUTPUT}"
+)
+
+if [ -n "${BATCH_SIZE}" ]; then
+  PY_ARGS+=(--batch-size "${BATCH_SIZE}")
+fi
+
 PYTHONPATH=. torchrun "${TORCHRUN_ARGS[@]}" \
   stage1/train_stage1.py \
-  --cfg "${CFG}" \
-  --data-path "${DATA_PATH}" \
-  --output "${OUTPUT}" \
-  --batch-size "${BATCH_SIZE}" \
+  "${PY_ARGS[@]}" \
   "$@"
 
