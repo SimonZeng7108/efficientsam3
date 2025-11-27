@@ -1,10 +1,20 @@
 ### EfficientSAM3: Progressive Hierachical Knowledge Distillation (PhD) from SAM1, 2 and 3
-[Chengxi Simon Zeng](https://simonzeng7108.github.io/about/)<sup>†</sup>, [Yuxuan Jiang](https://YuxuanJJ.github.io/), [Gao Ge](https://scholar.google.com/citations?user=j2_80ewAAAAJ&hl=en), [Shuai Wang](https://shuaiwang97.github.io/), [Fan Aaron Zhang](https://fan-aaron-zhang.github.io/)
-Visual Information Lab, University of Bristol; MultiX lab, University of Amsterdam
+[Chengxi Simon Zeng](https://simonzeng7108.github.io/about/)<sup>1,†</sup>, [Yuxuan Jiang](https://YuxuanJJ.github.io/)<sup>1</sup>, [Gao Ge](https://scholar.google.com/citations?user=j2_80ewAAAAJ&hl=en)<sup>1</sup>, [Shuai Wang](https://shuaiwang97.github.io/)<sup>2</sup>, [Fan Aaron Zhang](https://fan-aaron-zhang.github.io/)<sup>1</sup>
+<sup>1</sup>Visual Information Lab, University of Bristol; <sup>2</sup>MultiX lab, University of Amsterdam
 
 <sup>†</sup>Tech Lead & Corresponding Author
 
 [[Paper](https://arxiv.org/abs/2511.15833)] [[Project Page](https://simonzeng7108.github.io/efficientsam3/)] [[Hugging Face](https://huggingface.co/Simon7108528/EfficientSAM3)]
+
+---
+## 🔥 Teaser Image Model
+<p align="center">
+  <img src="https://github.com/SimonZeng7108/efficientsam3/blob/main/images/es-ev-s-teaser.jpg" width="30%">
+</p>
+
+ **EfficientViT-B0 (0.68M params)** distilled from **SAM3 Encoder (461.84M)** — **99.85% smaller**, trained on **1% SA-1B**.
+
+**Download Weight:** [Google Drive](https://drive.google.com/file/d/1MqtnQBaZWgtmURgBgQEEphnCNiLrPCjn/view?usp=drive_link). **Visualisation:** [Script](https://github.com/SimonZeng7108/efficientsam3/blob/stage1/sam3/efficientsam3_examples/efficientsam3_for_sam1_task_example.py) (Switch to Branch Stage1).
 
 ---
 
@@ -12,10 +22,6 @@ Visual Information Lab, University of Bristol; MultiX lab, University of Amsterd
 
 - [Table of Contents](#table-of-contents)
 - [Updates](#updates)
-  - [Stage 1: Encoder Distillation (Image-Level Segmentation)](#stage-1-encoder-distillation-image-level-segmentation)
-  - [Stage 2: Temporal Memory Distillation (Video Tracking)](#stage-2-temporal-memory-distillation-video-tracking)
-  - [Stage 3: End-to-End Fine-Tuning (Concept Segmentation)](#stage-3-end-to-end-fine-tuning-concept-segmentation)
-  - [tl;dr](#tldr)
 - [Installation](#installation)
 - [Inference](#inference)
 - [Training and Evaluation](#training-and-evaluation)
@@ -32,8 +38,9 @@ Visual Information Lab, University of Bristol; MultiX lab, University of Amsterd
 ---
 
 ## Updates
-
+- **[2025/11/25]** Teaser model released. See Above. More models are baking in the oven🔥.
 - **[2025/10/18]** Project announced. Code and weights are not released yet; they will be published once SAM3 code is publicly available.
+
 
 ---
 
@@ -107,30 +114,32 @@ Stage 3: We fine-tune the complete pipeline using SAM3 data. <br>
 
 ## Installation
 
-The code requires `python>=3.12`. We recommend `torch>=2.7.0` and `torchvision>=0.18.0`. Please refer to the [official PyTorch installation instructions](https://pytorch.org/get-started/locally/).
+EfficientSAM3 purposely shares the same software contract as upstream SAM3:
 
-Clone the repository locally:
+- **Python** ≥ 3.12
+- **PyTorch** 2.7.0 (CUDA 12.6 build recommended)
+- **CUDA**-capable GPUs with drivers that support CUDA ≥ 12.6
 
-```bash
-git clone https://github.com/SimonZeng7108/efficientsam3.git && cd efficientsam3
-```
-
-Install EfficientSAM3:
+Follow the exact environment setup from the [official SAM3 README](sam3/README.md) or use the condensed steps below (single-node example):
 
 ```bash
-pip install -e .
-```
+git clone https://github.com/SimonZeng7108/efficientsam3.git
+cd efficientsam3
 
-For Stage 1 training dependencies:
+conda create -n efficientsam3 python=3.12 -y
+conda activate efficientsam3
 
-```bash
+pip install --upgrade pip
+pip install torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+
+# Install repo dependencies via the root pyproject (brings in SAM3 + Stage-1 extras)
 pip install -e ".[stage1]"
 ```
 
 ---
 
 ## Inference
-
+Coming soon (previsional example):
 Download checkpoints (refer to [Checkpoints](#efficientsam3-model-zoo--weight-release) for more details):
 
 ```bash
@@ -174,15 +183,15 @@ For dataset setup and download scripts (`data/download_*.sh`) covering COCO, DAV
 
 | Model Name | Backbone | Parameters | Stage 1 Weights<br/>(Encoder Distilled) | Stage 2 Weights<br/>(Memory Module Trained) | Stage 3 Weights<br/>(End-to-End Fine-Tuned) |
 |------------|----------|------------|----------------------------------------|---------------------------------------------|---------------------------------------------|
-| **ES-RV-S** | RepViT-M0.9 | 5.1M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
-| **ES-RV-M** | RepViT-M1.1 | 6.8M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
-| **ES-RV-L** | RepViT-M2.3 | 8.2M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
-| **ES-TV-S** | TinyViT-5M | 5.4M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
-| **ES-TV-M** | TinyViT-11M | 11M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
-| **ES-TV-L** | TinyViT-21M | 21M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
-| **ES-EV-S** | EfficientViT-B0 | 0.7M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
-| **ES-EV-M** | EfficientViT-B1 | 4.8M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
-| **ES-EV-L** | EfficientViT-B2 | 15M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
+| **ES-RV-S** | RepViT-M0.9 | 4.72M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
+| **ES-RV-M** | RepViT-M1.1 | 7.77M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
+| **ES-RV-L** | RepViT-M2.3 | 22.40M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
+| **ES-TV-S** | TinyViT-5M | 5.07M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
+| **ES-TV-M** | TinyViT-11M | 10.55M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
+| **ES-TV-L** | TinyViT-21M | 20.62M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
+| **ES-EV-S** | EfficientViT-B0 | 0.68M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
+| **ES-EV-M** | EfficientViT-B1 | 4.64M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
+| **ES-EV-L** | EfficientViT-B2 | 14.98M | $$\text{Planned}$$ | $$\text{Planned}$$ | $$\text{Planned}$$ |
 
 ---
 
@@ -255,6 +264,4 @@ This work is inspired by and builds upon:
 - **[RepViT](https://github.com/THU-MIG/RepViT)** - Mobile-optimized Vision Transformer backbones
 - **[TinyViT](https://github.com/wkcn/TinyViT)** - Tiny Vision Transformer architectures
 - **[EfficientViT](https://github.com/mit-han-lab/efficientvit)** - Efficient Vision Transformer models
-
-
 
