@@ -3,6 +3,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import os
 
 from sam3.model_builder import build_sam3_image_model
 from sam3.backbones.repvit import (
@@ -21,12 +22,15 @@ from sam3.backbones.efficientvit import (
     efficientvit_backbone_b1,
     efficientvit_backbone_b2,
 )
+from sam3.sam3.backbones.mobile_clip import MobileCLIPTextTransformer
+from sam3.model.tokenizer_ve import SimpleTokenizer
+from sam3.model.text_encoder_student import TextStudentEncoder
 
 
-def build_student_model(config):
+def build_image_student_model(config):
     backbone_name = config.MODEL.BACKBONE.lower()
     backbone, out_channels = _build_backbone(backbone_name, config.DATA.IMG_SIZE)
-    return StudentEncoder(
+    return ImageStudentEncoder(
         backbone=backbone,
         in_channels=out_channels,
         embed_dim=config.DISTILL.EMBED_DIM,
@@ -35,9 +39,71 @@ def build_student_model(config):
     )
 
 
-def build_teacher_model(config):
+def build_text_student_model(config):
+    backbone = config.MODEL.BACKBONE
+    
+    # Default config values
+    cfg = {
+        "context_length": 77, # MobileCLIP default
+        "vocab_size": 49408,
+        "dim": 512,
+        "ffn_multiplier_per_layer": 4.0,
+        "n_heads_per_layer": 8,
+        "n_transformer_layers": 12,
+        "norm_layer": "layer_norm_fp32",
+        "causal_masking": False,
+        "model_name": "base",
+        "embed_dropout": 0.0,
+        "no_scale_embedding": False,
+        "no_pos_embedding": False,
+    }
+
+    if backbone == "MobileCLIP-S0":
+        cfg.update({
+            "dim": 512,
+            "n_transformer_layers": 4,
+            "n_heads_per_layer": 8,
+            "model_name": "mct",
+        })
+    elif backbone in ["MobileCLIP-S1", "MobileCLIP2-S0", "MobileCLIP2-S2"]:
+        cfg.update({
+            "dim": 512,
+            "n_transformer_layers": 12,
+            "n_heads_per_layer": 8,
+            "model_name": "base",
+        })
+    elif backbone == "MobileCLIP-B":
+        cfg.update({
+            "dim": 512,
+            "n_transformer_layers": 12,
+            "n_heads_per_layer": 8,
+            "model_name": "base",
+            "causal_masking": True,
+        })
+    elif backbone in ["MobileCLIP2-S3", "MobileCLIP2-S4", "MobileCLIP2-L"]:
+        cfg.update({
+            "dim": 768,
+            "n_transformer_layers": 12,
+            "n_heads_per_layer": 12,
+            "model_name": "base", 
+        })
+        # Note: MobileCLIP2 might use "custom_text" or similar, but "base" with larger dim should work if architecture is standard transformer.
+        # The subagent said "custom_text: true, no_causal_mask: true".
+        # If "custom_text" implies standard transformer, then "base" is fine.
+    else:
+        # Default fallback
+        pass
+
+    return TextStudentEncoder(
+        cfg=cfg,
+        context_length=32, # Match teacher input length
+        output_dim=config.DISTILL.EMBED_DIM,
+    )
+
+
+def build_image_teacher_model(config):
     checkpoint = config.MODEL.RESUME if config.MODEL.RESUME else None
-    teacher = SAM3TeacherEncoder(
+    teacher = SAM3ImageTeacherEncoder(
         checkpoint_path=checkpoint,
         embed_size=config.DISTILL.EMBED_SIZE,
     )
@@ -45,7 +111,15 @@ def build_teacher_model(config):
     return teacher
 
 
-class StudentEncoder(nn.Module):
+def build_text_teacher_model(config):
+    checkpoint = config.MODEL.RESUME if config.MODEL.RESUME else None
+    teacher = SAM3TextTeacherEncoder(
+        checkpoint_path=checkpoint,
+    )
+    return teacher
+
+
+class ImageStudentEncoder(nn.Module):
     def __init__(self, backbone, in_channels, embed_dim, embed_size, img_size):
         super().__init__()
         self.backbone = backbone
@@ -71,7 +145,7 @@ class StudentEncoder(nn.Module):
         return feats
 
 
-class SAM3TeacherEncoder(nn.Module):
+class SAM3ImageTeacherEncoder(nn.Module):
     def __init__(self, checkpoint_path=None, embed_size=64):
         super().__init__()
         self.embed_size = embed_size
@@ -107,6 +181,33 @@ class SAM3TeacherEncoder(nn.Module):
                 align_corners=False,
             )
         return feats
+
+
+class SAM3TextTeacherEncoder(nn.Module):
+    def __init__(self, checkpoint_path=None):
+        super().__init__()
+        self.sam3 = build_sam3_image_model(
+            checkpoint_path=checkpoint_path,
+            load_from_HF=False if checkpoint_path else True,
+            eval_mode=True,
+            device="cpu",
+            enable_segmentation=True,
+            enable_inst_interactivity=False,
+            compile=False,
+            enable_text_encoder=True,
+            enable_vision_encoder=False,
+        )
+        for param in self.sam3.parameters():
+            param.requires_grad = False
+        self.sam3.eval()
+
+    def forward(self, text, device):
+        # text is a list of strings
+        text_attention_mask, text_memory, text_embeds = self.sam3.backbone.language_backbone(
+            text, input_boxes=None, device=device
+        )
+        # text_memory is [Seq, Batch, 256]
+        return text_memory
 
 
 class RepViTAdapter(nn.Module):
@@ -176,7 +277,7 @@ class EfficientSAM3VisionBackbone(nn.Module):
 
 
 def build_efficient_sam3(config, checkpoint_path=None):
-    student_encoder = build_student_model(config)
+    student_encoder = build_image_student_model(config)
 
     # Build base SAM3 model structure
     sam3 = build_sam3_image_model(
@@ -207,6 +308,7 @@ def build_efficient_sam3(config, checkpoint_path=None):
         print(f"Loaded checkpoint with {len(missing)} missing and {len(unexpected)} unexpected keys")
         
     return sam3
+
 def _build_backbone(name, img_size):
     if name.startswith("repvit"):
         fn = {

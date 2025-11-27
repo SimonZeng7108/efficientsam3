@@ -1,4 +1,3 @@
-
 import torch
 import torch.distributed as dist
 from mmengine.dataset import pseudo_collate
@@ -6,6 +5,9 @@ from mmengine.dataset import pseudo_collate
 from .augmentation.dataset_wrapper import DatasetWrapper
 from .sa1b_dataset import SA1BDataset
 from .coco_dataset import COCODataset
+from .coco_caption_dataset import COCOCaptionDataset
+from .recap_coco_dataset import RecapCOCODataset
+from .recap_datacomp_dataset import RecapDataCompDataset
 from .sampler import MyDistributedSampler
 
 
@@ -90,6 +92,30 @@ def build_dataset(is_train, config):
             fix_seed=False,
             mask_nms_thresh=config.DATA.MASK_NMS,
             box_jitter=config.DATA.BOX_JITTER,
+        )
+        nb_classes = 0
+    elif config.DATA.DATASET == 'coco_caption':
+        num_samples = 100 if config.DATA.DEBUG else -1
+        dataset = COCOCaptionDataset(
+            data_root=config.DATA.DATA_PATH,
+            split='train' if is_train else 'val',
+            num_samples=num_samples,
+        )
+        nb_classes = 0
+    elif config.DATA.DATASET == 'recap_coco':
+        num_samples = 100 if config.DATA.DEBUG else -1
+        dataset = RecapCOCODataset(
+            data_root=config.DATA.DATA_PATH,
+            split='train' if is_train else 'val',
+            num_samples=num_samples,
+        )
+        nb_classes = 0
+    elif config.DATA.DATASET == 'recap_datacomp':
+        num_samples = 100 if config.DATA.DEBUG else -1
+        dataset = RecapDataCompDataset(
+            data_root=config.DATA.DATA_PATH,
+            split='train' if is_train else 'val',
+            num_samples=num_samples,
         )
         nb_classes = 0
     elif config.DATA.DATASET in ['coco', 'cocofied_lvis', 'lvis']:

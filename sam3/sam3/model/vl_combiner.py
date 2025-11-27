@@ -23,7 +23,7 @@ class SAM3VLBackbone(nn.Module):
 
     def __init__(
         self,
-        visual: Sam3DualViTDetNeck,
+        visual: Optional[Sam3DualViTDetNeck],
         text,
         compile_visual: bool = False,
         act_ckpt_whole_vision_backbone: bool = False,
@@ -36,9 +36,12 @@ class SAM3VLBackbone(nn.Module):
         :param text: The text encoder to use
         """
         super().__init__()
-        self.vision_backbone: Sam3DualViTDetNeck = (
-            torch.compile(visual) if compile_visual else visual
-        )
+        if visual is not None:
+            self.vision_backbone: Sam3DualViTDetNeck = (
+                torch.compile(visual) if compile_visual else visual
+            )
+        else:
+            self.vision_backbone = None
         self.language_backbone = text
         self.scalp = scalp
         # allow running activation checkpointing on the entire vision and language backbones
@@ -76,6 +79,8 @@ class SAM3VLBackbone(nn.Module):
         return output
 
     def forward_image(self, samples: torch.Tensor):
+        if self.vision_backbone is None:
+            raise ValueError("Vision backbone is not initialized.")
         return activation_ckpt_wrapper(self._forward_image_no_act_ckpt)(
             samples=samples,
             act_ckpt_enable=self.act_ckpt_whole_vision_backbone and self.training,

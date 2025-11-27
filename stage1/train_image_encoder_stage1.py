@@ -16,7 +16,7 @@ from config import get_config
 from data import build_loader
 from logger import create_logger
 from lr_scheduler import build_scheduler
-from model import build_student_model
+from model import build_image_student_model
 from my_meter import AverageMeter
 from optimizer import build_optimizer
 from utils import (
@@ -55,7 +55,7 @@ def main(args, config):
     dataset_train, _, data_loader_train, _ = build_loader(config, build_val=False)
 
     logger.info(f"Creating model: {config.MODEL.BACKBONE}")
-    model = build_student_model(config)
+    model = build_image_student_model(config)
     if not args.only_cpu:
         model.cuda()
 
@@ -256,6 +256,11 @@ def train_one_epoch(
         if loss_writer is not None:
             step = epoch * num_steps + idx
             loss_writer.add_scalar("loss/total", loss.item(), step)
+        
+        # Break after 1 batch for testing
+        if idx >= 0:
+            logger.info("Breaking after 1 batch for testing.")
+            break
 
     epoch_time = time.time() - start
     logger.info(

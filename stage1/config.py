@@ -115,9 +115,6 @@ def _update_config_from_file(config, cfg_file):
             config.defrost()
     print('=> merge config from {}'.format(cfg_file))
     config.merge_from_file(cfg_file)
-    config.DISTILL.NUM_EMBED = (
-        config.DISTILL.EMBED_SIZE * config.DISTILL.EMBED_SIZE
-    )
     config.freeze()
 
 
@@ -156,9 +153,6 @@ def update_config(config, args):
     config.LOCAL_RANK = args.local_rank
 
     # config.OUTPUT = os.path.join(config.OUTPUT, config.MODEL.NAME, config.TAG)
-    config.DISTILL.NUM_EMBED = (
-        config.DISTILL.EMBED_SIZE * config.DISTILL.EMBED_SIZE
-    )
 
     config.freeze()
 

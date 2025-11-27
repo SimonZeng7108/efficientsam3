@@ -28,14 +28,14 @@ def _load_state_dict(path: str):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        "Combine Stage-1 student encoder with a full SAM3 checkpoint",
+        "Combine Stage-1 text student encoder with a full SAM3 checkpoint",
         add_help=True,
     )
     parser.add_argument(
         "--student-ckpt",
         type=str,
         required=True,
-        help="Path to the Stage-1 checkpoint (expects 'model' key).",
+        help="Path to the Stage-1 text student checkpoint (expects 'model' key).",
     )
     parser.add_argument(
         "--sam3-ckpt",
@@ -52,7 +52,7 @@ def parse_args():
     parser.add_argument(
         "--target-prefix",
         type=str,
-        default="image_encoder",
+        default="detector.backbone.language_backbone.",
         help="Prefix to prepend to every student weight before merging.",
     )
     parser.add_argument(
@@ -101,6 +101,8 @@ def main():
 
     merged = {}
     for key, value in student_sd.items():
+        # Student keys might be "encoder.token_embedding.weight"
+        # We prepend prefix
         merged_key = f"{prefix}{key}" if prefix else key
         merged[merged_key] = value
 
@@ -108,8 +110,6 @@ def main():
     replaced = 0
     appended = 0
     for key, value in teacher_sd.items():
-        # Note: We do NOT strip 'detector.' prefix because sam3._load_checkpoint expects it.
-        
         if replace_prefix and key.startswith(replace_prefix):
             replaced += 1
             continue
@@ -134,4 +134,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

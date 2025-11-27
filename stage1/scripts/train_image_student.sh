@@ -47,7 +47,7 @@ if [ -n "${BATCH_SIZE}" ]; then
 fi
 
 PYTHONPATH=. torchrun "${TORCHRUN_ARGS[@]}" \
-  stage1/train_stage1.py \
+  stage1/train_image_encoder_stage1.py \
   "${PY_ARGS[@]}" \
   "$@"
 

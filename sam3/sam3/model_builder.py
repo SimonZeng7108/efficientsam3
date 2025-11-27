@@ -36,6 +36,7 @@ from sam3.model.sam3_tracking_predictor import Sam3TrackerPredictor
 from sam3.model.sam3_video_inference import Sam3VideoInferenceWithInstanceInteractivity
 from sam3.model.sam3_video_predictor import Sam3VideoPredictorMultiGPU
 from sam3.model.text_encoder_ve import VETextEncoder
+from sam3.model.text_encoder_student import TextStudentEncoder
 from sam3.model.tokenizer_ve import SimpleTokenizer
 from sam3.model.vitdet import ViT
 from sam3.model.vl_combiner import SAM3VLBackbone
@@ -495,6 +496,63 @@ def _create_text_encoder(bpe_path: str) -> VETextEncoder:
     )
 
 
+def _create_student_text_encoder(bpe_path: str, backbone_type: str) -> TextStudentEncoder:
+    """Create Student text encoder."""
+    
+    # Default config values
+    cfg = {
+        "context_length": 77, # MobileCLIP default
+        "vocab_size": 49408,
+        "dim": 512,
+        "ffn_multiplier_per_layer": 4.0,
+        "n_heads_per_layer": 8,
+        "n_transformer_layers": 12,
+        "norm_layer": "layer_norm_fp32",
+        "causal_masking": False,
+        "model_name": "base",
+        "embed_dropout": 0.0,
+        "no_scale_embedding": False,
+        "no_pos_embedding": False,
+    }
+
+    if backbone_type == "MobileCLIP-S0":
+        cfg.update({
+            "dim": 512,
+            "n_transformer_layers": 4,
+            "n_heads_per_layer": 8,
+            "model_name": "mct",
+        })
+    elif backbone_type in ["MobileCLIP-S1", "MobileCLIP2-S0", "MobileCLIP2-S2"]:
+        cfg.update({
+            "dim": 512,
+            "n_transformer_layers": 12,
+            "n_heads_per_layer": 8,
+            "model_name": "base",
+        })
+    elif backbone_type == "MobileCLIP-B":
+        cfg.update({
+            "dim": 512,
+            "n_transformer_layers": 12,
+            "n_heads_per_layer": 8,
+            "model_name": "base",
+            "causal_masking": True,
+        })
+    elif backbone_type in ["MobileCLIP2-S3", "MobileCLIP2-S4", "MobileCLIP2-L"]:
+        cfg.update({
+            "dim": 768,
+            "n_transformer_layers": 12,
+            "n_heads_per_layer": 12,
+            "model_name": "base", 
+        })
+    
+    return TextStudentEncoder(
+        cfg=cfg,
+        context_length=32, # Match teacher input length
+        output_dim=256, # SAM3 d_model
+        bpe_path=bpe_path
+    )
+
+
 def _create_vision_backbone(
     compile_mode=None, enable_inst_interactivity=True
 ) -> Sam3DualViTDetNeck:
@@ -564,6 +622,7 @@ def build_sam3_image_model(
     enable_inst_interactivity=False,
     compile=False,
     enable_text_encoder=True,
+    enable_vision_encoder=True,
 ):
     """
     Build SAM3 image model
@@ -577,6 +636,7 @@ def build_sam3_image_model(
         enable_inst_interactivity: Whether to enable instance interactivity (SAM 1 task)
         compile_mode: To enable compilation, set to "default"
         enable_text_encoder: Whether to enable text encoder
+        enable_vision_encoder: Whether to enable vision encoder
 
     Returns:
         A SAM3 image model
@@ -587,9 +647,12 @@ def build_sam3_image_model(
         )
     # Create visual components
     compile_mode = "default" if compile else None
-    vision_encoder = _create_vision_backbone(
-        compile_mode=compile_mode, enable_inst_interactivity=enable_inst_interactivity
-    )
+    if enable_vision_encoder:
+        vision_encoder = _create_vision_backbone(
+            compile_mode=compile_mode, enable_inst_interactivity=enable_inst_interactivity
+        )
+    else:
+        vision_encoder = None
 
     # Create text components
     if enable_text_encoder:
@@ -653,7 +716,7 @@ def download_ckpt_from_hf():
 
 import torch.nn.functional as F
 
-class StudentEncoder(nn.Module):
+class ImageStudentEncoder(nn.Module):
     def __init__(self, backbone, in_channels, embed_dim, embed_size, img_size):
         super().__init__()
         self.backbone = backbone
@@ -784,8 +847,8 @@ def _create_student_vision_backbone(
     else:
         raise ValueError(f"Unknown backbone type: {backbone_type}")
     
-    # Wrap with StudentEncoder to include the projection head
-    student_encoder = StudentEncoder(
+    # Wrap with ImageStudentEncoder to include the projection head
+    student_encoder = ImageStudentEncoder(
         backbone=wrapped_backbone,
         in_channels=in_channels,
         embed_dim=1024, # SAM3 expects 1024 channels
@@ -829,6 +892,7 @@ def build_efficientsam3_image_model(
     model_name="b0",
     # Legacy argument support
     efficientvit_model=None,
+    text_encoder_type=None, # e.g. "MobileCLIP-S0"
 ):
     """
     Build EfficientSAM3 image model with a student backbone
@@ -845,6 +909,7 @@ def build_efficientsam3_image_model(
         backbone_type: Type of backbone ('efficientvit', 'repvit', 'tinyvit')
         model_name: Model variant (e.g. 'b0', 'm1.1', '5m')
         efficientvit_model: Deprecated, use backbone_type and model_name instead
+        text_encoder_type: Type of text encoder (e.g. 'MobileCLIP-S0'). If None, uses standard SAM3 text encoder.
 
     Returns:
         An EfficientSAM3 image model
@@ -867,7 +932,10 @@ def build_efficientsam3_image_model(
     )
 
     # Create text components
-    text_encoder = _create_text_encoder(bpe_path)
+    if text_encoder_type:
+        text_encoder = _create_student_text_encoder(bpe_path, text_encoder_type)
+    else:
+        text_encoder = _create_text_encoder(bpe_path)
 
     # Create visual-language backbone
     backbone = _create_vl_backbone(vision_encoder, text_encoder)

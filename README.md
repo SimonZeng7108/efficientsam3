@@ -139,9 +139,9 @@ Stage‑1 encoder distillation is documented in detail inside [README_stage1.md]
 
 1. Place the SA‑1B dataset under `data/sa-1b` (or point `DATA.DATA_PATH` elsewhere).
 2. Download `sam3.pt` into `sam3_checkpoints/`.
-3. Save teacher embeddings with `bash stage1/scripts/save_stage1_embeddings.sh`.
-4. Train any student backbone (RepViT, TinyViT, EfficientViT) with `bash stage1/scripts/train_stage1_student.sh CFG=stage1/configs/<model>.yaml`.
-5. Merge the distilled encoder with the full SAM3 checkpoint via `python stage1/convert_stage1_weights.py ...`.
+3. Save teacher embeddings with `bash stage1/scripts/save_image_embeddings.sh`.
+4. Train any student backbone (RepViT, TinyViT, EfficientViT) with `bash stage1/scripts/train_image_student.sh CFG=stage1/configs/<model>.yaml`.
+5. Merge the distilled encoder with the full SAM3 checkpoint via `python stage1/convert_image_encoder_weights_stage1.py ...`.
 
 Refer to the Stage‑1 README for configuration details, checkpoint locations, and troubleshooting tips.
 

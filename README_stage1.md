@@ -1,51 +1,45 @@
 ## Stage 1 — SAM3 Encoder Distillation
 
 Stage 1 compresses the SAM3 vision encoder into nine lightweight backbones
-(`RepViT`, `TinyViT`, and `EfficientViT`). The pipeline has three discrete
-phases: 1) export SAM3 teacher embeddings on SA-1B, 2) train student encoders
-to regress those embeddings via masked MSE, and 3) splice the student weights
-back into the full SAM3 checkpoint for deployment.
+(`RepViT`, `TinyViT`, and `EfficientViT`) and the text encoder into lightweight
+MobileCLIP variants (`MobileCLIP-S0`, `MobileCLIP-S1`, and `MobileCLIP2-L`). The pipeline has three discrete phases: 1) export SAM3
+teacher embeddings (image on SA-1B, text on Recap-DataComp-1B), 2) train student encoders
+to regress those embeddings, and 3) splice the student weights back into the
+full SAM3 checkpoint for deployment.
 
 ### Prerequisites
 
 1. **Environment** – follow the root [Installation](README.md#installation) guide to
    create/activate the `efficientsam3` Conda environment and run
    `pip install -e ".[stage1]"` (installs PyTorch, decord, and all Stage‑1 deps).
-2. **Dataset** – make sure `DATA.DATA_PATH` (defined in `stage1/configs/base_stage1.yaml`) points to your SA-1B root (the tree
-   must contain `images/{train,val}` and `annotations/{train,val}`). By default
-   configs/scripts read from `data/sa-1b`.
+2. **Datasets**:
+   - **SA-1B** (for Vision): make sure `DATA.DATA_PATH` points to your SA-1B root (must contain `images/{train,val}` and `annotations/{train,val}`).
+   - **Recap-DataComp-1B** (for Text): We use Recap-DataComp-1B for text distillation.
+     - Download the parquet files using `python data/download_datacomp.py`.
+     - Ensure `DATA.DATA_PATH` points to the folder containing the parquet files (e.g., `data/recap_subset`).
+     - Set `DATA.DATASET` to `recap_datacomp` in the config.
 
-   **Note:** We currently distill from a 10% subset of SA-1B.
-   - Download links are provided in `data/sa-1b-10p.txt`.
+   **Note:** We currently distill vision from a 1% subset of SA-1B and text from a 1% subset of Recap-DataComp-1B.
+   - Download links are provided in `data/sa-1b-1p.txt`.
    - After downloading and extracting the tar archives, run `python data/reorg_sa1b.py` to reorganize the files into the required train/val structure.
 
 3. **Teacher weights** – download `sam3.pt` (or another SAM3 checkpoint) from [Hugging Face](https://huggingface.co/facebook/sam3/tree/main) into
    `sam3_checkpoints/` and set `MODEL.RESUME` inside
    `stage1/configs/teacher/sam_vit_huge_sa1b.yaml`.
-4. **Distributed launch** – both helper scripts use `torchrun`. Override
-   `GPUS`, `MASTER_PORT`, `BATCH_SIZE`, etc. via environment variables or pass
-   additional CLI flags directly to the underlying Python scripts.
-5. **Image size** – SAM3’s ViT backbone is trained at `1008×1008`. Keep
-   `DATA.IMG_SIZE` set to `1008` in both teacher and student configs (or via
-   `--opts DATA.IMG_SIZE 1008`) so the rotary embeddings match; larger crops
-   such as `1024` will trigger an assertion inside the teacher model.
-6. **Parameter Analysis** – You can compare the parameter count of the SAM3 teacher model and the student models using the provided script:
+4. **Parameter Analysis** – You can compare the parameter count of the SAM3 teacher model and the student models using the provided script:
    ```bash
    # View summary of all student models vs teacher
    PYTHONPATH=sam3 python stage1/compare_models.py --student all
-   
-   # View detailed breakdown of a specific student model (e.g. RepViT-M1.1)
-   PYTHONPATH=sam3 python stage1/compare_models.py --student es_rv_m
    ```
 
    **Parameter Breakdown:**
    - **SAM3 Teacher (Total)**: 860.06M parameters.
      - **Vision Backbone**: 461.84M (Target for replacement).
-     - **Language Backbone**: 353.72M (Retained).
+     - **Language Backbone**: 353.72M (Target for replacement).
      - **Decoder/Heads**: ~45M (Retained).
 
-   **Student Savings (Vision Encoder Only):**
-   | Student Model | Backbone | Params | vs. Teacher Encoder (461M) |
+   **Student Savings (Vision Encoder):**
+   | Student Model | Backbone | Params | vs. Teacher (461M) |
    | :--- | :--- | :--- | :--- |
    | **ES-EV-S** | EfficientViT-B0 | **0.68M** | **99.85% smaller** |
    | **ES-EV-M** | EfficientViT-B1 | **4.64M** | **99.00% smaller** |
@@ -57,57 +51,76 @@ back into the full SAM3 checkpoint for deployment.
    | **ES-TV-M** | TinyViT-11M | **10.55M** | **97.72% smaller** |
    | **ES-TV-L** | TinyViT-21M | **20.62M** | **95.53% smaller** |
 
-7. **Shape Verification** – All 9 student backbones have been verified to produce the correct embedding shape (72x72) to match the SAM3 teacher (stride 14 at 1008x1008 input).
-   - **RepViT & EfficientViT**: Passed natively.
-   - **TinyViT**: Required a fix in `stage1/model.py` to correctly calculate the output resolution (32x32) for the 1008px input, resolving a mismatch where the adapter expected 31x31.
+   **Student Savings (Text Encoder):**
+   
+   **Teacher Breakdown**:
+   - **Backbone**: 353.46M
+   - **Resizer**: 0.26M (1024 $\to$ 256)
+   - **Total**: 353.72M
+
+   **Full Student Architecture**:
+   The student model replaces the entire teacher text encoder, including the embedding layer. It uses the same tokenizer but learns its own embeddings (initialized randomly or from MobileCLIP).
+   
+   Structure: `Tokenizer -> Student Embed -> Student Transformer -> Projector`
+
+   | Student Model | Backbone | Params | vs. Teacher (354M) |
+   | :--- | :--- | :--- | :--- |
+   | **ES-MC-S** | MobileCLIP-S0 | **42.57M** | **87.96% smaller** |
+   | **ES-MC-M** | MobileCLIP-S1 | **63.56M** | **82.03% smaller** |
+   | **ES-MC-L** | MobileCLIP2-L | **123.6M** | **65.06% smaller** |
+
+7. **Shape Verification** – All student backbones have been verified to produce the correct embedding shapes to match the SAM3 teacher.
 
 ### 1. Prepare Inputs
 
 | Requirement | Notes |
 |-------------|-------|
 | **SA-1B dataset** | Point `DATA.DATA_PATH` to the folder that contains `images/{train,val}` and `annotations/{train,val}` (defaults to `data/sa-1b`). |
+| **Recap-DataComp dataset** | Point `DATA.DATA_PATH` to the folder that contains parquet files (defaults to `data/recap_subset`). |
 | **SAM3 checkpoint** | Download `sam3.pt` (e.g. from HuggingFace `facebook/sam3`) and set `MODEL.RESUME` in `stage1/configs/teacher/sam_vit_huge_sa1b.yaml`. |
-| **Output directory** | All outputs (logs, embeddings, checkpoints) are saved under `output/`. Teacher embeddings go to `output/stage1_teacher/embeddings/`, student checkpoints to `output/stage1/<model_name>/`. |
+| **Output directory** | All outputs (logs, embeddings, checkpoints) are saved under `output/`. |
 
 ### Step 1 — Save Teacher Embeddings
+
+**A. Image Embeddings (SA-1B)**
 
 **This is a one-time forward pass** through the teacher model on the entire
 SA-1B dataset. The embeddings are saved once to
 `output/stage1_teacher/embeddings/`, then reused for all
 student training epochs.
 
-> **Note:** The text encoder (~354M params) is disabled during this step to reduce memory usage, as we only need image embeddings.
+> **Note:** The text encoder (~354M params) is disabled during this step to reduce memory usage, as we only need image embeddings. Similarly, the vision encoder is disabled when saving text embeddings.
 
 Use the provided launcher or run the Python entry point directly.
 
 ```bash
 # Recommended helper (override CFG/DATA_PATH/OUTPUT inline as KEY=VALUE)
 # Single GPU
-bash stage1/scripts/save_stage1_embeddings.sh \
+bash stage1/scripts/save_image_embeddings.sh \
   CFG=stage1/configs/teacher/sam_vit_huge_sa1b.yaml \
   DATA_PATH=data/sa-1b \
   OUTPUT=output/stage1_teacher \
+  BATCH_SIZE=64 \
   GPUS=1
+```
 
-# Eight GPUs (default GPUS=8 so this shows it explicitly)
-bash stage1/scripts/save_stage1_embeddings.sh \
-  CFG=stage1/configs/teacher/sam_vit_huge_sa1b.yaml \
-  DATA_PATH=data/sa-1b \
-  OUTPUT=output/stage1_teacher \
-  GPUS=8 \
-  BATCH_SIZE=32
+**B. Text Embeddings (Recap-DataComp-1B)**
 
-# Optional: verify saved blobs after the export
-bash stage1/scripts/save_stage1_embeddings.sh \
-  CFG=stage1/configs/teacher/sam_vit_huge_sa1b.yaml \
-  DATA_PATH=data/sa-1b \
-  OUTPUT=output/stage1_teacher \
-  --check-saved-embed
+Similarly, save the teacher text embeddings on the Recap-DataComp-1B dataset.
+
+```bash
+bash stage1/scripts/save_text_embeddings.sh \
+  CFG=stage1/configs/teacher/sam_text_teacher.yaml \
+  DATA_PATH=data/recap_subset \
+  OUTPUT=output/stage1_text_teacher \
+  BATCH_SIZE=64 \
+  GPUS=1 \
+  --opts DATA.DATASET recap_datacomp
 ```
 
 **Output structure**:
 ```
-output/stage1_teacher/
+output/stage1_teacher/        # Image Embeddings
 ├── config.json               # Config from embedding export
 ├── log_rank0.txt             # Logs
 └── embeddings/               # Actual teacher embeddings
@@ -115,46 +128,48 @@ output/stage1_teacher/
     ├── rank0-values.bin      # Embeddings (float16)
     ├── rank1-keys.txt        # (if using multiple GPUs)
     └── rank1-values.bin
+
+output/stage1_text_teacher/   # Text Embeddings
+├── config.json
+├── log_rank0.txt
+└── embeddings/
+    ├── rank0-keys.txt        # Image IDs
+    └── rank0-values.bin      # Embeddings (float16)
 ```
 
-Both commands wrap:
-
-```
-torchrun --nproc_per_node <GPUS> stage1/save_embedding_stage1.py \
-  --cfg stage1/configs/teacher/sam_vit_huge_sa1b.yaml \
-  --data-path data/sa-1b \
-  --output output/stage1_teacher
-```
-
-The script produces sharded binary files in
-`output/stage1_teacher/embeddings/`. Each record stores the
-augmentation seed (first four bytes) followed by a float16 embedding grid of
-shape `(EMBED_DIM, EMBED_SIZE, EMBED_SIZE)`.
+The scripts produce sharded binary files in `output/*/embeddings/`.
 
 
 
 ### Step 2 — Train Student Encoders
 
+**A. Vision Encoders**
+
 Set `MODEL.BACKBONE` via the config file (see table below) and launch the
-student distillation run. The helper script wires up `torchrun` with the desired
-world size, batch size, and config file.
+student distillation run.
 
 ```bash
 # Single GPU (override CFG/DATA_PATH/OUTPUT inline as needed)
-bash stage1/scripts/train_stage1_student.sh \
+bash stage1/scripts/train_image_student.sh \
   CFG=stage1/configs/es_rv_m.yaml \
   DATA_PATH=data/sa-1b \
   OUTPUT=output/stage1/repvit_m1 \
   BATCH_SIZE=4 \
   GPUS=1
+```
 
-# Eight GPUs (default GPUS=8, shown explicitly here)
-bash stage1/scripts/train_stage1_student.sh \
-  CFG=stage1/configs/es_rv_m.yaml \
-  DATA_PATH=data/sa-1b \
-  OUTPUT=output/stage1/repvit_m1 \
-  BATCH_SIZE=32 \
-  GPUS=8
+**B. Text Encoders**
+
+Set `MODEL.BACKBONE` in the config file to one of:
+`MobileCLIP-S0`, `MobileCLIP-S1`, `MobileCLIP2-L`.
+
+```bash
+bash stage1/scripts/train_text_student.sh \
+  CFG=stage1/configs/es_mc_s.yaml \
+  DATA_PATH=data \
+  OUTPUT=output/stage1_text/mobileclip_s \
+  BATCH_SIZE=64 \
+  GPUS=1
 ```
 
 **Output structure**:
@@ -173,8 +188,6 @@ the model zoo to configuration files.
 
 | Model | Backbone | Config file |
 |-------|----------|-------------|
-| Model | Backbone | Config file |
-|-------|----------|-------------|
 | ES-RV-S | `repvit_m0_9` | `stage1/configs/es_rv_s.yaml` |
 | ES-RV-M | `repvit_m1_1` | `stage1/configs/es_rv_m.yaml` |
 | ES-RV-L | `repvit_m2_3` | `stage1/configs/es_rv_l.yaml` |
@@ -184,6 +197,10 @@ the model zoo to configuration files.
 | ES-EV-S | `efficientvit_b0` | `stage1/configs/es_ev_s.yaml` |
 | ES-EV-M | `efficientvit_b1` | `stage1/configs/es_ev_m.yaml` |
 | ES-EV-L | `efficientvit_b2` | `stage1/configs/es_ev_l.yaml` |
+| | | |
+| ES-MC-S | `MobileCLIP-S0` | `stage1/configs/es_mc_s.yaml` |
+| ES-MC-M | `MobileCLIP-S1` | `stage1/configs/es_mc_m.yaml` |
+| ES-MC-L | `MobileCLIP2-L` | `stage1/configs/es_mc_l.yaml` |
 
 Key config fields:
 
@@ -203,24 +220,39 @@ from valid pixels. The training script supports DDP + AMP by default.
 After training, merge the distilled encoder with the full SAM3 checkpoint so it
 can run end-to-end inference (prompt encoder + mask decoder).
 
+**A. Vision Encoder Merge**
+
 **Example for EfficientViT-B0 (ES-EV-S):**
 ```bash
-python stage1/convert_stage1_weights.py \
+python stage1/convert_image_encoder_weights_stage1.py \
   --student-ckpt output/stage1/es_ev_s/ckpt_epoch_49.pth \
   --sam3-ckpt sam3_checkpoints/sam3.pt \
-  --output output/efficient_sam3_efficientvit_b0.pt \
-  --target-prefix detector.backbone.vision_backbone.trunk.model. \
-  --replace-prefix detector.backbone.vision_backbone.trunk.
+  --output output/efficient_sam3_efficientvit_b0.pt
 ```
 
-**Example for RepViT-M1.1 (ES-RV-M):**
+**B. Text Encoder Merge**
+
+**Example for MobileCLIP-S0:**
 ```bash
-python stage1/convert_stage1_weights.py \
-  --student-ckpt output/stage1/repvit_m1/ckpt_epoch_29.pth \
+python stage1/convert_text_encoder_weights_stage1.py \
+  --student-ckpt output/stage1_text/mobileclip_s/ckpt_epoch_49.pth \
   --sam3-ckpt sam3_checkpoints/sam3.pt \
-  --output output/efficient_sam3_repvit_m1.pt \
-  --target-prefix detector.backbone.vision_backbone.trunk.model. \
-  --replace-prefix detector.backbone.vision_backbone.trunk.
+  --output output/efficient_sam3_text_s.pt
+```
+
+**C. Merge Both Encoders (Recommended)**
+
+To create a fully efficient model with both student vision and text encoders:
+
+> **Note:** If you perform this step, you do not need to run the individual merge steps (A and B) above.
+
+```bash
+python stage1/convert_both_encoders_weights_stage1.py \
+  --image-student-ckpt output/stage1/es_ev_s/ckpt_epoch_30.pth \
+  --text-student-ckpt output/stage1_text/mobileclip_s/ckpt_epoch_49.pth \
+  --sam3-ckpt sam3_checkpoints/sam3.pt \
+  --image-model-name efficientvit_b0 \
+  --text-model-name mobileclip_s0
 ```
 
 **Final output structure**:
@@ -232,7 +264,7 @@ output/
 │   └── embeddings/           # Embeddings (reused by all students)
 ├── stage1/                   # Student training
 │   └── repvit_m1/            # Checkpoints
-└── efficient_sam3_efficientvit_b0.pt  # Final merged model
+└── efficient_sam3_efficientvit_b0_mobileclip_s0.pth  # Final merged model
 ```
 
 The script copies student encoder weights into the SAM3 checkpoint under
@@ -241,26 +273,12 @@ decoder). The `--replace-prefix` argument ensures the original teacher backbone 
 
 ### Helper Scripts
 
-The `stage1/scripts` folder contains two ready-to-use launchers:
+The `stage1/scripts` folder contains ready-to-use launchers:
 
 | Script | Purpose | Customisation knobs |
 |--------|---------|---------------------|
-| `save_stage1_embeddings.sh` | Runs `stage1/save_embedding_stage1.py` under `torchrun` for exporting teacher embeddings. | Override `CFG`, `DATA_PATH`, `OUTPUT`, `GPUS`, `MASTER_PORT`, and append additional CLI flags (e.g. `--check-saved-embed`). |
-| `train_stage1_student.sh` | Launches `stage1/train_stage1.py` with a chosen student config. | Override `CFG`, `DATA_PATH`, `OUTPUT`, `BATCH_SIZE`, `GPUS`, `MASTER_PORT`, or pass through extra flags such as `--use-sync-bn`. |
+| `save_image_embeddings.sh` | Runs `stage1/save_embedding_image_stage1.py` under `torchrun` for exporting teacher embeddings. | Override `CFG`, `DATA_PATH`, `OUTPUT`, `GPUS`, `MASTER_PORT`, and append additional CLI flags (e.g. `--check-saved-embed`). |
+| `train_image_student.sh` | Launches `stage1/train_image_encoder_stage1.py` with a chosen student config. | Override `CFG`, `DATA_PATH`, `OUTPUT`, `BATCH_SIZE`, `GPUS`, `MASTER_PORT`, or pass through extra flags such as `--use-sync-bn`. |
+| `save_text_embeddings.sh` | Runs `stage1/save_embedding_text_stage1.py` for exporting teacher text embeddings. | Same as above. |
+| `train_text_student.sh` | Launches `stage1/train_text_encoder_stage1.py` for text student training. | Same as above. |
 
-Both scripts also honour `NNODES`, `NODE_RANK`, `RDZV_BACKEND`, and `RDZV_ENDPOINT`
-for multi-node rendezvous. By default they run single-node training with
-`torchrun --nnodes 1 --nproc_per_node ${GPUS}`.
-
-### Files of Interest
-
-* `stage1/model.py` — builders for student and teacher encoders (RepViT, TinyViT,
-  EfficientViT wrappers + SAM3 teacher wrapper).
-* `stage1/train_stage1.py` — distilled training loop (no EdgeSAM dependency).
-* `stage1/save_embedding_stage1.py` — SAM3 embedding exporter and checker.
-* `stage1/data/*` — SA-1B/COCO datasets plus deterministic augmentation manager.
-* `stage1/convert_stage1_weights.py` — merges a Stage‑1 checkpoint with the full
-  SAM3 weights (analogous to EdgeSAM Phase 1 conversion).
-
-Customize the configs as needed (output directories, LR schedule, etc.) and run
-the steps above for each backbone to reproduce the Stage‑1 model zoo.

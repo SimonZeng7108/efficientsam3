@@ -37,6 +37,12 @@ bash data/download_mose.sh
 
 # YouTube-VOS 2019 (Google Drive folder; requires gdown)
 bash data/download_ytvos.sh
+
+# Recap-DataComp-1B (Subset) — 1% of the dataset
+python3 data/download_datacomp.py
+
+# Recap-COCO-30K
+bash data/download_recap_coco.sh
 ```
 
 ---
@@ -293,6 +299,34 @@ data/ytvos/
   metas.json (or similar)
   # exact layout depends on the official folder contents
 ```
+
+### Recap-DataComp-1B (Subset) — `data/download_datacomp.py`
+
+Downloads a 1% subset of the Recap-DataComp-1B dataset from Hugging Face.
+
+Outputs:
+- `data/recap_subset/data/*.parquet`
+
+Usage:
+```bash
+python3 data/download_datacomp.py
+```
+
+Docs: `https://huggingface.co/datasets/UCSC-VLAA/Recap-DataComp-1B`
+
+### Recap-COCO-30K — `data/download_recap_coco.sh`
+
+Downloads the Recap-COCO-30K dataset (parquet format).
+
+Outputs:
+- `data/recap_coco/new_data.parquet`
+
+Usage:
+```bash
+bash data/download_recap_coco.sh
+```
+
+Docs: `https://huggingface.co/datasets/UCSC-VLAA/Recap-COCO-30K`
 
 ---
 

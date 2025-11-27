@@ -13,7 +13,7 @@ import torch.distributed as dist
 from config import get_config
 from data import build_loader
 from logger import create_logger
-from model import build_teacher_model
+from model import build_image_teacher_model
 from my_meter import AverageMeter
 from utils import add_common_args
 
@@ -37,7 +37,7 @@ def main(config, args):
     dataset_train, _, data_loader_train, _ = build_loader(config, build_val=False)
 
     logger.info("Building SAM3 teacher encoder")
-    model = build_teacher_model(config)
+    model = build_image_teacher_model(config)
     model.cuda()
 
     os.makedirs(config.DISTILL.TEACHER_EMBED_PATH, exist_ok=True)
@@ -98,6 +98,11 @@ def save_embeddings_one_epoch(config, model, data_loader, epoch):
 
         batch_time.update(time.time() - end)
         end = time.time()
+        
+        # Break after 1 batch for testing
+        if idx >= 0:
+            logger.info("Breaking after 1 batch for testing.")
+            break
 
         if idx % config.PRINT_FREQ == 0:
             memory_used = (

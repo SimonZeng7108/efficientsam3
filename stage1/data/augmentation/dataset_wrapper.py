@@ -100,7 +100,7 @@ class DatasetWrapper(torch.utils.data.Dataset):
         if not os.path.isdir(path):
             raise FileNotFoundError(
                 f"[Error] Teacher embeddings not found at {path}. "
-                f"Please run save_stage1_embeddings.sh first."
+                f"Please run save_image_embeddings.sh first."
             )
         
         return path, path

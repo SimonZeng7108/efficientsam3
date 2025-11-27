@@ -1,0 +1,19 @@
+MODEL:
+  NAME: SAM3-Text-Teacher
+  BACKBONE: sam3_text_encoder
+  RESUME: sam3_checkpoints/sam3.pt
+
+TRAIN:
+  EPOCHS: 1
+
+DATA:
+  DATASET: recap_datacomp
+  DATA_PATH: data/recap_subset
+  BATCH_SIZE: 64
+  NUM_WORKERS: 8
+
+DISTILL:
+  EMBED_DIM: 256
+  NUM_EMBED: 32
+  SAVE_TEACHER_EMBED: True
+  TEACHER_EMBED_PATH: output/stage1_text_teacher/embeddings/

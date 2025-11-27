@@ -2,11 +2,11 @@
 #
 set -euo pipefail
 
-# Allow KEY=VALUE overrides on the command line (e.g. CFG=..., GPUS=8, etc.)
+# Allow KEY=VALUE overrides passed after the script name.
 EXTRA_ARGS=()
 for arg in "$@"; do
   case "$arg" in
-    CFG=*|DATA_PATH=*|OUTPUT=*|GPUS=*|BATCH_SIZE=*|MASTER_PORT=*|NNODES=*|NODE_RANK=*|RDZV_BACKEND=*|RDZV_ENDPOINT=*)
+    CFG=*|DATA_PATH=*|OUTPUT=*|BATCH_SIZE=*|GPUS=*|MASTER_PORT=*|NNODES=*|NODE_RANK=*|RDZV_BACKEND=*|RDZV_ENDPOINT=*)
       key=${arg%%=*}
       value=${arg#*=}
       printf -v "$key" '%s' "$value"
@@ -18,16 +18,16 @@ for arg in "$@"; do
 done
 set -- "${EXTRA_ARGS[@]}"
 
-CFG="${CFG:-stage1/configs/teacher/sam_vit_huge_sa1b.yaml}"
-DATA_PATH="${DATA_PATH:-data/sa-1b}"
-OUTPUT="${OUTPUT:-output/stage1_teacher}"
+CFG="${CFG:-stage1/configs/text_student.yaml}"
+DATA_PATH="${DATA_PATH:-data/recap_subset}"
+OUTPUT="${OUTPUT:-output/stage1_text}"
+BATCH_SIZE="${BATCH_SIZE:-}"
 GPUS="${GPUS:-8}"
-MASTER_PORT="${MASTER_PORT:-29501}"
+MASTER_PORT="${MASTER_PORT:-29503}"
 NNODES="${NNODES:-1}"
 NODE_RANK="${NODE_RANK:-0}"
 RDZV_BACKEND="${RDZV_BACKEND:-c10d}"
 RDZV_ENDPOINT="${RDZV_ENDPOINT:-localhost:${MASTER_PORT}}"
-BATCH_SIZE="${BATCH_SIZE:-}"
 
 TORCHRUN_ARGS=(--nproc_per_node "${GPUS}")
 if [ "${NNODES}" -gt 1 ]; then
@@ -46,8 +46,7 @@ if [ -n "${BATCH_SIZE}" ]; then
   PY_ARGS+=(--batch-size "${BATCH_SIZE}")
 fi
 
-PYTHONPATH=. python -m torch.distributed.run "${TORCHRUN_ARGS[@]}" \
-  stage1/save_embedding_stage1.py \
+PYTHONPATH=. torchrun "${TORCHRUN_ARGS[@]}" \
+  stage1/train_text_encoder_stage1.py \
   "${PY_ARGS[@]}" \
   "$@"
-

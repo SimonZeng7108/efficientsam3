@@ -1,5 +1,6 @@
 MODEL:
-  NAME: EfficientSAM3
+  NAME: EfficientSAM3_Text_S
+  BACKBONE: MobileCLIP-S0
   PRETRAINED: ''
   RESUME: ''
 
@@ -17,7 +18,7 @@ TRAIN:
   USE_CHECKPOINT: False
   LAYER_LR_DECAY: 1.0
   EVAL_BN_WHEN_TRAINING: False
-  FIND_UNUSED_PARAMETERS: False
+  FIND_UNUSED_PARAMETERS: True
 
   LR_SCHEDULER:
     NAME: 'cosine'
@@ -30,12 +31,9 @@ TRAIN:
     BETAS: (0.9, 0.999)
     MOMENTUM: 0.9
 
-# -----------------------------------------------------------------------------
-# Misc
-# -----------------------------------------------------------------------------
 AMP_ENABLE: True
-OUTPUT: ''
-TAG: 'default'
+OUTPUT: output/stage1_text/mobileclip_s
+TAG: default
 SAVE_FREQ: 1
 PRINT_FREQ: 10
 SEED: 0
@@ -45,28 +43,22 @@ LOCAL_RANK: 0
 
 DATA:
   IMG_SIZE: 1008
-  DATASET: sa1b
-  DATA_PATH: data/sa-1b/
+  DATASET: recap_coco
+  DATA_PATH: data/
   BATCH_SIZE: 64
   NUM_WORKERS: 8
 
 DISTILL:
   ENABLED: True
   ENCODER_ONLY: True
-  EMBED_DIM: 1024
-  EMBED_SIZE: 72
-  NUM_EMBED: 5184
+  EMBED_DIM: 256
+  EMBED_SIZE: 0
+  NUM_EMBED: 32
   PIXEL_WISE: 1.0
   CHANNEL_WISE: 0.0
   CORRELATION: 0.0
   COSINE: 1.0
-  TEACHER_EMBED_PATH: 'output/stage1_teacher/embeddings'
+  TEACHER_EMBED_PATH: 'output/stage1_text_teacher/embeddings'
   SAVE_TEACHER_EMBED: False
   NO_RAND: True
   MAX_ALLOWED_PROMPTS: -1
-
-OUTPUT: output/stage1
-TAG: default
-AMP_ENABLE: True
-
-
