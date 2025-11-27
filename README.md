@@ -1,9 +1,20 @@
 ### EfficientSAM3: Progressive Hierachical Knowledge Distillation (PhD) from SAM1, 2 and 3
-[Chengxi Simon Zeng](https://simonzeng7108.github.io/about/), [Yuxuan Jiang](https://YuxuanJJ.github.io/), [Aaron Zhang](https://fan-aaron-zhang.github.io/)
+[Chengxi Simon Zeng](https://simonzeng7108.github.io/about/)<sup>1,†</sup>, [Yuxuan Jiang](https://YuxuanJJ.github.io/)<sup>1</sup>, [Gao Ge](https://scholar.google.com/citations?user=j2_80ewAAAAJ&hl=en)<sup>1</sup>, [Shuai Wang](https://shuaiwang97.github.io/)<sup>2</sup>, [Fan Aaron Zhang](https://fan-aaron-zhang.github.io/)<sup>1</sup>
+<sup>1</sup>Visual Information Lab, University of Bristol; <sup>2</sup>MultiX lab, University of Amsterdam
 
-Visual Information Lab, University of Bristol
+<sup>†</sup>Tech Lead & Corresponding Author
 
-[[Paper](#)] [[Project Page](https://simonzeng7108.github.io/efficientsam3/)] [[Hugging Face](https://huggingface.co/Simon7108528/EfficientSAM3)]
+[[Paper](https://arxiv.org/abs/2511.15833)] [[Project Page](https://simonzeng7108.github.io/efficientsam3/)] [[Hugging Face](https://huggingface.co/Simon7108528/EfficientSAM3)]
+
+---
+## 🔥 Teaser Image Model
+<p align="center">
+  <img src="https://github.com/SimonZeng7108/efficientsam3/blob/main/images/es-ev-s-teaser.jpg" width="30%">
+</p>
+
+ **EfficientViT-B0 (0.68M params)** distilled from **SAM3 Encoder (461.84M)** — **99.85% smaller**, trained on **1% SA-1B**.
+
+**Download Weight:** [Google Drive](https://drive.google.com/file/d/1MqtnQBaZWgtmURgBgQEEphnCNiLrPCjn/view?usp=drive_link). **Visualisation:** [Script](https://github.com/SimonZeng7108/efficientsam3/blob/stage1/sam3/efficientsam3_examples/efficientsam3_for_sam1_task_example.py) (Switch to Branch Stage1).
 
 ---
 
@@ -11,10 +22,6 @@ Visual Information Lab, University of Bristol
 
 - [Table of Contents](#table-of-contents)
 - [Updates](#updates)
-  - [Stage 1: Encoder Distillation (Image-Level Segmentation)](#stage-1-encoder-distillation-image-level-segmentation)
-  - [Stage 2: Temporal Memory Distillation (Video Tracking)](#stage-2-temporal-memory-distillation-video-tracking)
-  - [Stage 3: End-to-End Fine-Tuning (Concept Segmentation)](#stage-3-end-to-end-fine-tuning-concept-segmentation)
-  - [tl;dr](#tldr)
 - [Installation](#installation)
 - [Inference](#inference)
 - [Training and Evaluation](#training-and-evaluation)
@@ -31,8 +38,9 @@ Visual Information Lab, University of Bristol
 ---
 
 ## Updates
-
+- **[2025/11/25]** Teaser model released. See Above. More models are baking in the oven🔥.
 - **[2025/10/18]** Project announced. Code and weights are not released yet; they will be published once SAM3 code is publicly available.
+
 
 ---
 
@@ -128,27 +136,10 @@ pip install torch==2.7.0 torchvision torchaudio --index-url https://download.pyt
 pip install -e ".[stage1]"
 ```
 
-> **Note:** If Meta updates the official SAM3 requirements (e.g., newer PyTorch/CUDA),
-> mirror those changes here to stay ABI-compatible with the teacher checkpoints.
-
-The editable install exposes both the upstream `sam3` package and the Stage‑1 modules, so you can import them from any working directory. Use `pip install -e .` (without extras) when you only need the inference utilities.
-
-### Stage 1 Quick Start
-
-Stage‑1 encoder distillation is documented in detail inside [README_stage1.md](README_stage1.md). The short version:
-
-1. Place the SA‑1B dataset under `data/sa-1b` (or point `DATA.DATA_PATH` elsewhere).
-2. Download `sam3.pt` into `sam3_checkpoints/`.
-3. Save teacher embeddings with `bash stage1/scripts/save_image_embeddings.sh`.
-4. Train any student backbone (RepViT, TinyViT, EfficientViT) with `bash stage1/scripts/train_image_student.sh CFG=stage1/configs/<model>.yaml`.
-5. Merge the distilled encoder with the full SAM3 checkpoint via `python stage1/convert_image_encoder_weights_stage1.py ...`.
-
-Refer to the Stage‑1 README for configuration details, checkpoint locations, and troubleshooting tips.
-
 ---
 
 ## Inference
-
+Coming soon (previsional example):
 Download checkpoints (refer to [Checkpoints](#efficientsam3-model-zoo--weight-release) for more details):
 
 ```bash
@@ -248,7 +239,7 @@ If you use EfficientSAM3 in your research, please cite:
 ```bibtex
 @misc{efficientsam3,
   title={EfficientSAM3: Progressive Hierachical Knowledge Distillation (PhD) from SAM1, 2 and 3},
-  author={Zeng, Chengxi Simon and Jiang, Yuxuan and Zhang, Aaron},
+  author={Zeng, Chengxi Simon and Jiang, Yuxuan and Ge, Gao  and Wang, Shuai and Zhang, Fan Aaron},
   institution={University of Bristol},
   year={2025},
   howpublished={\url{https://github.com/SimonZeng7108/efficientsam3}}
