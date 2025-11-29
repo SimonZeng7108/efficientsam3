@@ -14,12 +14,12 @@ from torch.utils.tensorboard import SummaryWriter
 
 from config import get_config
 from data import build_loader
-from logger import create_logger
-from lr_scheduler import build_scheduler
+from utils.logger import create_logger
+from utils.lr_scheduler import build_scheduler
 from model import build_text_student_model
-from my_meter import AverageMeter
-from optimizer import build_optimizer
-from utils import (
+from utils.my_meter import AverageMeter
+from utils.optimizer import build_optimizer
+from utils.utils import (
     NativeScalerWithGradNormCount,
     add_common_args,
     auto_resume_helper,

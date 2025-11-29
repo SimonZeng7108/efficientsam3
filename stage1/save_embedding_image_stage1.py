@@ -12,10 +12,10 @@ import torch.distributed as dist
 
 from config import get_config
 from data import build_loader
-from logger import create_logger
+from utils.logger import create_logger
 from model import build_image_teacher_model
-from my_meter import AverageMeter
-from utils import add_common_args
+from utils.my_meter import AverageMeter
+from utils.utils import add_common_args
 
 
 def parse_option():

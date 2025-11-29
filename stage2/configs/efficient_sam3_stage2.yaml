@@ -1,0 +1,16 @@
+MODEL:
+  BACKBONE:
+    TYPE: "efficientvit"
+    NAME: "b0" # Or whatever stage 1 model we use
+  MEMORY:
+    DIM: 256
+    NUM_GLOBAL_LATENTS: 64
+    NUM_SPATIAL_LATENTS: 192
+    WINDOW_SIZE: 8
+TRAIN:
+  BATCH_SIZE: 4 # Adjust based on GPU
+  LR: 1e-4
+  EPOCHS: 10
+  DATASET: "sa_v" # Or whatever video dataset
+  RESUME: "output/stage1/efficient_sam3_efficientvit_b0_mobileclip_s0.pth" # Start from Stage 1 checkpoint
+OUTPUT_DIR: "output/stage2"

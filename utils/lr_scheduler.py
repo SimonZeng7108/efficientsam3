@@ -3,7 +3,7 @@ from timm.scheduler.cosine_lr import CosineLRScheduler
 from timm.scheduler.step_lr import StepLRScheduler
 from timm.scheduler.scheduler import Scheduler
 # Modified for TinyViT
-from utils import LRSchedulerWrapper
+from .utils import LRSchedulerWrapper
 
 
 def build_scheduler(config, optimizer, n_iter_per_epoch):
@@ -45,6 +45,22 @@ def build_scheduler(config, optimizer, n_iter_per_epoch):
     # Modified for TinyViT
     if config.TRAIN.LAYER_LR_DECAY != 1.0:
         lr_scheduler = LRSchedulerWrapper(lr_scheduler, optimizer)
+    return lr_scheduler
+
+
+def build_scheduler_from_args(args, optimizer, n_iter_per_epoch):
+    num_steps = int(args.epochs * n_iter_per_epoch)
+    warmup_steps = int(args.warmup_epochs * n_iter_per_epoch)
+    
+    lr_scheduler = CosineLRScheduler(
+        optimizer,
+        t_initial=num_steps,
+        lr_min=args.min_lr,
+        warmup_lr_init=args.warmup_lr,
+        warmup_t=warmup_steps,
+        cycle_limit=1,
+        t_in_epochs=False,
+    )
     return lr_scheduler
 
 

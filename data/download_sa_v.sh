@@ -18,7 +18,7 @@ if [[ ! -x "$BASE_SCRIPT" ]]; then
   exit 1
 fi
 
-INPUT_TSV="${1:-"$SCRIPT_DIR/sa-v.txt"}"
+INPUT_TSV="${1:-"$SCRIPT_DIR/sa-v-1p.txt"}"
 OUTPUT_DIR="${2:-"$SCRIPT_DIR/sa-v"}"
 CONCURRENCY="${3:-1}"
 

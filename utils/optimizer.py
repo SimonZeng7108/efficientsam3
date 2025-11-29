@@ -1,6 +1,6 @@
 from torch import optim as optim
 # Modified for TinyViT
-from utils import divide_param_groups_by_lr_scale
+from .utils import divide_param_groups_by_lr_scale
 
 
 def build_optimizer(config, model):
