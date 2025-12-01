@@ -210,6 +210,13 @@ find data/sa-v -type f -name "*.tar" -print0 \
   | xargs -0 -I{} tar -xf {} -C data/sa-v-extracted
 ```
 
+**Quick sanity subset:** `data/sa-v-1p.txt` lists the first two SA‑V archives so you can dry-run the Stage‑2 pipeline without downloading the full dataset. Launch:
+```bash
+bash data/download_sa_v.sh data/sa-v-1p.txt data/sa-v/raw 4
+python data/reorg_sav.py --source_dir data/sa-v/raw --output_dir data/sa-v/extracted_frames --workers 8
+```
+The `data/reorg_sav.py` helper extracts frames with `ffmpeg` and copies any per-video JSON annotations into `data/sa-v/extracted_frames/<video>/`.
+
 ### LVOS v2 — `data/download_lvos.sh`
 
 Downloads LVOS v2 train/val from Google Drive using `gdown`. Accepts URLs via args or env vars `LVOS_TRAIN_URL` and `LVOS_VAL_URL`.

@@ -72,6 +72,8 @@ class Sam3TrackerBase(torch.nn.Module):
         use_memory_selection=False,
         # when using memory selection, the threshold to determine if the frame is good
         mf_threshold=0.01,
+        # Probability to dropout spatial memory during training
+        prob_to_dropout_spatial_mem=0.0,
     ):
         super().__init__()
 
@@ -154,6 +156,10 @@ class Sam3TrackerBase(torch.nn.Module):
         self.compile_all_components = compile_all_components
         if self.compile_all_components:
             self._compile_all_components()
+
+        # Default to False for teacher forcing of object scores
+        self.teacher_force_obj_scores_for_mem = False
+        self.prob_to_dropout_spatial_mem = prob_to_dropout_spatial_mem
 
     @property
     def device(self):
@@ -951,6 +957,9 @@ class Sam3TrackerBase(torch.nn.Module):
         # The previously predicted SAM mask logits (which can be fed together with new clicks in demo).
         prev_sam_mask_logits=None,
         use_prev_mem_frame=True,
+        # Optional overrides for teacher-forced supervision
+        teacher_forced_mask=None,
+        teacher_forced_object_score=None,
     ):
         current_out = {"point_inputs": point_inputs, "mask_inputs": mask_inputs}
         # High-resolution feature maps for the SAM head, reshape (HW)BC => BCHW
@@ -1007,6 +1016,17 @@ class Sam3TrackerBase(torch.nn.Module):
             obj_ptr,
             object_score_logits,
         ) = sam_outputs
+        if teacher_forced_object_score is not None:
+            object_score_logits = teacher_forced_object_score
+        if teacher_forced_mask is not None:
+            # ensure the provided mask matches the expected spatial size
+            high_res_masks = teacher_forced_mask
+            low_res_masks = F.interpolate(
+                teacher_forced_mask.float(),
+                size=low_res_masks.shape[-2:],
+                mode="bilinear",
+                align_corners=False,
+            )
         # Use the final prediction (after all correction steps for output and eval)
         current_out["pred_masks"] = low_res_masks
         current_out["pred_masks_high_res"] = high_res_masks
@@ -1082,7 +1102,6 @@ class Sam3TrackerBase(torch.nn.Module):
             past_out = output_dict["non_cond_frame_outputs"].get(past_frame_idx, None)
 
             if past_out is not None:
-                print(past_out.get("eff_iou_score", 0))
                 if (
                     self.use_memory_selection
                     and past_out.get("eff_iou_score", 0) < self.mf_threshold
