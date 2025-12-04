@@ -1,0 +1,15 @@
+BASE: ['base_stage1_geometry_finetune.yaml']
+
+MODEL:
+  NAME: ES-TV-M
+  BACKBONE: tinyvit_11m
+  PRETRAINED: output/efficient_sam3_tinyvit_m.pt
+
+DISTILL:
+  PROMPT_TYPE: ['box', 'point', 'mask']
+  USE_MASK_PROMPT: True
+  MASK_PROMPT_FROM_PREV_ITER: True
+  DECODE_ITERS: 3
+
+OUTPUT: output/stage1_geometry_finetune/es_tv_m
+TAG: mask_prompt

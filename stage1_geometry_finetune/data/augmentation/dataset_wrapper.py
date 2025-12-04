@@ -1,0 +1,130 @@
+import os
+import multiprocessing
+import torch
+import torch.distributed as dist
+import numpy as np
+from .aug_random import AugRandomContext
+from .manager import TxtManager
+from math import prod
+
+
+def get_rank():
+    if not dist.is_available() or not dist.is_initialized():
+        return 0
+    return dist.get_rank()
+
+
+class DatasetWrapper(torch.utils.data.Dataset):
+    def __init__(self, dataset, logits_path, topk, write, num_embedding=64 * 64):
+        super().__init__()
+        self.dataset = dataset
+        self.logits_path = logits_path
+        self.epoch = multiprocessing.Value('i', 0)
+        self.topk = topk
+        self.write_mode = write
+        self.keys = self._get_keys()
+        self._manager = (None, None)
+        self.num_embedding = num_embedding
+
+    def __getitem__(self, index: int):
+        if self.write_mode:
+            return self.__getitem_for_write(index)
+        return self.__getitem_for_read(index)
+
+    def __getitem_for_write(self, index: int):
+        # get an augmentation seed
+        key = self.keys[index]
+        seed = np.int32(np.random.randint(0, 1 << 31))
+        with AugRandomContext(seed=int(seed)):
+            item = self.dataset[index]
+        return (item, (key, seed))
+
+    def __getitem_for_read(self, index: int):
+        key = self.keys[index]
+
+        seed, embeddings = self._get_saved_embeddings(key)
+        with AugRandomContext(seed=seed):
+            item = self.dataset[index]
+        return (item, (embeddings, np.int32(seed)))
+
+    def _get_saved_embeddings(self, key: str):
+        manager = self.get_manager()
+        # If no manager (embeddings not available), return random seed and dummy embeddings
+        if manager is None:
+            seed = np.random.randint(0, 1 << 31)
+            # Return dummy embeddings (won't be used since encoder distillation loss is 0)
+            embeddings = np.zeros(self.topk * self.num_embedding, dtype=np.float16)
+            return seed, embeddings
+            
+        bstr: bytes = manager.read(key)
+        # parse the augmentation seed
+        seed = int(np.frombuffer(bstr[:4], dtype=np.int32))
+        # parse the embeddings
+        # copy embeddings and logits_value to avoid warning of written flag from PyTorch
+        bstr = bstr[4:]
+        # Note: topk = dim_embedding, 2 means 2 bytes (float16)
+        embeddings = np.frombuffer(
+            bstr[:self.topk * 2 * self.num_embedding], dtype=np.float16).copy()
+        return seed, embeddings
+
+    def _get_saved_logits(self, key: str):
+        manager = self.get_manager()
+        bstr: bytes = manager.read(key)
+        # parse the augmentation seed
+        seed = int(np.frombuffer(bstr[:4], dtype=np.int32))
+        # parse the logits index and value
+        # copy logits_index and logits_value to avoid warning of written flag from PyTorch
+        bstr = bstr[4:]
+        logits_index = np.frombuffer(
+            bstr[:self.topk * 2], dtype=np.int16).copy()
+        bstr = bstr[self.topk * 2:]
+        logits_value = np.frombuffer(
+            bstr[:self.topk * 2], dtype=np.float16).copy()
+        return seed, logits_index, logits_value
+
+    def _build_manager(self, logits_path: str):
+        # topk (used as embed_dim) * 2 bytes for embeddings + 4 bytes for seed
+        item_size = self.topk * 2 * self.num_embedding + 4
+        rank = get_rank()
+        return TxtManager(logits_path, item_size, rank)
+
+    def set_epoch(self, epoch: int):
+        self.epoch.value = epoch
+        self._manager = (None, None)
+
+    def _resolve_logits_path(self, epoch):
+        # Student training loads the same epoch0 embeddings for all epochs
+        # folder = f'logits_top{self.topk}_epoch0'
+        # path = os.path.join(self.logits_path, folder)
+        path = self.logits_path
+        
+        if self.write_mode:
+            # Write mode: always use epoch0
+            return 0, path
+        
+        # Read mode: verify epoch0 exists (or skip if path doesn't exist - for geometry finetune without encoder distillation)
+        if not os.path.isdir(path):
+            # Return None to indicate no embeddings available
+            # This is OK for geometry finetune where encoder distillation loss weights are 0
+            return None, None
+        
+        return path, path
+
+    def get_manager(self):
+        epoch = self.epoch.value
+        cache_key, logits_path = self._resolve_logits_path(epoch)
+        if cache_key != self._manager[0]:
+            self._manager = (cache_key, self._build_manager(logits_path))
+        return self._manager[1]
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def _get_keys(self):
+        if hasattr(self.dataset, 'get_keys'):
+            keys = self.dataset.get_keys()
+            if self.write_mode:
+                # we only check key unique in the write mode
+                assert len(keys) == len(set(keys)), 'keys must be unique'
+            return keys
+        return [str(i) for i in range(len(self))]

@@ -439,16 +439,15 @@ def sigmoid_ce_loss(inputs, targets, valid=None, target_logit=False):
     Returns:
         Loss tensor
     """
-    inputs = inputs.sigmoid()
     if target_logit:
         targets = targets.sigmoid()
-    loss = F.binary_cross_entropy(inputs, targets, reduction="none")
+    loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction="none")
 
     if valid is not None:
-        loss = loss.flatten(1)
-        valid = valid.flatten(1)
+        loss = loss.flatten(2)
+        valid = valid.flatten(2)
         loss = loss * valid
-        loss = loss.sum(-1) / valid.sum(-1)
+        loss = loss.sum(-1) / (valid.sum(-1) + 1e-6)
 
     return loss.mean()
 
@@ -472,6 +471,8 @@ def dice_loss(inputs, targets, valid=None, target_logit=False):
 
     if valid is not None:
         valid = _reshape_mask(valid)
+        if valid.shape[0] != inputs.shape[0]:
+            valid = valid.repeat_interleave(inputs.shape[0] // valid.shape[0], dim=0)
         inputs = inputs * valid
         targets = targets * valid
 

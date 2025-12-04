@@ -124,7 +124,7 @@ def main():
 
     parser = argparse.ArgumentParser(description='EfficientSAM3 Interactive Instance Segmentation')
     parser.add_argument('--checkpoint', type=str, 
-                       default='/home/simon7108528_msi_linux/e-drive/side_projects/efficientsam3/output/efficient_sam3_tinyvit_s.pt', #
+                       default='/home/simon7108528_msi_linux/e-drive/side_projects/efficientsam3/output/efficient_sam3_repvit_m_finetuned.pt', #
                        help='Path to EfficientSAM3 checkpoint')
     parser.add_argument('--image', type=str, 
                        default=os.path.join(assets_dir, 'images/truck.jpg'),
@@ -139,8 +139,8 @@ def main():
                                'combined', 'batched_boxes', 'batched_images'],
                        help='Which demo to run')
     parser.add_argument('--headless', action='store_true', help='Run in headless mode (no display)')
-    parser.add_argument('--backbone_type', type=str, default='tinyvit', help='Backbone type')
-    parser.add_argument('--model_name', type=str, default='5m', help='Model name')
+    parser.add_argument('--backbone_type', type=str, default='repvit', help='Backbone type')
+    parser.add_argument('--model_name', type=str, default='m1_1', help='Model name')
     args = parser.parse_args()
 
     if args.headless:

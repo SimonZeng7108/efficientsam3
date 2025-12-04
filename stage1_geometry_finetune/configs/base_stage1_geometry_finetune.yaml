@@ -1,0 +1,106 @@
+MODEL:
+  NAME: EfficientSAM3
+  SAM3_CHECKPOINT: sam3_checkpoints/sam3.pt
+  PRETRAINED: ''
+  RESUME: ''
+
+TRAIN:
+  START_EPOCH: 0
+  EPOCHS: 10
+  WARMUP_EPOCHS: 0
+  WEIGHT_DECAY: 0.05
+  BASE_LR: 3.2e-3
+  WARMUP_LR: 3.2e-5
+  MIN_LR: 3.2e-4
+  CLIP_GRAD: 0.01
+  AUTO_RESUME: True
+  ACCUMULATION_STEPS: 1
+  USE_CHECKPOINT: False
+  LAYER_LR_DECAY: 1.0
+  EVAL_BN_WHEN_TRAINING: False
+  FIND_UNUSED_PARAMETERS: False
+
+  LR_SCHEDULER:
+    NAME: 'cosine'
+    DECAY_EPOCHS: 30
+    DECAY_RATE: 0.1
+
+  OPTIMIZER:
+    NAME: 'adamw'
+    EPS: 1e-8
+    BETAS: (0.9, 0.999)
+    MOMENTUM: 0.9
+
+# -----------------------------------------------------------------------------
+# Data settings
+# -----------------------------------------------------------------------------
+DATA:
+  IMG_SIZE: 1008
+  DATASET: sa1b
+  DATA_PATH: data/sa-1b/
+  BATCH_SIZE: 4
+  NUM_WORKERS: 8
+  LOAD_GT_MASK: True  # Required for geometry finetune
+
+# -----------------------------------------------------------------------------
+# Distillation settings
+# -----------------------------------------------------------------------------
+DISTILL:
+  ENABLED: True
+  ENCODER_ONLY: False  # Full model with decoder
+  EMBED_DIM: 1024
+  EMBED_SIZE: 72
+  NUM_EMBED: 5184
+  TEACHER_EMBED_PATH: 'output/stage1_teacher/embeddings'
+  SAVE_TEACHER_EMBED: False
+  NO_RAND: True
+  MAX_ALLOWED_PROMPTS: 16
+
+  # Encoder distillation (disabled after stage1)
+  PIXEL_WISE: 0.0
+  CHANNEL_WISE: 0.0
+  CORRELATION: 0.0
+  COSINE: 0.0
+
+  # Decoder distillation (main focus)
+  DECODER_BCE: 5.0
+  DECODER_FOCAL: 0.0
+  DECODER_DICE: 5.0
+  DECODER_IOU: 1.0
+  DECODER_ATTN: 0.0
+  USE_TEACHER_LOGITS: True
+  TEMPERATURE: 1.0
+  POINT_REND_SAMPLING: False
+
+  # Prompt settings
+  PROMPT_TYPE: ['box', 'point']  # Options: 'box', 'point', 'mask'
+  PROMPT_BOX_TO_POINT: False
+  PROMPT_MASK_TO_POINT: True
+  USE_MASK_PROMPT: False  # Use GT mask as low-res mask input
+  MASK_PROMPT_FROM_PREV_ITER: True  # Use previous iteration mask as prompt
+  DECODE_ITERS: 2
+  POINTS_PER_REFINE_ITER: 1
+  ITER_ON_BOX: True
+  MULTIMASK_OUTPUT: 4
+  MULTIMASK_ON_BOX: True
+
+  # Freezing options
+  FREEZE_IMAGE_ENCODER: False  # Train encoder to adapt to geometry prompts
+  FREEZE_PROMPT_ENCODER: True  # Freeze for Stage 2 memory bank compatibility
+  FREEZE_MASK_DECODER: True    # Freeze for Stage 2 memory bank compatibility
+  FREEZE_TEXT_ENCODER: True    # Keep text encoder frozen if enabled
+  ENABLE_TEXT_ENCODER: False   # Exclude text encoder to save memory (run convert_finetuned_weights.py after training)
+  INIT_FROM_TEACHER: False
+
+# -----------------------------------------------------------------------------
+# Misc
+# -----------------------------------------------------------------------------
+AMP_ENABLE: False  # Disabled for stability
+OUTPUT: output/stage1_geometry_finetune
+TAG: default
+SAVE_FREQ: 1
+PRINT_FREQ: 10
+SEED: 0
+EVAL_MODE: False
+THROUGHPUT_MODE: False
+LOCAL_RANK: 0

@@ -824,6 +824,7 @@ def build_efficientsam3_image_model(
     load_from_HF=False,
     enable_segmentation=True,
     enable_inst_interactivity=False,
+    enable_text_encoder=True,
     compile=False,
     backbone_type="efficientvit",
     model_name="b0",
@@ -841,6 +842,7 @@ def build_efficientsam3_image_model(
         load_from_HF: Whether to load checkpoint from HuggingFace (if available)
         enable_segmentation: Whether to enable segmentation head
         enable_inst_interactivity: Whether to enable instance interactivity (SAM 1 task)
+        enable_text_encoder: Whether to enable text encoder (set False to save memory during geometry finetuning)
         compile: To enable compilation, set to True
         backbone_type: Type of backbone ('efficientvit', 'repvit', 'tinyvit')
         model_name: Model variant (e.g. 'b0', 'm1.1', '5m')
@@ -867,7 +869,10 @@ def build_efficientsam3_image_model(
     )
 
     # Create text components
-    text_encoder = _create_text_encoder(bpe_path)
+    if enable_text_encoder:
+        text_encoder = _create_text_encoder(bpe_path)
+    else:
+        text_encoder = None
 
     # Create visual-language backbone
     backbone = _create_vl_backbone(vision_encoder, text_encoder)

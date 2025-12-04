@@ -79,9 +79,18 @@ EfficientSAM3 is trained through a three-stage progressive distillation:
 
 - Distill the SAM3 image encoder to nine student backbones (3 RepViT × 3 TinyViT × 3 EfficientViT variants)
 - Distill the SAM3 text encoder to three student text encoders (MobileCLIP S0, S1, 2-L variants)
-- Use [SA-1B](https://ai.meta.com/datasets/segment-anything/) dataset with Prompt-in-the-Loop Distillation for image encoder distillation
+- Use [SA-1B](https://ai.meta.com/datasets/segment-anything/) dataset with feature-level distillation
 - Use [Recap-DataComp-1B](https://huggingface.co/datasets/UCSC-VLAA/Recap-DataComp-1B) dataset for text encoder distillation
-- Align student backbone features with teacher encoder outputs.
+- Align student backbone features with teacher encoder outputs
+- **See:** [README_stage1.md](README_stage1.md)
+
+### Stage 1 Geometry Finetune: Geometry-in-the-Loop Distillation (Optional Enhancement)
+
+- Fine-tune the converted Stage 1 models (efficient encoder + SAM3 decoder) with geometric prompts
+- Use iterative refinement: predict masks → sample correction points from disagreement regions → refine
+- Decoder-focused losses (BCE, Dice, IoU) to match teacher SAM3 mask predictions
+- Improves segmentation quality and geometric prompt robustness
+- **See:** [README_stage1_geometry_finetune.md](README_stage1_geometry_finetune.md)
 
 ### Stage 2: Temporal Memory Distillation (Video Tracking)
 
@@ -96,9 +105,10 @@ EfficientSAM3 is trained through a three-stage progressive distillation:
 - Preserve Promptable Concept Segmentation capabilities while maintaining efficiency
 
 ### tl;dr
-Stage 1: We distill the SAM3 encoder using SAM1 data. <br>
-Stage 2: We align the distilled encoder to a perceiver and an efficient memory bank using SAM2 data. <br>
-Stage 3: We fine-tune the complete pipeline using SAM3 data. <br>
+**Stage 1:** We distill the SAM3 encoder using SAM1 data (feature matching). <br>
+**Stage 1 Geometry Finetune (Optional):** We fine-tune with geometric prompts using geometry-in-the-loop (mask matching). <br>
+**Stage 2:** We align the distilled encoder to a perceiver and an efficient memory bank using SAM2 data. <br>
+**Stage 3:** We fine-tune the complete pipeline using SAM3 data. <br>
 
 </details>
 
@@ -178,7 +188,8 @@ For detailed examples including point/box prompts, batched inference, and more, 
 ## Training and Evaluation
 
 **Training:**
-- For Stage 1 encoder distillation training details, see [README_stage1.md](README_stage1.md).
+- **Stage 1** (Encoder distillation): See [README_stage1.md](README_stage1.md)
+- **Stage 1 Geometry Finetune** (Optional prompt-in-the-loop): See [README_stage1_geometry_finetune.md](README_stage1_geometry_finetune.md)
 - Stage 2 and Stage 3 training details coming soon.
 
 **Evaluation:**

@@ -1,0 +1,15 @@
+BASE: ['base_stage1_geometry_finetune.yaml']
+
+MODEL:
+  NAME: ES-RV-M
+  BACKBONE: repvit_m1_1
+  PRETRAINED: output/efficient_sam3_repvit_m.pt
+
+DISTILL:
+  PROMPT_TYPE: ['box', 'point', 'mask']
+  USE_MASK_PROMPT: True
+  MASK_PROMPT_FROM_PREV_ITER: True
+  DECODE_ITERS: 3
+
+OUTPUT: output/stage1_geometry_finetune/es_rv_m
+TAG: mask_prompt
