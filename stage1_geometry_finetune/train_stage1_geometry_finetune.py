@@ -56,15 +56,50 @@ def main(args, config):
     # Load the converted stage1 model (efficient encoder + SAM3 decoder)
     from sam3.model_builder import build_efficientsam3_image_model
     
+    # 1. Build model structure (Random Init)
     model = build_efficientsam3_image_model(
         bpe_path=None,
-        checkpoint_path=config.MODEL.PRETRAINED,
+        checkpoint_path=None, # Don't load yet
         load_from_HF=False,
         enable_inst_interactivity=True,
         enable_text_encoder=config.DISTILL.ENABLE_TEXT_ENCODER,  # Keep text encoder if needed
         backbone_type=config.MODEL.BACKBONE.split('_')[0],  # repvit, tinyvit, or efficientvit
         model_name='_'.join(config.MODEL.BACKBONE.split('_')[1:]),
     )
+
+    # 2. Load SAM3 weights (Decoder, Prompt Encoder, etc.)
+    if config.MODEL.SAM3_CHECKPOINT:
+        logger.info(f"Loading SAM3 weights from {config.MODEL.SAM3_CHECKPOINT}")
+        with open(config.MODEL.SAM3_CHECKPOINT, "rb") as f:
+            ckpt = torch.load(f, map_location="cpu")
+        if "model" in ckpt: ckpt = ckpt["model"]
+        
+        sam3_state_dict = {}
+        for k, v in ckpt.items():
+            # Strip prefixes if needed to match model keys
+            key = k.replace("detector.", "")
+            if "tracker." in key:
+                key = key.replace("tracker.", "inst_interactive_predictor.model.")
+            
+            # Skip backbone keys (ViT vs EfficientViT)
+            if "backbone.vision_backbone" in key:
+                continue
+            
+            sam3_state_dict[key] = v
+            
+        msg = model.load_state_dict(sam3_state_dict, strict=False)
+        logger.info(f"Loaded SAM3 weights. Missing keys (expected for backbone): {msg.missing_keys}")
+
+    # 3. Load Stage 1 Pretrained Weights (Efficient Backbone)
+    if config.MODEL.PRETRAINED:
+        logger.info(f"Loading Stage 1 pretrained weights from {config.MODEL.PRETRAINED}")
+        with open(config.MODEL.PRETRAINED, "rb") as f:
+            ckpt = torch.load(f, map_location="cpu")
+        if "model" in ckpt: ckpt = ckpt["model"]
+        
+        # These keys should match the student backbone
+        msg = model.load_state_dict(ckpt, strict=False)
+        logger.info(f"Loaded Stage 1 weights. Missing keys (expected for decoder): {msg.missing_keys}")
     
     if not args.only_cpu:
         model.cuda()
@@ -297,13 +332,15 @@ def forward_sam3_batch(
     
     # Reshape features
     feats = []
-    for feat, feat_size in zip(vision_feats[::-1], predictor._bb_feat_sizes[::-1]):
+    for feat in vision_feats[::-1]:
         # feat: (HW, B, C)
         # permute(1, 2, 0) -> (B, C, HW)
         # view(B, C, H, W)
         B = feat.shape[1]
         C = feat.shape[2]
-        H, W = feat_size
+        HW = feat.shape[0]
+        H = int(np.sqrt(HW))
+        W = H
         feats.append(feat.permute(1, 2, 0).view(B, C, H, W))
         
     feats = feats[::-1]
@@ -350,10 +387,20 @@ def forward_sam3_batch(
             align_corners=False
         )
     
+    # Get and resize image positional encodings
+    image_pe = prompt_encoder.get_dense_pe()
+    if image_pe.shape[-2:] != image_embed.shape[-2:]:
+        image_pe = F.interpolate(
+            image_pe,
+            size=image_embed.shape[-2:],
+            mode='bilinear',
+            align_corners=False
+        )
+
     # Predict masks
     low_res_masks, iou_predictions, _, _ = mask_decoder(
         image_embeddings=image_embed,
-        image_pe=prompt_encoder.get_dense_pe(),
+        image_pe=image_pe,
         sparse_prompt_embeddings=sparse_embeddings,
         dense_prompt_embeddings=dense_embeddings,
         multimask_output=multimask_output,
@@ -362,6 +409,42 @@ def forward_sam3_batch(
     )
     
     return low_res_masks, iou_predictions, None
+
+
+def forward_teacher_backbone_from_embeddings(teacher, embeddings):
+    """
+    Forward pass for teacher backbone using pre-computed embeddings.
+    This skips the heavy ViT trunk and only runs the FPN neck.
+    """
+    neck = teacher.backbone.vision_backbone
+    x = embeddings
+    
+    sam3_out, sam3_pos = [], []
+    sam2_out, sam2_pos = None, None
+    
+    if neck.sam2_convs is not None:
+        sam2_out, sam2_pos = [], []
+        
+    for i in range(len(neck.convs)):
+        sam3_x_out = neck.convs[i](x)
+        sam3_pos_out = neck.position_encoding(sam3_x_out).to(sam3_x_out.dtype)
+        sam3_out.append(sam3_x_out)
+        sam3_pos.append(sam3_pos_out)
+
+        if neck.sam2_convs is not None:
+            sam2_x_out = neck.sam2_convs[i](x)
+            sam2_pos_out = neck.position_encoding(sam2_x_out).to(sam2_x_out.dtype)
+            sam2_out.append(sam2_x_out)
+            sam2_pos.append(sam2_pos_out)
+            
+    return {
+        "vision_features": sam3_out,
+        "vision_pos_enc": sam3_pos,
+        "sam2_backbone_out": {
+            "backbone_fpn": sam2_out,
+            "vision_pos_enc": sam2_pos,
+        } if sam2_out is not None else None
+    }
 
 
 def train_one_epoch(
@@ -435,18 +518,40 @@ def train_one_epoch(
             if "sam2_backbone_out" in backbone_out and backbone_out["sam2_backbone_out"] is not None:
                 mask_decoder = actual_model.inst_interactive_predictor.model.sam_mask_decoder
                 fpn_feats = backbone_out["sam2_backbone_out"]["backbone_fpn"]
-                # Project level 0 and level 1
-                fpn_feats[0] = mask_decoder.conv_s0(fpn_feats[0])
-                fpn_feats[1] = mask_decoder.conv_s1(fpn_feats[1])
+                # print(f"DEBUG: fpn_feats len: {len(fpn_feats)}")
+                # for i, f in enumerate(fpn_feats):
+                #     print(f"DEBUG: fpn_feats[{i}] shape: {f.shape}")
+                
+                # If we have 4 levels (stride 4, 8, 16, 32), SAM usually uses last 3 (8, 16, 32).
+                # We need to project the first two of the USED levels.
+                # So if len is 4, we want indices 1 and 2.
+                # If len is 3, we want indices 0 and 1.
+                
+                start_idx = len(fpn_feats) - 3
+                if start_idx < 0: start_idx = 0 # Should not happen if len >= 3
+                
+                # Project level 0 and level 1 of the used features
+                # fpn_feats[start_idx] corresponds to feat_s0 (stride 8 usually)
+                # fpn_feats[start_idx+1] corresponds to feat_s1 (stride 16 usually)
+                
+                fpn_feats[start_idx] = mask_decoder.conv_s0(fpn_feats[start_idx])
+                fpn_feats[start_idx+1] = mask_decoder.conv_s1(fpn_feats[start_idx+1])
 
             # Teacher backbone
             with torch.no_grad():
-                teacher_backbone_out = teacher.backbone.forward_image(samples)
+                # OPTIMIZATION: Use saved embeddings instead of running full teacher backbone
+                # teacher_backbone_out = teacher.backbone.forward_image(samples)
+                teacher_backbone_out = forward_teacher_backbone_from_embeddings(teacher, saved_embeddings)
+                
                 if "sam2_backbone_out" in teacher_backbone_out and teacher_backbone_out["sam2_backbone_out"] is not None:
                     t_mask_decoder = teacher.inst_interactive_predictor.model.sam_mask_decoder
                     t_fpn_feats = teacher_backbone_out["sam2_backbone_out"]["backbone_fpn"]
-                    t_fpn_feats[0] = t_mask_decoder.conv_s0(t_fpn_feats[0])
-                    t_fpn_feats[1] = t_mask_decoder.conv_s1(t_fpn_feats[1])
+                    
+                    start_idx = len(t_fpn_feats) - 3
+                    if start_idx < 0: start_idx = 0
+                    
+                    t_fpn_feats[start_idx] = t_mask_decoder.conv_s0(t_fpn_feats[start_idx])
+                    t_fpn_feats[start_idx+1] = t_mask_decoder.conv_s1(t_fpn_feats[start_idx+1])
 
             # Store inference state for predict_inst calls
             inference_state = {
@@ -586,7 +691,7 @@ def train_one_epoch(
                         mask_t_bin = mask_t_bin[batch_range, max_iou_idx].unsqueeze(1)
                     
                     # Option 1: Use previous iteration's mask as mask prompt
-                    if config.DISTILL.MASK_PROMPT_FROM_PREV_ITER and masks is not None:
+                    if config.DISTILL.MASK_PROMPT_FROM_PREV_ITER:
                         # Use student's prediction as low-res mask input
                         mask_input_size = 256
                         prev_mask = F.interpolate(
@@ -638,6 +743,15 @@ def train_one_epoch(
                     (cur_multimask_output > 1),
                     num_prompts=num_prompts
                 )
+                
+                # Interpolate teacher mask if needed (e.g. if using saved embeddings with different resolution)
+                if mask_t.shape[-2:] != mask_s.shape[-2:]:
+                    mask_t = F.interpolate(
+                        mask_t,
+                        size=mask_s.shape[-2:],
+                        mode='bilinear',
+                        align_corners=False
+                    )
 
             # Compute decoder losses
             if config.DISTILL.DECODER_BCE > 0 or config.DISTILL.DECODER_FOCAL > 0 or config.DISTILL.DECODER_DICE > 0:
