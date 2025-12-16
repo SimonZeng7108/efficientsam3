@@ -121,23 +121,36 @@ def main():
     # 2. Handle Text Student Weights
     print(f"Merging Text Student weights (prefix: {text_prefix})...")
     
-    # If using teacher embeddings, first copy teacher embedding weights
+    # If using teacher embeddings (Option 3), copy teacher embedding weights to MobileCLIP's expected locations
+    # SAM3 teacher has: encoder.token_embedding.weight [vocab, 1024], encoder.positional_embedding [ctx, 1024]
+    # MobileCLIP expects: encoder.embedding_layer.weight [vocab, dim], encoder.positional_embedding.pos_embed.pos_embed [1, 1, ctx, dim]
     if uses_teacher_embed:
         for key, value in teacher_sd.items():
             if 'language_backbone.encoder.token_embedding.weight' in key:
-                new_key = f"{text_prefix}token_embedding.weight"
+                # Map to MobileCLIP's embedding_layer
+                new_key = f"{text_prefix}encoder.embedding_layer.weight"
                 merged[new_key] = value
-                print(f"  Copied teacher: {key} -> {new_key}")
+                print(f"  Copied teacher: {key} -> {new_key} (shape: {value.shape})")
             elif 'language_backbone.encoder.positional_embedding' in key:
-                new_key = f"{text_prefix}positional_embedding"
-                merged[new_key] = value
-                print(f"  Copied teacher: {key} -> {new_key}")
+                # Map to MobileCLIP's positional_embedding structure
+                # SAM3 has shape [context_length, embed_dim], MobileCLIP expects [1, 1, context_length, embed_dim]
+                pos_embed = value
+                if pos_embed.dim() == 2:
+                    pos_embed = pos_embed.unsqueeze(0).unsqueeze(0)  # [ctx, dim] -> [1, 1, ctx, dim]
+                new_key = f"{text_prefix}encoder.positional_embedding.pos_embed.pos_embed"
+                merged[new_key] = pos_embed
+                print(f"  Copied teacher: {key} -> {new_key} (reshaped: {value.shape} -> {pos_embed.shape})")
     
     # Add text student weights
     for key, value in text_sd.items():
-        # Skip teacher embedding weights from student checkpoint if present
+        # Skip teacher embedding weights from student checkpoint if present (Option 3)
         if uses_teacher_embed and key in ['token_embedding.weight', 'positional_embedding']:
             print(f"  Skipping student embedding (using teacher's): {key}")
+            continue
+        
+        # Skip embed_proj for teacher-embed models (it's only used during training, not inference)
+        if uses_teacher_embed and key.startswith('embed_proj'):
+            print(f"  Skipping training-only layer: {key}")
             continue
         
         merged_key = f"{text_prefix}{key}"
