@@ -22,9 +22,9 @@ from sam3.backbones.efficientvit import (
     efficientvit_backbone_b1,
     efficientvit_backbone_b2,
 )
-from sam3.sam3.backbones.mobile_clip import MobileCLIPTextTransformer
+from sam3.backbones.mobile_clip import MobileCLIPTextTransformer
 from sam3.model.tokenizer_ve import SimpleTokenizer
-from sam3.model.text_encoder_student import TextStudentEncoder
+from sam3.model.text_encoder_student import TextStudentEncoder, TextStudentEncoderWithTeacherEmbed
 
 
 def build_image_student_model(config):
@@ -41,6 +41,10 @@ def build_image_student_model(config):
 
 def build_text_student_model(config, logger=None):
     backbone = config.MODEL.BACKBONE
+    
+    # Check if we should use teacher embeddings (Option 3)
+    use_teacher_embed = getattr(config.MODEL, 'USE_TEACHER_EMBED', False)
+    teacher_checkpoint = getattr(config.MODEL, 'TEACHER_CHECKPOINT', None)
     
     # Default config values
     cfg = {
@@ -95,6 +99,37 @@ def build_text_student_model(config, logger=None):
         # Default fallback
         pass
 
+    # Choose model class based on whether we use teacher embeddings
+    if use_teacher_embed:
+        if logger:
+            logger.info("Using teacher embeddings (frozen) with student transformer")
+        
+        if not teacher_checkpoint:
+            raise ValueError(
+                "MODEL.USE_TEACHER_EMBED is True but MODEL.TEACHER_CHECKPOINT is not set. "
+                "Please provide the path to the SAM3 checkpoint."
+            )
+        
+        model = TextStudentEncoderWithTeacherEmbed(
+            cfg=cfg,
+            context_length=32,  # Match teacher input length
+            output_dim=config.DISTILL.EMBED_DIM,
+            teacher_embed_dim=1024,  # SAM3 teacher uses 1024-dim embeddings
+        )
+        
+        # Load and freeze teacher embeddings
+        model.load_teacher_embeddings(teacher_checkpoint, logger=logger)
+        
+        if logger:
+            # Count trainable vs frozen parameters
+            total_params = sum(p.numel() for p in model.parameters())
+            trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+            frozen_params = total_params - trainable_params
+            logger.info(f"Model parameters: total={total_params:,}, trainable={trainable_params:,}, frozen={frozen_params:,}")
+        
+        return model
+
+    # Standard approach: full student replacement
     model = TextStudentEncoder(
         cfg=cfg,
         context_length=32, # Match teacher input length

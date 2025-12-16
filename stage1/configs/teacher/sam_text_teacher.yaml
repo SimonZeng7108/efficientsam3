@@ -6,6 +6,16 @@ MODEL:
 TRAIN:
   EPOCHS: 1
 
+AMP_ENABLE: True
+OUTPUT: output/stage1_text_teacher
+TAG: default
+SAVE_FREQ: 1
+PRINT_FREQ: 10
+SEED: 0
+EVAL_MODE: False
+THROUGHPUT_MODE: False
+LOCAL_RANK: 0
+
 DATA:
   DATASET: recap_datacomp
   DATA_PATH: data/recap_subset

@@ -36,7 +36,7 @@ from sam3.model.sam3_tracking_predictor import Sam3TrackerPredictor
 from sam3.model.sam3_video_inference import Sam3VideoInferenceWithInstanceInteractivity
 from sam3.model.sam3_video_predictor import Sam3VideoPredictorMultiGPU
 from sam3.model.text_encoder_ve import VETextEncoder
-from sam3.model.text_encoder_student import TextStudentEncoder
+from sam3.model.text_encoder_student import TextStudentEncoder, TextStudentEncoderWithTeacherEmbed
 from sam3.model.tokenizer_ve import SimpleTokenizer
 from sam3.model.vitdet import ViT
 from sam3.model.vl_combiner import SAM3VLBackbone
@@ -553,6 +553,74 @@ def _create_student_text_encoder(bpe_path: str, backbone_type: str) -> TextStude
     )
 
 
+def _create_student_text_encoder_with_teacher_embed(
+    bpe_path: str, 
+    backbone_type: str,
+) -> TextStudentEncoderWithTeacherEmbed:
+    """Create Student text encoder that uses teacher embeddings (frozen).
+    
+    This variant keeps the teacher's token_embedding and positional_embedding frozen,
+    and only trains the transformer + projector. Better for convergence with limited data.
+    The embeddings are loaded from the checkpoint during load_state_dict.
+    """
+    # Strip the -TeacherEmbed suffix to get base type
+    base_type = backbone_type.replace("-TeacherEmbed", "")
+    
+    # Default config values
+    cfg = {
+        "context_length": 77,
+        "vocab_size": 49408,
+        "dim": 512,
+        "ffn_multiplier_per_layer": 4.0,
+        "n_heads_per_layer": 8,
+        "n_transformer_layers": 12,
+        "norm_layer": "layer_norm_fp32",
+        "causal_masking": False,
+        "model_name": "base",
+        "embed_dropout": 0.0,
+        "no_scale_embedding": False,
+        "no_pos_embedding": False,
+    }
+
+    if base_type == "MobileCLIP-S0":
+        cfg.update({
+            "dim": 512,
+            "n_transformer_layers": 4,
+            "n_heads_per_layer": 8,
+            "model_name": "mct",
+        })
+    elif base_type in ["MobileCLIP-S1", "MobileCLIP2-S0", "MobileCLIP2-S2"]:
+        cfg.update({
+            "dim": 512,
+            "n_transformer_layers": 12,
+            "n_heads_per_layer": 8,
+            "model_name": "base",
+        })
+    elif base_type == "MobileCLIP-B":
+        cfg.update({
+            "dim": 512,
+            "n_transformer_layers": 12,
+            "n_heads_per_layer": 8,
+            "model_name": "base",
+            "causal_masking": True,
+        })
+    elif base_type in ["MobileCLIP2-S3", "MobileCLIP2-S4", "MobileCLIP2-L"]:
+        cfg.update({
+            "dim": 768,
+            "n_transformer_layers": 12,
+            "n_heads_per_layer": 12,
+            "model_name": "base", 
+        })
+    
+    return TextStudentEncoderWithTeacherEmbed(
+        cfg=cfg,
+        context_length=32,  # Match teacher input length
+        output_dim=256,  # SAM3 d_model
+        teacher_embed_dim=1024,  # SAM3 teacher embedding dimension
+        bpe_path=bpe_path,
+    )
+
+
 def _create_vision_backbone(
     compile_mode=None, enable_inst_interactivity=True
 ) -> Sam3DualViTDetNeck:
@@ -933,7 +1001,12 @@ def build_efficientsam3_image_model(
 
     # Create text components
     if text_encoder_type:
-        text_encoder = _create_student_text_encoder(bpe_path, text_encoder_type)
+        if "-TeacherEmbed" in text_encoder_type:
+            text_encoder = _create_student_text_encoder_with_teacher_embed(
+                bpe_path, text_encoder_type
+            )
+        else:
+            text_encoder = _create_student_text_encoder(bpe_path, text_encoder_type)
     else:
         text_encoder = _create_text_encoder(bpe_path)
 

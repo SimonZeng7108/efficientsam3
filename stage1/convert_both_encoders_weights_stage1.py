@@ -22,6 +22,13 @@ def _load_state_dict(path: str):
             return obj
     raise ValueError(f"Unable to extract a state_dict from {path}")
 
+
+def detect_teacher_embed_model(student_sd):
+    """Detect if the student model uses teacher embeddings (TextStudentEncoderWithTeacherEmbed)."""
+    # Check for the embed_proj layer which only exists in TextStudentEncoderWithTeacherEmbed
+    return any('embed_proj' in key for key in student_sd.keys())
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         "Combine Stage-1 student image and text encoders with a full SAM3 checkpoint",
@@ -63,6 +70,15 @@ def parse_args():
         default="mobileclip_s0",
         help="Name of the text student model (used for filename).",
     )
+    parser.add_argument(
+        "--use-teacher-embed",
+        action="store_true",
+        help=(
+            "If set, indicates the text student uses teacher embeddings (TextStudentEncoderWithTeacherEmbed). "
+            "This will preserve teacher embedding weights in the merged checkpoint. "
+            "Auto-detected if not specified."
+        ),
+    )
     return parser.parse_args()
 
 def main():
@@ -80,6 +96,13 @@ def main():
     print(f"Loading SAM3 Teacher: {args.sam3_ckpt}")
     teacher_sd = _load_state_dict(args.sam3_ckpt)
 
+    # Auto-detect if text student uses teacher embeddings
+    uses_teacher_embed = args.use_teacher_embed or detect_teacher_embed_model(text_sd)
+    if uses_teacher_embed:
+        print("Detected: Text student uses teacher embeddings (TextStudentEncoderWithTeacherEmbed)")
+        print("  - Teacher token_embedding and positional_embedding will be preserved")
+        print("  - Student embed_proj, encoder, and projector will be merged")
+
     merged = {}
     
     # Prefixes
@@ -95,9 +118,28 @@ def main():
         merged_key = f"{image_prefix}{key}"
         merged[merged_key] = value
 
-    # 2. Add Text Student Weights
+    # 2. Handle Text Student Weights
     print(f"Merging Text Student weights (prefix: {text_prefix})...")
+    
+    # If using teacher embeddings, first copy teacher embedding weights
+    if uses_teacher_embed:
+        for key, value in teacher_sd.items():
+            if 'language_backbone.encoder.token_embedding.weight' in key:
+                new_key = f"{text_prefix}token_embedding.weight"
+                merged[new_key] = value
+                print(f"  Copied teacher: {key} -> {new_key}")
+            elif 'language_backbone.encoder.positional_embedding' in key:
+                new_key = f"{text_prefix}positional_embedding"
+                merged[new_key] = value
+                print(f"  Copied teacher: {key} -> {new_key}")
+    
+    # Add text student weights
     for key, value in text_sd.items():
+        # Skip teacher embedding weights from student checkpoint if present
+        if uses_teacher_embed and key in ['token_embedding.weight', 'positional_embedding']:
+            print(f"  Skipping student embedding (using teacher's): {key}")
+            continue
+        
         merged_key = f"{text_prefix}{key}"
         merged[merged_key] = value
 
@@ -115,6 +157,11 @@ def main():
         if key.startswith(text_prefix):
             replaced += 1
             continue
+        
+        # Skip if already in merged (e.g., from student weights)
+        if key in merged:
+            skipped += 1
+            continue
             
         # If not replaced, keep it
         merged[key] = value
@@ -122,8 +169,12 @@ def main():
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
     torch.save({"model": merged}, args.output)
-    print(f"Combined checkpoint saved to: {args.output}")
-    print(f"Teacher params: Replaced={replaced}, Appended={appended}")
+    print(f"\nCombined checkpoint saved to: {args.output}")
+    print(f"Image student params copied: {len(image_sd)}")
+    print(f"Text student params copied: {len(text_sd)}")
+    if uses_teacher_embed:
+        print(f"Teacher embeddings preserved: token_embedding, positional_embedding")
+    print(f"Teacher params: Replaced={replaced}, Skipped={skipped}, Appended={appended}")
 
 if __name__ == "__main__":
     main()

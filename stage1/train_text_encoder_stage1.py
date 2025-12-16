@@ -321,33 +321,36 @@ if __name__ == "__main__":
     random.seed(seed)
     cudnn.benchmark = True
 
-    linear_scaled_lr = (
-        config.TRAIN.BASE_LR
-        * config.DATA.BATCH_SIZE
-        * dist.get_world_size()
-        / 512.0
-    )
-    linear_scaled_warmup_lr = (
-        config.TRAIN.WARMUP_LR
-        * config.DATA.BATCH_SIZE
-        * dist.get_world_size()
-        / 512.0
-    )
-    linear_scaled_min_lr = (
-        config.TRAIN.MIN_LR
-        * config.DATA.BATCH_SIZE
-        * dist.get_world_size()
-        / 512.0
-    )
-    if config.TRAIN.ACCUMULATION_STEPS > 1:
-        linear_scaled_lr *= config.TRAIN.ACCUMULATION_STEPS
-        linear_scaled_warmup_lr *= config.TRAIN.ACCUMULATION_STEPS
-        linear_scaled_min_lr *= config.TRAIN.ACCUMULATION_STEPS
-    config.defrost()
-    config.TRAIN.BASE_LR = linear_scaled_lr
-    config.TRAIN.WARMUP_LR = linear_scaled_warmup_lr
-    config.TRAIN.MIN_LR = linear_scaled_min_lr
-    config.freeze()
+    # LR scaling: scale by batch_size/512 for large-scale training
+    # Disable with TRAIN.SCALE_LR=False for tiny test datasets
+    if config.TRAIN.SCALE_LR:
+        linear_scaled_lr = (
+            config.TRAIN.BASE_LR
+            * config.DATA.BATCH_SIZE
+            * dist.get_world_size()
+            / 512.0
+        )
+        linear_scaled_warmup_lr = (
+            config.TRAIN.WARMUP_LR
+            * config.DATA.BATCH_SIZE
+            * dist.get_world_size()
+            / 512.0
+        )
+        linear_scaled_min_lr = (
+            config.TRAIN.MIN_LR
+            * config.DATA.BATCH_SIZE
+            * dist.get_world_size()
+            / 512.0
+        )
+        if config.TRAIN.ACCUMULATION_STEPS > 1:
+            linear_scaled_lr *= config.TRAIN.ACCUMULATION_STEPS
+            linear_scaled_warmup_lr *= config.TRAIN.ACCUMULATION_STEPS
+            linear_scaled_min_lr *= config.TRAIN.ACCUMULATION_STEPS
+        config.defrost()
+        config.TRAIN.BASE_LR = linear_scaled_lr
+        config.TRAIN.WARMUP_LR = linear_scaled_warmup_lr
+        config.TRAIN.MIN_LR = linear_scaled_min_lr
+        config.freeze()
 
     os.makedirs(config.OUTPUT, exist_ok=True)
     logger = create_logger(

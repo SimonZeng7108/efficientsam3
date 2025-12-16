@@ -7,7 +7,10 @@ from utils import LRSchedulerWrapper
 
 
 def build_scheduler(config, optimizer, n_iter_per_epoch):
+    # Ensure at least 1 step to avoid assertion errors with tiny datasets
+    n_iter_per_epoch = max(1, n_iter_per_epoch)
     num_steps = int(config.TRAIN.EPOCHS * n_iter_per_epoch)
+    num_steps = max(1, num_steps)  # Ensure t_initial > 0
     warmup_steps = int(config.TRAIN.WARMUP_EPOCHS * n_iter_per_epoch)
     decay_steps = int(
         config.TRAIN.LR_SCHEDULER.DECAY_EPOCHS * n_iter_per_epoch)

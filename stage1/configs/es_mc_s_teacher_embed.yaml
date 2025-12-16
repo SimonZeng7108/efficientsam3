@@ -1,0 +1,60 @@
+MODEL:
+  NAME: EfficientSAM3_Text_S_TeacherEmbed
+  BACKBONE: MobileCLIP-S0
+  PRETRAINED: ''
+  RESUME: ''
+  # Option 3: Keep teacher embeddings frozen, only train transformer
+  USE_TEACHER_EMBED: True
+  TEACHER_CHECKPOINT: sam3_checkpoints/sam3.pt
+
+TRAIN:
+  START_EPOCH: 0
+  EPOCHS: 50  # Fewer epochs needed since embeddings are frozen
+  WARMUP_EPOCHS: 5
+  WEIGHT_DECAY: 0.05
+  BASE_LR: 5e-3
+  SCALE_LR: True  # Scale LR by batch_size/512
+  WARMUP_LR: 1e-6
+  MIN_LR: 5e-6
+  CLIP_GRAD: 1.0
+  AUTO_RESUME: True
+  ACCUMULATION_STEPS: 2
+  USE_CHECKPOINT: False
+  LAYER_LR_DECAY: 0.9
+  EVAL_BN_WHEN_TRAINING: False
+  FIND_UNUSED_PARAMETERS: True
+
+  LR_SCHEDULER:
+    NAME: 'cosine'
+    DECAY_EPOCHS: 30
+    DECAY_RATE: 0.1
+
+  OPTIMIZER:
+    NAME: 'adamw'
+    EPS: 1e-8
+    BETAS: (0.9, 0.999)
+    MOMENTUM: 0.9
+
+AMP_ENABLE: True
+OUTPUT: output/stage1_text/mobileclip_s_teacher_embed
+TAG: default
+SAVE_FREQ: 1
+PRINT_FREQ: 10
+SEED: 0
+EVAL_MODE: False
+THROUGHPUT_MODE: False
+LOCAL_RANK: 0
+
+DATA:
+  IMG_SIZE: 1008
+  DATASET: recap_datacomp
+  DATA_PATH: data/recap_subset
+  BATCH_SIZE: 64
+  NUM_WORKERS: 8
+
+DISTILL:
+  EMBED_DIM: 256
+  NUM_EMBED: 32
+  TEACHER_EMBED_PATH: output/stage1_text_teacher/embeddings/
+  PIXEL_WISE: 1.0
+  COSINE: 1.0

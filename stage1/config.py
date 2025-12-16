@@ -39,6 +39,9 @@ _C.MODEL.NAME = 'efficient_sam3'
 _C.MODEL.BACKBONE = 'repvit_m0_9'
 _C.MODEL.PRETRAINED = ''
 _C.MODEL.RESUME = ''
+# Option 3: Use teacher embeddings (frozen) with student transformer
+_C.MODEL.USE_TEACHER_EMBED = False
+_C.MODEL.TEACHER_CHECKPOINT = ''  # Path to SAM3 checkpoint for loading teacher embeddings
 
 # -----------------------------------------------------------------------------
 # Distillation settings
@@ -76,6 +79,7 @@ _C.TRAIN.USE_CHECKPOINT = False
 _C.TRAIN.LAYER_LR_DECAY = 1.0
 _C.TRAIN.EVAL_BN_WHEN_TRAINING = False
 _C.TRAIN.FIND_UNUSED_PARAMETERS = False
+_C.TRAIN.SCALE_LR = True  # Scale LR by batch_size/512. Disable for tiny test datasets.
 
 _C.TRAIN.LR_SCHEDULER = CN()
 _C.TRAIN.LR_SCHEDULER.NAME = 'cosine'

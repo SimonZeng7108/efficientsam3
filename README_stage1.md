@@ -58,16 +58,25 @@ full SAM3 checkpoint for deployment.
    - **Resizer**: 0.26M (1024 $\to$ 256)
    - **Total**: 353.72M
 
-   **Full Student Architecture**:
+   **Full Student Architecture (Options 1 & 2)**:
    The student model replaces the entire teacher text encoder, including the embedding layer. It uses the same tokenizer but learns its own embeddings (initialized randomly or from MobileCLIP).
    
-   Structure: `Tokenizer -> Student Embed -> Student Transformer -> Projector`
+   Structure: `Tokenizer -> Student Embed (512/768) -> Student Transformer -> Projector (256)`
 
    | Student Model | Backbone | Params | vs. Teacher (354M) |
    | :--- | :--- | :--- | :--- |
    | **ES-MC-S** | MobileCLIP-S0 | **42.57M** | **87.96% smaller** |
    | **ES-MC-M** | MobileCLIP-S1 | **63.56M** | **82.03% smaller** |
    | **ES-MC-L** | MobileCLIP2-L | **123.6M** | **65.06% smaller** |
+
+   **Teacher Embed Architecture (Option 3)**:
+   The student keeps the teacher's token embeddings (frozen) and only trains the transformer + projector. This reduces trainable parameters and improves convergence.
+   
+   Structure: `Tokenizer -> Teacher Embed (1024, frozen) -> Proj (512) -> Student Transformer -> Projector (256)`
+   
+   | Student Model | Backbone | Trainable | Frozen (Embed) | Total |
+   | :--- | :--- | :--- | :--- | :--- |
+   | **ES-MC-S (teacher embed)** | MobileCLIP-S0 | **~17M** | **~51M** | **~68M** |
 
 7. **Shape Verification** – All student backbones have been verified to produce the correct embedding shapes to match the SAM3 teacher.
 
@@ -207,6 +216,40 @@ bash stage1/scripts/train_text_student.sh \
 
 > **Note:** The pretrained checkpoint contains both image and text encoders. The training script automatically extracts only the text encoder weights (embedding layer, transformer, layer norm, and MobileCLIP's internal 512→512 projection). An additional projector layer (512→256) is added and trained from scratch to match SAM3's 256-dim embedding space.
 
+**Option 3: Train with teacher embeddings frozen (RECOMMENDED for faster convergence)**
+
+This approach keeps the SAM3 teacher's token embeddings (49408 × 1024) frozen and only trains:
+- A projection layer (1024 → 512) to downsample embeddings
+- The MobileCLIP transformer
+- The output projector (512 → 256)
+
+**Why use this option?**
+- **Faster convergence**: No need to learn 50M+ embedding parameters
+- **Better rare token handling**: Teacher embeddings already encode rare tokens well
+- **Semantic alignment**: Student input embeddings are identical to teacher's
+
+```bash
+bash stage1/scripts/train_text_student.sh \
+  CFG=stage1/configs/es_mc_s_teacher_embed.yaml \
+  DATA_PATH=data \
+  OUTPUT=output/stage1_text/mobileclip_s_teacher_embed \
+  BATCH_SIZE=64 \
+  GPUS=1
+```
+
+> **Note:** This option requires the SAM3 teacher checkpoint (`sam3_checkpoints/sam3.pt`) to load the frozen embeddings. The architecture is:
+> ```
+> Token IDs → Teacher Embed (frozen, 49408×1024) → Proj (1024→512) → Student Transformer → Projector → [B, 32, 256]
+> ```
+
+**Comparison of Text Encoder Training Options:**
+
+| Option | Embeddings | Transformer | Training Time | Recommended For |
+|--------|------------|-------------|---------------|-----------------|
+| **1. From scratch** | Random init, trained | Trained | Longest | Large datasets |
+| **2. Pretrained** | MobileCLIP, trained | Trained | Medium | General use |
+| **3. Teacher embed** | SAM3 teacher, frozen | Trained | Fastest | Limited data, fast experiments |
+
 **Output structure**:
 ```
 output/stage1/repvit_m1/
@@ -233,8 +276,9 @@ the model zoo to configuration files.
 | ES-EV-M | `efficientvit_b1` | `stage1/configs/es_ev_m.yaml` |
 | ES-EV-L | `efficientvit_b2` | `stage1/configs/es_ev_l.yaml` |
 | | | |
-| ES-MC-S | `MobileCLIP-S0` | `stage1/configs/es_mc_s.yaml` (random init) |
-| ES-MC-S | `MobileCLIP-S0` | `stage1/configs/es_mc_s_pretrained.yaml` (pretrained) |
+| ES-MC-S | `MobileCLIP-S0` | `stage1/configs/es_mc_s.yaml` (Option 1: random init) |
+| ES-MC-S | `MobileCLIP-S0` | `stage1/configs/es_mc_s_pretrained.yaml` (Option 2: pretrained) |
+| ES-MC-S | `MobileCLIP-S0` | `stage1/configs/es_mc_s_teacher_embed.yaml` (Option 3: teacher embed) |
 | ES-MC-M | `MobileCLIP-S1` | `stage1/configs/es_mc_m.yaml` |
 | ES-MC-L | `MobileCLIP2-L` | `stage1/configs/es_mc_l.yaml` |
 
@@ -242,10 +286,14 @@ Key config fields:
 
 | Field | Description |
 |-------|-------------|
-| `MODEL.PRETRAINED` | (Text encoders only) Path to pretrained MobileCLIP checkpoint. If specified, text encoder weights are automatically extracted and loaded. |
-| `DISTILL.TEACHER_EMBED_PATH` | Directory created during the teacher pass. |
+| `MODEL.PRETRAINED` | (Text encoders, Options 1-2) Path to pretrained MobileCLIP checkpoint. If specified, text encoder weights are automatically extracted and loaded. |
+| `MODEL.USE_TEACHER_EMBED` | (Text encoders, Option 3) If `True`, uses frozen teacher embeddings instead of student embeddings. |
+| `MODEL.TEACHER_CHECKPOINT` | (Text encoders, Option 3) Path to SAM3 checkpoint for loading teacher embeddings. |
+| `DISTILL.TEACHER_EMBED_PATH` | Directory created during the teacher pass. **Must match between teacher and student configs.** |
 | `DISTILL.EMBED_SIZE` / `EMBED_DIM` | Embedding grid size (default `64×64×256`). Must match the saved blobs. |
 | `DATA.BATCH_SIZE`, `DATA.NUM_WORKERS` | Input pipeline throughput controls. |
+| `DATA.DATA_PATH` | **Must be identical between teacher and student configs** to ensure embedding alignment. |
+| `TRAIN.SCALE_LR` | If `True` (default), scales LR by `batch_size/512`. Set to `False` for small test datasets. |
 | `OUTPUT`, `TAG` | Where checkpoints and TensorBoard logs are written. |
 
 Stage‑1 loss = masked per-pixel MSE + 1.0 * Cosine Similarity computed on the resized embedding maps.
