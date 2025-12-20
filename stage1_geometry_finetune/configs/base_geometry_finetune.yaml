@@ -1,0 +1,87 @@
+# Base configuration for Stage 1 Geometry Fine-tuning
+# This is DUAL-PATH distillation: Embedding Loss + Mask Loss
+
+MODEL:
+  TYPE: "efficient_sam3"
+  NAME: "EfficientSAM3-GeometryFinetune"
+  PRETRAINED: ""  # Stage 1 checkpoint - set via command line
+  RESUME: ""
+  SAM3_CHECKPOINT: "sam3_checkpoints/sam3.pt"
+
+TRAIN:
+  START_EPOCH: 0
+  EPOCHS: 30
+  WARMUP_EPOCHS: 3
+  WEIGHT_DECAY: 0.01
+  BASE_LR: 1e-4  # Lower LR for fine-tuning
+  WARMUP_LR: 1e-7
+  MIN_LR: 1e-6
+  CLIP_GRAD: 5.0
+  AUTO_RESUME: True
+  ACCUMULATION_STEPS: 1
+  USE_CHECKPOINT: False
+  LAYER_LR_DECAY: 1.0
+  EVAL_BN_WHEN_TRAINING: False
+  FIND_UNUSED_PARAMETERS: False
+
+  LR_SCHEDULER:
+    NAME: 'cosine'
+    DECAY_EPOCHS: 20
+    DECAY_RATE: 0.1
+
+  OPTIMIZER:
+    NAME: 'adamw'
+    EPS: 1e-8
+    BETAS: (0.9, 0.999)
+    MOMENTUM: 0.9
+
+# Data settings
+DATA:
+  IMG_SIZE: 1008
+  DATASET: "sa1b"
+  DATA_PATH: "data/sa-1b"
+  BATCH_SIZE: 4
+  NUM_WORKERS: 8
+  NUM_SAMPLES: -1
+  SORT_BY_AREA: true
+  LOAD_GT_MASK: false
+  BOX_JITTER: true
+  MASK_NMS: 0.8
+  MAX_PROMPTS_PER_IMAGE: 16
+
+# Distillation settings - DUAL-PATH (Embedding + Mask)
+DISTILL:
+  ENABLED: true
+  EMBED_DIM: 1024
+  EMBED_SIZE: 72  # 1008/14 = 72 (matches Stage 1 teacher)
+  
+  # Teacher embeddings (reuse from Stage 1)
+  TEACHER_EMBED_PATH: "output/stage1_teacher/embeddings"
+  USE_SAVED_EMBEDDINGS: true
+  
+  # Loss weights - DUAL PATH
+  EMBEDDING_LOSS_WEIGHT: 1.0  # α - Embedding MSE
+  MASK_BCE_WEIGHT: 1.0        # β1 - Mask BCE
+  MASK_DICE_WEIGHT: 1.0       # β2 - Mask Dice
+  MASK_FOCAL_WEIGHT: 0.0      # Optional focal loss
+  IOU_LOSS_WEIGHT: 0.5        # γ - IoU prediction
+  
+  # Temperature for soft targets
+  TEMPERATURE: 1.0
+  
+  # Prompt settings
+  USE_BOX_PROMPTS: true
+  USE_POINT_PROMPTS: true
+  MAX_PROMPTS: 16
+  NO_RAND: false
+
+# Misc
+AMP_ENABLE: True
+OUTPUT: "output_geometry_finetune"
+TAG: "default"
+SAVE_FREQ: 5
+PRINT_FREQ: 10
+SEED: 0
+EVAL_MODE: False
+THROUGHPUT_MODE: False
+LOCAL_RANK: 0

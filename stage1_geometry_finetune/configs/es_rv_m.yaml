@@ -1,0 +1,9 @@
+# RepViT-M1.1 (Medium) - Geometry Fine-tuning
+BASE: ['base_geometry_finetune.yaml']
+
+MODEL:
+  NAME: ES-RV-M-GeometryFinetune
+  BACKBONE: repvit_m1_1
+
+OUTPUT: output_geometry_finetune/es_rv_m
+TAG: default

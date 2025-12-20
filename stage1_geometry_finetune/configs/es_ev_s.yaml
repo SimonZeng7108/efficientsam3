@@ -1,0 +1,9 @@
+# EfficientViT-B0 (Small) - Geometry Fine-tuning
+BASE: ['base_geometry_finetune.yaml']
+
+MODEL:
+  NAME: ES-EV-S-GeometryFinetune
+  BACKBONE: efficientvit_b0
+
+OUTPUT: output_geometry_finetune/es_ev_s
+TAG: default

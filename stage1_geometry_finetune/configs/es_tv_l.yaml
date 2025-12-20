@@ -1,0 +1,9 @@
+# TinyViT-21M (Large) - Geometry Fine-tuning
+BASE: ['base_geometry_finetune.yaml']
+
+MODEL:
+  NAME: ES-TV-L-GeometryFinetune
+  BACKBONE: tiny_vit_21m
+
+OUTPUT: output_geometry_finetune/es_tv_l
+TAG: default

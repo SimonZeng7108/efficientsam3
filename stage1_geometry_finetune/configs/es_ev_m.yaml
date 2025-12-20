@@ -1,0 +1,9 @@
+# EfficientViT-B1 (Medium) - Geometry Fine-tuning
+BASE: ['base_geometry_finetune.yaml']
+
+MODEL:
+  NAME: ES-EV-M-GeometryFinetune
+  BACKBONE: efficientvit_b1
+
+OUTPUT: output_geometry_finetune/es_ev_m
+TAG: default
