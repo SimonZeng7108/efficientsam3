@@ -257,9 +257,9 @@ def train_one_epoch(
             step = epoch * num_steps + idx
             loss_writer.add_scalar("loss/total", loss.item(), step)
         
-        # Break after 1 batch for testing
-        if idx >= 0:
-            logger.info("Breaking after 1 batch for testing.")
+        # Optional debug short-circuit
+        if getattr(config.DATA, 'DEBUG', False) and idx >= 0:
+            logger.info("DATA.DEBUG=True: breaking after 1 batch.")
             break
 
     epoch_time = time.time() - start

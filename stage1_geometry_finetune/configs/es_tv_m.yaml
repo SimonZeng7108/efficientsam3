@@ -4,6 +4,7 @@ BASE: ['base_geometry_finetune.yaml']
 MODEL:
   NAME: ES-TV-M-GeometryFinetune
   BACKBONE: tiny_vit_11m
+  PRETRAINED: output/efficient_sam3_tinyvit_m.pt
 
 OUTPUT: output_geometry_finetune/es_tv_m
 TAG: default

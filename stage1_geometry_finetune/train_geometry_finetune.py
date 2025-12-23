@@ -236,7 +236,12 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer,
     meters = defaultdict(AverageMeter)
     
     # Check if mask distillation is enabled
-    use_mask_loss = (config.DISTILL.MASK_BCE_WEIGHT > 0 or config.DISTILL.MASK_DICE_WEIGHT > 0)
+    use_mask_loss = (
+        config.DISTILL.MASK_BCE_WEIGHT > 0
+        or config.DISTILL.MASK_DICE_WEIGHT > 0
+        or config.DISTILL.MASK_FOCAL_WEIGHT > 0
+        or config.DISTILL.IOU_LOSS_WEIGHT > 0
+    )
     
     start = time.time()
     end = time.time()
@@ -251,6 +256,7 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer,
         boxes = batch['boxes'].cuda(non_blocking=True) if 'boxes' in batch else None
         points = batch['points'].cuda(non_blocking=True) if 'points' in batch else None
         point_labels = batch['point_labels'].cuda(non_blocking=True) if 'point_labels' in batch else None
+        prompt_mask = batch['prompt_mask'].cuda(non_blocking=True) if 'prompt_mask' in batch else None
         
         batch_size = images.shape[0]
         
@@ -269,19 +275,17 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer,
             
             # Forward student trunk → student embeddings
             student_embeddings = model_ref.forward_student(images)
-            
-            # Loss 1: Embedding distillation
-            losses = criterion(
-                student_embedding=student_embeddings,
-                teacher_embedding=teacher_embeddings,
-                valid_mask=valid_mask,
-            )
-            
-            # Loss 2: Mask distillation (if enabled)
-            if use_mask_loss and boxes is not None:
+
+            # Optional: Mask distillation
+            student_masks = None
+            teacher_masks = None
+            student_iou = None
+            teacher_iou = None
+
+            if use_mask_loss and (boxes is not None or points is not None):
                 # Convert boxes from xyxy normalized to cxcywh normalized
                 # Dataset returns xyxy format, SAM3 expects cxcywh
-                boxes_cxcywh = xyxy_to_cxcywh(boxes)
+                boxes_cxcywh = xyxy_to_cxcywh(boxes) if boxes is not None else None
                 
                 # Get teacher masks (teacher embedding → frozen SAM3 → mask)
                 with torch.no_grad():
@@ -290,9 +294,9 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer,
                         boxes=boxes_cxcywh,
                         points=points,
                         point_labels=point_labels,
+                        prompt_mask=prompt_mask,
                     )
                     teacher_masks = teacher_out.get('pred_masks')
-                    teacher_logits = teacher_out.get('pred_logits')
                 
                 # Get student masks (student embedding → frozen SAM3 → mask)
                 student_out = model_ref.forward_mask_prediction(
@@ -300,29 +304,28 @@ def train_one_epoch(config, model, criterion, data_loader, optimizer,
                     boxes=boxes_cxcywh,
                     points=points,
                     point_labels=point_labels,
+                    prompt_mask=prompt_mask,
                 )
                 student_masks = student_out.get('pred_masks')
-                student_logits = student_out.get('pred_logits')
-                
-                # Compute mask loss
-                if student_masks is not None and teacher_masks is not None:
-                    mask_losses = criterion(
-                        student_embedding=student_embeddings,
-                        teacher_embedding=teacher_embeddings,
-                        student_masks=student_masks,
-                        teacher_masks=teacher_masks,
-                        student_iou=student_logits,
-                        teacher_iou=teacher_logits,
-                        valid_mask=valid_mask,
-                    )
-                    
-                    # Add mask losses to total
-                    for k, v in mask_losses.items():
-                        if k not in losses:
-                            losses[k] = v
-                        elif k == 'total_loss':
-                            # Combine total losses
-                            losses[k] = losses[k] + v
+
+                # Try to find IoU-like predictions if they exist in the model outputs.
+                # IMPORTANT: `pred_logits` are class logits, not IoU.
+                for key in ('pred_ious', 'pred_iou', 'iou_pred', 'iou_preds'):
+                    if teacher_iou is None and key in teacher_out:
+                        teacher_iou = teacher_out[key]
+                    if student_iou is None and key in student_out:
+                        student_iou = student_out[key]
+
+            # Compute combined loss ONCE (prevents double-counting embedding loss)
+            losses = criterion(
+                student_embedding=student_embeddings,
+                teacher_embedding=teacher_embeddings,
+                student_masks=student_masks,
+                teacher_masks=teacher_masks,
+                student_iou=student_iou,
+                teacher_iou=teacher_iou,
+                valid_mask=valid_mask,
+            )
         
         # Scale loss for gradient accumulation
         loss = losses['total_loss'] / config.TRAIN.ACCUMULATION_STEPS

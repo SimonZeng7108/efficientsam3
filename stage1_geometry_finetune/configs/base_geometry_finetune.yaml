@@ -11,14 +11,16 @@ MODEL:
 TRAIN:
   START_EPOCH: 0
   EPOCHS: 30
-  WARMUP_EPOCHS: 3
+  WARMUP_EPOCHS: 2
   WEIGHT_DECAY: 0.01
-  BASE_LR: 1e-4  # Lower LR for fine-tuning
+  BASE_LR: 5e-5  # Lower LR for fine-tuning (more stable w/ mask distillation)
   WARMUP_LR: 1e-7
   MIN_LR: 1e-6
-  CLIP_GRAD: 5.0
+  CLIP_GRAD: 1.0
   AUTO_RESUME: True
-  ACCUMULATION_STEPS: 1
+  # Geometry finetune is commonly run with small per-GPU batches (e.g., 1).
+  # Use gradient accumulation to reach a reasonable effective batch size.
+  ACCUMULATION_STEPS: 8
   USE_CHECKPOINT: False
   LAYER_LR_DECAY: 1.0
   EVAL_BN_WHEN_TRAINING: False

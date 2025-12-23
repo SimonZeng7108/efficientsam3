@@ -348,17 +348,15 @@ def create_valid_mask(
     Returns:
         Valid mask (B, 1, embed_size, embed_size)
     """
-    valid = torch.zeros(batch_size, 1, embed_size, embed_size, device=device)
-    scale = embed_size / img_size
-    
+    # Build mask in padded image space (img_size x img_size) then downsample.
+    # This matches the Stage 1 approach and avoids rounding artifacts.
+    valid = torch.zeros(batch_size, 1, img_size, img_size, device=device)
+
     for i in range(batch_size):
-        if isinstance(img_sizes, torch.Tensor):
-            h, w = img_sizes[i]
-        else:
-            h, w = img_sizes[i]
-        
-        h_scaled = int(h * scale)
-        w_scaled = int(w * scale)
-        valid[i, :, :h_scaled, :w_scaled] = 1.0
-    
-    return valid
+        h, w = img_sizes[i] if isinstance(img_sizes, torch.Tensor) else img_sizes[i]
+        h_i = int(h)
+        w_i = int(w)
+        valid[i, :, :h_i, :w_i] = 1.0
+
+    valid = F.interpolate(valid, size=(embed_size, embed_size), mode="bilinear", align_corners=False)
+    return (valid > 0.5).float()

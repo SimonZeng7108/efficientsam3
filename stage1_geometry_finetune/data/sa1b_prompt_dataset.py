@@ -218,8 +218,10 @@ class SA1BPromptDataset(torch.utils.data.Dataset):
                 gt_masks = gt_masks[indices]
         
         # Apply transforms (resize)
+        # NOTE: ResizeLongestSide.apply_boxes_torch expects boxes in xyxy.
         img = self.transform.apply_image_torch(img[None].float()).squeeze(0)
-        boxes = self.transform.apply_boxes_torch(boxes, original_size)
+        boxes_xyxy = self._xywh_to_xyxy(boxes)
+        boxes_xyxy = self.transform.apply_boxes_torch(boxes_xyxy, original_size)
         points = self.transform.apply_coords_torch(points, original_size)
         if gt_masks is not None:
             gt_masks = self.transform.apply_masks_torch(gt_masks, original_size)
@@ -231,9 +233,6 @@ class SA1BPromptDataset(torch.utils.data.Dataset):
         img = self._pad(self._norm(img))
         if gt_masks is not None:
             gt_masks = self._pad(gt_masks)
-        
-        # Convert boxes from xywh to xyxy format
-        boxes_xyxy = self._xywh_to_xyxy(boxes)
         
         # Filter by area if requested
         if self.filter_by_area is not None:

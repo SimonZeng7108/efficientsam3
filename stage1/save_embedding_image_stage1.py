@@ -99,9 +99,9 @@ def save_embeddings_one_epoch(config, model, data_loader, epoch):
         batch_time.update(time.time() - end)
         end = time.time()
         
-        # Break after 1 batch for testing
-        if idx >= 0:
-            logger.info("Breaking after 1 batch for testing.")
+        # Optional debug short-circuit
+        if getattr(config.DATA, 'DEBUG', False) and idx >= 0:
+            logger.info("DATA.DEBUG=True: breaking after 1 batch.")
             break
 
         if idx % config.PRINT_FREQ == 0:

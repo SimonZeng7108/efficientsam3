@@ -4,6 +4,7 @@ BASE: ['base_geometry_finetune.yaml']
 MODEL:
   NAME: ES-RV-M-GeometryFinetune
   BACKBONE: repvit_m1_1
+  PRETRAINED: output/efficient_sam3_repvit_m.pt
 
 OUTPUT: output_geometry_finetune/es_rv_m
 TAG: default

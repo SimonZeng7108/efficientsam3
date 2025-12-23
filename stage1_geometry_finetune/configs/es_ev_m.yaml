@@ -4,6 +4,7 @@ BASE: ['base_geometry_finetune.yaml']
 MODEL:
   NAME: ES-EV-M-GeometryFinetune
   BACKBONE: efficientvit_b1
+  PRETRAINED: output/efficient_sam3_efficientvit_m.pt
 
 OUTPUT: output_geometry_finetune/es_ev_m
 TAG: default
