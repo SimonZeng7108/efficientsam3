@@ -168,7 +168,7 @@ def main(config):
     
     # Build optimizer and scheduler
     optimizer = build_optimizer(config, model)
-    n_iter_per_epoch = len(data_loader_train) // config.TRAIN.ACCUMULATION_STEPS
+    n_iter_per_epoch = max(1, len(data_loader_train) // config.TRAIN.ACCUMULATION_STEPS)
     lr_scheduler = build_scheduler(config, optimizer, n_iter_per_epoch)
     loss_scaler = NativeScalerWithGradNormCount()
     

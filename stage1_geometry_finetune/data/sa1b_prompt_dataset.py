@@ -90,30 +90,68 @@ class SA1BPromptDataset(torch.utils.data.Dataset):
         self.embed_dim = embed_dim
         self.embed_size = embed_size
         self.embed_shape = (embed_dim, embed_size, embed_size)
+        self.embed_item_size = 4 + embed_dim * embed_size * embed_size * 2  # seed + embedding (float16)
         
-        # Load embedding manager if path provided
-        # Embedding format: 4 bytes seed (int32) + embedding (float16)
-        # Embedding shape: (embed_dim, embed_size, embed_size)
-        # Item size = 4 + embed_dim * embed_size * embed_size * 2 (float16 = 2 bytes)
-        self.embed_manager = None
-        if teacher_embed_path and os.path.exists(teacher_embed_path):
-            from stage1.data.augmentation.manager import TxtManager
-            item_size = 4 + embed_dim * embed_size * embed_size * 2  # seed + embedding
-            self.embed_manager = TxtManager(teacher_embed_path, item_size, rank=0)
+        # NOTE: embed_manager is created lazily in _get_embed_manager() to handle
+        # multi-processing correctly. Each worker process needs its own file handles.
+        self._embed_manager = None
+        self._embed_manager_initialized = False
         
         self.num_samples = num_samples
         self.prepare_data()
         
         # For reproducibility with distributed training
         self._epoch = 0
+        
+        # Track failed embedding loads to avoid infinite loops
+        self._failed_keys = set()
+        self._max_retries = 100  # Max consecutive retries before raising error
+    
+    def _get_embed_manager(self):
+        """Lazily initialize the embed manager. 
+        
+        This is needed for multi-processing support - each worker process
+        needs its own TxtManager instance with separate file handles to avoid
+        seek conflicts when reading from the binary file concurrently.
+        """
+        if not self._embed_manager_initialized:
+            self._embed_manager_initialized = True
+            if self.teacher_embed_path and os.path.exists(self.teacher_embed_path):
+                from stage1.data.augmentation.manager import TxtManager
+                self._embed_manager = TxtManager(
+                    self.teacher_embed_path, self.embed_item_size, rank=0
+                )
+        return self._embed_manager
+    
+    def __getstate__(self):
+        """Handle pickling for DataLoader workers."""
+        state = self.__dict__.copy()
+        # Reset embed_manager so each worker creates its own instance
+        state['_embed_manager'] = None
+        state['_embed_manager_initialized'] = False
+        return state
+    
+    def __setstate__(self, state):
+        """Handle unpickling for DataLoader workers."""
+        self.__dict__.update(state)
     
     def prepare_data(self):
-        """Load image paths and annotation paths."""
+        """Load image paths and annotation paths, filtering by available embeddings."""
         self.data = []
         self.keys = []
         
         counter = 0
+        skipped_no_embed = 0
         img_pattern = f'{self.data_root}/images/{self.split}/*.jpg'
+        
+        # Create a temporary embed_manager for pre-filtering
+        # This instance is only used during init and won't be pickled
+        temp_embed_manager = None
+        if self.teacher_embed_path and os.path.exists(self.teacher_embed_path):
+            from stage1.data.augmentation.manager import TxtManager
+            temp_embed_manager = TxtManager(
+                self.teacher_embed_path, self.embed_item_size, rank=0
+            )
         
         for img_path in sorted(glob.glob(img_pattern)):
             name = Path(img_path).stem
@@ -121,6 +159,15 @@ class SA1BPromptDataset(torch.utils.data.Dataset):
             
             if not os.path.exists(anno_path):
                 continue
+            
+            # Pre-filter: Only include samples that have embeddings
+            if temp_embed_manager is not None:
+                try:
+                    # Check if embedding exists (quick read)
+                    temp_embed_manager.read(name)
+                except:
+                    skipped_no_embed += 1
+                    continue
             
             self.data.append((img_path, anno_path))
             self.keys.append(name)
@@ -130,6 +177,8 @@ class SA1BPromptDataset(torch.utils.data.Dataset):
                 break
         
         print(f"SA1BPromptDataset: Loaded {len(self.data)} samples from {self.split}")
+        if skipped_no_embed > 0:
+            print(f"SA1BPromptDataset: Skipped {skipped_no_embed} samples without embeddings")
     
     def set_epoch(self, epoch: int):
         """Set epoch for reproducible shuffling."""
@@ -138,7 +187,15 @@ class SA1BPromptDataset(torch.utils.data.Dataset):
     def __len__(self) -> int:
         return len(self.data)
     
-    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+    def __getitem__(self, idx: int, _retry_count: int = 0) -> Dict[str, torch.Tensor]:
+        # Prevent infinite loops
+        if _retry_count >= self._max_retries:
+            raise RuntimeError(
+                f"Failed to load sample after {self._max_retries} retries. "
+                f"Check that teacher embeddings exist for your dataset. "
+                f"Last attempted key: {self.keys[idx]}"
+            )
+        
         img_path, anno_path = copy.deepcopy(self.data[idx])
         key = self.keys[idx]
         
@@ -253,7 +310,7 @@ class SA1BPromptDataset(torch.utils.data.Dataset):
         
         # Ensure minimum prompts
         if boxes_xyxy.shape[0] < self.min_prompts_per_image:
-            return self.__getitem__((idx + 1) % len(self))
+            return self.__getitem__((idx + 1) % len(self), _retry_count + 1)
         
         # Point labels (all foreground for now)
         point_labels = torch.ones(points.shape[0], dtype=torch.long)
@@ -275,9 +332,12 @@ class SA1BPromptDataset(torch.utils.data.Dataset):
             result['gt_masks'] = gt_masks
         
         # Load teacher embedding if available
-        if self.embed_manager is not None:
+        # Note: Embeddings should already be pre-filtered in prepare_data()
+        # This is a fallback for any edge cases
+        embed_manager = self._get_embed_manager()
+        if embed_manager is not None:
             try:
-                raw_data = self.embed_manager.read(key)
+                raw_data = embed_manager.read(key)
                 seed_size = 4  # 1 int32 value for seed (4 bytes)
                 embedding_data = np.frombuffer(raw_data[seed_size:], dtype=np.float16)
                 teacher_embedding = torch.from_numpy(
@@ -285,9 +345,10 @@ class SA1BPromptDataset(torch.utils.data.Dataset):
                 ).float()
                 result['teacher_embedding'] = teacher_embedding
             except Exception as e:
-                # If embedding not found, skip this sample
-                print(f"Warning: Could not load embedding for {key}: {e}")
-                return self.__getitem__((idx + 1) % len(self))
+                # If embedding not found, skip this sample (with retry limit)
+                if _retry_count == 0:  # Only print warning on first retry
+                    print(f"Warning: Could not load embedding for {key}: {e}")
+                return self.__getitem__((idx + 1) % len(self), _retry_count + 1)
         
         return result
     

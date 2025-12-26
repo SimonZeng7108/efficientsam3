@@ -56,11 +56,16 @@ _C.DISTILL.TEACHER_EMBED_PATH = ''
 _C.DISTILL.USE_SAVED_EMBEDDINGS = True  # Use saved trunk embeddings for efficiency
 
 # Loss weights
-_C.DISTILL.EMBEDDING_LOSS_WEIGHT = 1.0  # MSE on trunk embeddings
+# NOTE: Measured raw loss scales (before training converges):
+#   embed_mse ~ 1000-1500 (large initially, decreases as student learns)
+#   mask_bce ~ 0.3-1.5, mask_dice ~ 0.97-1.0, total ~ 1.5-2.5
+# Weight = mask_total / embed_mse ≈ 2.0 / 1330 ≈ 0.0015
+_C.DISTILL.EMBEDDING_LOSS_WEIGHT = 0.0015  # MSE on trunk embeddings (empirically tuned)
 _C.DISTILL.MASK_BCE_WEIGHT = 1.0  # BCE loss on masks
 _C.DISTILL.MASK_DICE_WEIGHT = 1.0  # Dice loss on masks
 _C.DISTILL.MASK_FOCAL_WEIGHT = 0.0  # Focal loss (optional)
-_C.DISTILL.IOU_LOSS_WEIGHT = 0.5  # IoU prediction matching
+# NOTE: SAM3 doesn't output IoU predictions, so this is disabled
+_C.DISTILL.IOU_LOSS_WEIGHT = 0.0  # IoU prediction matching (disabled - SAM3 has no IoU output)
 
 # Temperature for mask distillation
 _C.DISTILL.TEMPERATURE = 1.0

@@ -61,12 +61,17 @@ DISTILL:
   TEACHER_EMBED_PATH: "output/stage1_teacher/embeddings"
   USE_SAVED_EMBEDDINGS: true
   
-  # Loss weights - DUAL PATH
-  EMBEDDING_LOSS_WEIGHT: 1.0  # α - Embedding MSE
-  MASK_BCE_WEIGHT: 1.0        # β1 - Mask BCE
-  MASK_DICE_WEIGHT: 1.0       # β2 - Mask Dice
-  MASK_FOCAL_WEIGHT: 0.0      # Optional focal loss
-  IOU_LOSS_WEIGHT: 0.5        # γ - IoU prediction
+  # Loss weights - DUAL PATH (empirically tuned)
+  # Measured raw loss scales:
+  #   embed_mse ~ 1000-1500 (before training converges)
+  #   mask_bce ~ 0.3-1.5, mask_dice ~ 0.97-1.0, total ~ 1.5-2.5
+  # Weight = mask_total / embed_mse ≈ 2.0 / 1330 ≈ 0.0015
+  EMBEDDING_LOSS_WEIGHT: 0.0015  # α - Embedding MSE (empirically tuned)
+  MASK_BCE_WEIGHT: 1.0           # β1 - Mask BCE
+  MASK_DICE_WEIGHT: 1.0          # β2 - Mask Dice
+  MASK_FOCAL_WEIGHT: 0.0         # Optional focal loss
+  # NOTE: SAM3 segmentation head doesn't output IoU predictions
+  IOU_LOSS_WEIGHT: 0.0           # γ - IoU prediction (disabled - not available in SAM3)
   
   # Temperature for soft targets
   TEMPERATURE: 1.0

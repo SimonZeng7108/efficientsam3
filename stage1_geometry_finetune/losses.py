@@ -219,11 +219,11 @@ class GeometryFinetuningLoss(nn.Module):
     
     def __init__(
         self,
-        embedding_weight: float = 1.0,
+        embedding_weight: float = 0.0015,  # Empirically tuned: mask_total / embed_mse ≈ 2.0 / 1330
         mask_bce_weight: float = 1.0,
         mask_dice_weight: float = 1.0,
         mask_focal_weight: float = 0.0,
-        iou_weight: float = 0.5,
+        iou_weight: float = 0.0,  # Disabled by default - SAM3 has no IoU output
         temperature: float = 1.0,
         use_cosine_embedding: bool = False,
     ):
@@ -235,6 +235,7 @@ class GeometryFinetuningLoss(nn.Module):
         self.iou_weight = iou_weight
         self.temperature = temperature
         self.use_cosine_embedding = use_cosine_embedding
+        self._iou_warning_shown = False
     
     def forward(
         self,
@@ -319,10 +320,21 @@ class GeometryFinetuningLoss(nn.Module):
                 total_loss = total_loss + self.mask_focal_weight * focal
         
         # IoU prediction loss
-        if student_iou is not None and teacher_iou is not None and self.iou_weight > 0:
-            iou_loss = F.mse_loss(student_iou, teacher_iou)
-            losses['iou_mse'] = iou_loss
-            total_loss = total_loss + self.iou_weight * iou_loss
+        # NOTE: SAM3's segmentation head does NOT output IoU predictions.
+        # This code path will only activate if future SAM versions add IoU output.
+        if self.iou_weight > 0:
+            if student_iou is not None and teacher_iou is not None:
+                iou_loss = F.mse_loss(student_iou, teacher_iou)
+                losses['iou_mse'] = iou_loss
+                total_loss = total_loss + self.iou_weight * iou_loss
+            elif not self._iou_warning_shown:
+                import warnings
+                warnings.warn(
+                    "IOU_LOSS_WEIGHT > 0 but IoU predictions not found in model output. "
+                    "SAM3's segmentation head doesn't output IoU predictions. "
+                    "Set IOU_LOSS_WEIGHT: 0.0 to silence this warning."
+                )
+                self._iou_warning_shown = True
         
         losses['total_loss'] = total_loss
         return losses
