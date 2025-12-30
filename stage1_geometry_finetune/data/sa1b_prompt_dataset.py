@@ -136,22 +136,12 @@ class SA1BPromptDataset(torch.utils.data.Dataset):
         self.__dict__.update(state)
     
     def prepare_data(self):
-        """Load image paths and annotation paths, filtering by available embeddings."""
+        """Load image paths and annotation paths."""
         self.data = []
         self.keys = []
         
         counter = 0
-        skipped_no_embed = 0
         img_pattern = f'{self.data_root}/images/{self.split}/*.jpg'
-        
-        # Create a temporary embed_manager for pre-filtering
-        # This instance is only used during init and won't be pickled
-        temp_embed_manager = None
-        if self.teacher_embed_path and os.path.exists(self.teacher_embed_path):
-            from stage1.data.augmentation.manager import TxtManager
-            temp_embed_manager = TxtManager(
-                self.teacher_embed_path, self.embed_item_size, rank=0
-            )
         
         for img_path in sorted(glob.glob(img_pattern)):
             name = Path(img_path).stem
@@ -159,15 +149,6 @@ class SA1BPromptDataset(torch.utils.data.Dataset):
             
             if not os.path.exists(anno_path):
                 continue
-            
-            # Pre-filter: Only include samples that have embeddings
-            if temp_embed_manager is not None:
-                try:
-                    # Check if embedding exists (quick read)
-                    temp_embed_manager.read(name)
-                except:
-                    skipped_no_embed += 1
-                    continue
             
             self.data.append((img_path, anno_path))
             self.keys.append(name)
@@ -177,8 +158,6 @@ class SA1BPromptDataset(torch.utils.data.Dataset):
                 break
         
         print(f"SA1BPromptDataset: Loaded {len(self.data)} samples from {self.split}")
-        if skipped_no_embed > 0:
-            print(f"SA1BPromptDataset: Skipped {skipped_no_embed} samples without embeddings")
     
     def set_epoch(self, epoch: int):
         """Set epoch for reproducible shuffling."""
