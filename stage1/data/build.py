@@ -8,6 +8,7 @@ from .coco_dataset import COCODataset
 from .coco_caption_dataset import COCOCaptionDataset
 from .recap_coco_dataset import RecapCOCODataset
 from .recap_datacomp_dataset import RecapDataCompDataset
+from .text_annotations_dataset import TextAnnotationsDataset
 from .sampler import MyDistributedSampler
 
 
@@ -113,6 +114,14 @@ def build_dataset(is_train, config):
     elif config.DATA.DATASET == 'recap_datacomp':
         num_samples = 100 if config.DATA.DEBUG else -1
         dataset = RecapDataCompDataset(
+            data_root=config.DATA.DATA_PATH,
+            split='train' if is_train else 'val',
+            num_samples=num_samples,
+        )
+        nb_classes = 0
+    elif config.DATA.DATASET == 'text_annotations':
+        num_samples = 100 if config.DATA.DEBUG else -1
+        dataset = TextAnnotationsDataset(
             data_root=config.DATA.DATA_PATH,
             split='train' if is_train else 'val',
             num_samples=num_samples,

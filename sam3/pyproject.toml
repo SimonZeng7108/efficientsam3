@@ -36,6 +36,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+sam1 = [
+    "segment-anything",
+]
 dev = [
     "pytest",
     "pytest-cov",
