@@ -261,13 +261,13 @@ For dataset setup and download scripts (`data/download_*.sh`) covering COCO, DAV
 | Model Name | Backbone | Parameters | COCO mIoU | Test Time (s) |
 |------------|----------|------------|-----------|---------------|
 | **ES-RV-S** | RepViT-M0.9 | 4.72M | 64.80% | 407.23 |
-| **ES-RV-M** | RepViT-M1.1 | 7.77M | 65.28% | 413.38 |
+| **ES-RV-M** | RepViT-M1.1 | 7.77M | 65.28% (ft 65.60%) | 413.38  |
 | **ES-RV-L** | RepViT-M2.3 | 22.40M | 65.53% | 466.66 |
 | **ES-TV-S** | TinyViT-5M | 5.07M | 65.51% | 430.52 |
-| **ES-TV-M** | TinyViT-11M | 10.55M | 65.45% | 443.45 |
+| **ES-TV-M** | TinyViT-11M | 10.55M | 65.45% (ft 65.69%) | 443.45  |
 | **ES-TV-L** | TinyViT-21M | 20.62M | 66.29% | 452.14 |
 | **ES-EV-S** | EfficientViT-B0 | 0.68M | 61.62% | 419.57 |
-| **ES-EV-M** | EfficientViT-B1 | 4.64M | 64.82% | 434.45 |
+| **ES-EV-M** | EfficientViT-B1 | 4.64M | 64.82% (ft 64.94%) | 434.45  |
 | **ES-EV-L** | EfficientViT-B2 | 14.98M | 66.30% | 450.36 |
 
 > **Note:** The evaluation is done with a single NVIDIA 4070 Ti.
