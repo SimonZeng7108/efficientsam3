@@ -24,7 +24,7 @@ from sam3.backbones.efficientvit import (
 )
 from sam3.sam3.backbones.mobile_clip import MobileCLIPTextTransformer
 from sam3.model.tokenizer_ve import SimpleTokenizer
-from sam3.model.text_encoder_student import TextStudentEncoder, CNNTextStudentEncoder
+from sam3.model.text_encoder_student import TextStudentEncoder
 
 
 def build_image_student_model(config):
@@ -66,22 +66,6 @@ def build_text_student_model(config, logger=None):
             "model_name": "mct",  # RepMixer architecture
             "ffn_multiplier_per_layer": 4.0,  # Original FFN multiplier
         })
-    elif backbone == "MobileCLIP-S0-Lite":
-        cfg.update({
-            "dim": 384,
-            "n_transformer_layers": 2, 
-            "n_heads_per_layer": 6,
-            "model_name": "mct",
-            "ffn_multiplier_per_layer": 4.0,
-        })
-    elif backbone == "CNN-S":
-        cfg.update({
-            "dim": 384,
-            "n_transformer_layers": 4, # Used as num_layers in CNN
-            "kernel_size": 3,
-            "embed_dropout": 0.1,
-            # model_name unused
-        })
     elif backbone in ["MobileCLIP-S1", "MobileCLIP2-S0", "MobileCLIP2-S2"]:
         cfg.update({
             "dim": 512,
@@ -114,18 +98,11 @@ def build_text_student_model(config, logger=None):
     # Get context length from config (default 32, can be 8 or 16 for efficiency)
     context_length = getattr(config.DISTILL, 'CONTEXT_LENGTH', 32)
     
-    if backbone == "CNN-S":
-        model = CNNTextStudentEncoder(
-            cfg=cfg,
-            context_length=context_length,
-            output_dim=config.DISTILL.EMBED_DIM,
-        )
-    else:
-        model = TextStudentEncoder(
-            cfg=cfg,
-            context_length=context_length,
-            output_dim=config.DISTILL.EMBED_DIM,
-        )
+    model = TextStudentEncoder(
+        cfg=cfg,
+        context_length=context_length,
+        output_dim=config.DISTILL.EMBED_DIM,
+    )
     
     if logger:
         logger.info(f"Text encoder context_length: {context_length}")

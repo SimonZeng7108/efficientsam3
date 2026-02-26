@@ -604,23 +604,6 @@ def _load_checkpoint(model, checkpoint_path):
         # e.g., ...backbone.model.student_trunk.head... -> ...backbone.model.head...
         if "student_trunk." in new_k:
             new_k = new_k.replace("student_trunk.", "")
-        
-        # Retrofit MobileCLIP Manual Attention -> nn.MultiheadAttention
-        if "qkv_proj.weight" in new_k:
-            new_k = new_k.replace("qkv_proj.weight", "attn.in_proj_weight")
-        elif "qkv_proj.bias" in new_k:
-            new_k = new_k.replace("qkv_proj.bias", "attn.in_proj_bias")
-        elif "out_proj.weight" in new_k and "language_backbone" in new_k: 
-            # Only replace out_proj if it's part of the language backbone (MobileCLIP)
-            # Standard ViT might have out_proj too?
-            # MobileCLIP text encoder is usually under 'backbone.language_backbone'
-            # Let's be safe and check if we are in the context of the attention module
-            # The old path was ...pre_norm_mha.1.out_proj.weight
-            if "pre_norm_mha" in new_k:
-                 new_k = new_k.replace("out_proj.weight", "attn.out_proj.weight")
-        elif "out_proj.bias" in new_k and "language_backbone" in new_k:
-            if "pre_norm_mha" in new_k:
-                new_k = new_k.replace("out_proj.bias", "attn.out_proj.bias")
 
         cleaned_ckpt[new_k] = v
         
@@ -709,8 +692,7 @@ def build_sam3_image_model(
     # Create text components
     if enable_text_encoder:
         if text_encoder_type:
-            # LiteText: use student text encoder, initialized with context_length=77
-            # for checkpoint weight compatibility
+            # LiteText: init at ctx=77 to match checkpoint pos-embed, then truncate after load.
             text_encoder = _create_student_text_encoder(
                 bpe_path, text_encoder_type, context_length=77
             )
@@ -1005,7 +987,7 @@ def build_efficientsam3_image_model(
 
     # Create text components
     if text_encoder_type:
-        # LiteText: initialize with context_length=77 for checkpoint weight compatibility
+        # LiteText: init at ctx=77 to match checkpoint pos-embed, then truncate after load.
         text_encoder = _create_student_text_encoder(bpe_path, text_encoder_type, context_length=77)
     else:
         text_encoder = _create_text_encoder(bpe_path)
@@ -1202,19 +1184,10 @@ def build_sam3_video_model(
         # 2. Load fully-merged LiteText video checkpoint (detector + tracker + student text encoder)
         if checkpoint_path is not None:
             ckpt = _load_state_dict_from_path(checkpoint_path)
-            # Clean keys: remove student_trunk. prefix and retrofit MobileCLIP attention keys
+            # Clean keys: remove student_trunk. prefix
             cleaned = {}
             for k, v in ckpt.items():
                 new_k = k.replace("student_trunk.", "")
-                # Retrofit MobileCLIP Manual Attention -> nn.MultiheadAttention
-                if "qkv_proj.weight" in new_k:
-                    new_k = new_k.replace("qkv_proj.weight", "attn.in_proj_weight")
-                elif "qkv_proj.bias" in new_k:
-                    new_k = new_k.replace("qkv_proj.bias", "attn.in_proj_bias")
-                elif "out_proj.weight" in new_k and "language_backbone" in new_k and "pre_norm_mha" in new_k:
-                    new_k = new_k.replace("out_proj.weight", "attn.out_proj.weight")
-                elif "out_proj.bias" in new_k and "language_backbone" in new_k and "pre_norm_mha" in new_k:
-                    new_k = new_k.replace("out_proj.bias", "attn.out_proj.bias")
                 cleaned[new_k] = v
 
             missing_keys, unexpected_keys = model.load_state_dict(cleaned, strict=False)
@@ -1389,16 +1362,6 @@ def build_efficientsam3_video_model(
         cleaned_ckpt = {}
         for k, v in ckpt.items():
             new_k = k.replace("student_trunk.", "")
-
-            # Retrofit MobileCLIP Manual Attention -> nn.MultiheadAttention
-            if "qkv_proj.weight" in new_k:
-                new_k = new_k.replace("qkv_proj.weight", "attn.in_proj_weight")
-            elif "qkv_proj.bias" in new_k:
-                new_k = new_k.replace("qkv_proj.bias", "attn.in_proj_bias")
-            elif "out_proj.weight" in new_k and "language_backbone" in new_k and "pre_norm_mha" in new_k:
-                new_k = new_k.replace("out_proj.weight", "attn.out_proj.weight")
-            elif "out_proj.bias" in new_k and "language_backbone" in new_k and "pre_norm_mha" in new_k:
-                new_k = new_k.replace("out_proj.bias", "attn.out_proj.bias")
 
             cleaned_ckpt[new_k] = v
 

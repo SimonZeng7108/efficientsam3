@@ -47,7 +47,7 @@ LOCAL_RANK: 0
 DATA:
   IMG_SIZE: 1008
   DATASET: text_annotations
-  DATA_PATH: data/text_annotations_combined.json
+  DATA_PATH: data/text_annotations_combined_5_dataset.json
   BATCH_SIZE: 32
   NUM_WORKERS: 8
 
@@ -66,3 +66,5 @@ DISTILL:
   NO_RAND: True
   MAX_ALLOWED_PROMPTS: -1
   MASK_PAD_TOKENS: True
+  CONTEXT_LENGTH: 32
+  CONSISTENCY_LOSS: 0.05

@@ -353,17 +353,59 @@ class MultiHeadAttention(nn.Module):
         *args,
         **kwargs,
     ) -> None:
-        if output_dim is not None and output_dim != embed_dim:
-             raise ValueError("Native MultiheadAttention requires output_dim == embed_dim")
-             
+        if output_dim is None:
+            output_dim = embed_dim
+
         super().__init__()
-        self.attn = nn.MultiheadAttention(
-            embed_dim, 
-            num_heads, 
-            dropout=attn_dropout, 
-            bias=bias, 
-            batch_first=True
+        self.qkv_proj = nn.Linear(
+            in_features=embed_dim, out_features=3 * embed_dim, bias=bias
         )
+        self.attn_dropout = nn.Dropout(p=attn_dropout)
+        self.out_proj = nn.Linear(
+            in_features=embed_dim, out_features=output_dim, bias=bias
+        )
+        self.head_dim = embed_dim // num_heads
+        self.scaling = self.head_dim**-0.5
+        self.softmax = nn.Softmax(dim=-1)
+        self.num_heads = num_heads
+        self.embed_dim = embed_dim
+
+    def _forward_impl(
+        self,
+        x_q: torch.Tensor,
+        x_kv: Optional[torch.Tensor] = None,
+        key_padding_mask: Optional[torch.Tensor] = None,
+        attn_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        b_sz, S_len, in_channels = x_q.shape
+
+        if x_kv is None:
+            qkv = self.qkv_proj(x_q).reshape(b_sz, S_len, 3, self.num_heads, -1)
+            qkv = qkv.transpose(1, 3).contiguous()
+            query, key, value = qkv[:, :, 0], qkv[:, :, 1], qkv[:, :, 2]
+        else:
+            # Cross attention logic omitted as not needed for text encoder self-attention
+            raise NotImplementedError("Cross attention not implemented in this port")
+
+        query = query * self.scaling
+        key = key.transpose(-1, -2)
+        attn = torch.matmul(query, key)
+        if attn_mask is not None:
+            attn_mask = attn_mask.unsqueeze(1)
+            attn = attn + attn_mask
+
+        if key_padding_mask is not None:
+             attn = attn.masked_fill(
+                key_padding_mask.unsqueeze(1).unsqueeze(2).to(torch.bool),
+                float("-inf"),
+            )
+
+        attn = self.softmax(attn.float()).to(attn.dtype)
+        attn = self.attn_dropout(attn)
+        out = torch.matmul(attn, value)
+        out = out.transpose(1, 2).reshape(b_sz, S_len, -1)
+        out = self.out_proj(out)
+        return out
 
     def forward(
         self,
@@ -374,33 +416,12 @@ class MultiHeadAttention(nn.Module):
         *args,
         **kwargs,
     ) -> torch.Tensor:
-        
-        if x_kv is None:
-            key = value = x_q
-        else:
-            # We assume x_kv contains both key and value
-            # Note: The original code raised NotImplementedError for x_kv != None
-            # So we assume x_kv is indeed just used as key/value source if passed.
-            key = value = x_kv
-
-        if attn_mask is not None:
-            # Handle standard boolean attention masks (True = attend, False = mask)
-            # But nn.MultiheadAttention expects:
-            #   - float mask: added to attention logits
-            #   - bool mask: True indicates value is ignored
-            # MobileCLIP might be using diff convention? 
-            # Original code: attn = attn + attn_mask (so additive)
-            pass
-
-        out, _ = self.attn(
-            query=x_q,
-            key=key,
-            value=value,
+        return self._forward_impl(
+            x_q=x_q,
+            x_kv=x_kv,
             key_padding_mask=key_padding_mask,
             attn_mask=attn_mask,
-            need_weights=False,
         )
-        return out
 
 
 class TransformerEncoder(nn.Module):

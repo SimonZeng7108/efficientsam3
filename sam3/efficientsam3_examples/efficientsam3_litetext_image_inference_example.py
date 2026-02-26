@@ -9,9 +9,9 @@ import torch
 import matplotlib.pyplot as plt
 from PIL import Image
 
-# Setup path
 workspace_root = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, workspace_root)
+sam3_repo_root = os.path.dirname(workspace_root)
+sys.path.insert(0, sam3_repo_root)
 
 from sam3.model_builder import build_sam3_image_model
 from sam3.model.sam3_image_processor import Sam3Processor

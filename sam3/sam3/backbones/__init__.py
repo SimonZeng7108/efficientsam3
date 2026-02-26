@@ -18,7 +18,4 @@ def __getattr__(name):
                   'efficientvit_backbone_l0', 'efficientvit_backbone_l1', 'efficientvit_backbone_l2'):
         from .efficientvit import backbone
         return getattr(backbone, name)
-    elif name in ('CNNTextBackbone'):
-        from . import cnn_text
-        return getattr(cnn_text, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
