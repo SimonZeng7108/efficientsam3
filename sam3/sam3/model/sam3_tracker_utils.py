@@ -25,7 +25,7 @@ def _edt_pytorch_fallback(masks: torch.Tensor) -> torch.Tensor:
     # Use scipy if available, otherwise use a simple iterative approach
     try:
         from scipy.ndimage import distance_transform_edt
-        import numpy as np
+
         masks_np = masks.cpu().numpy()
         for b in range(B):
             dt = distance_transform_edt(masks_np[b])
