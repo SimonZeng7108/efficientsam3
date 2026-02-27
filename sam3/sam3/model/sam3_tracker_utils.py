@@ -13,7 +13,13 @@ except ImportError:
 
 def _edt_scipy(masks: torch.Tensor) -> torch.Tensor:
     """Euclidean distance transform using scipy (fallback for non-CUDA platforms)."""
-    from scipy.ndimage import distance_transform_edt
+    try:
+        from scipy.ndimage import distance_transform_edt
+    except ImportError:
+        raise ImportError(
+            "scipy is required for distance transform on non-CUDA platforms (CPU/MPS). "
+            "Install with: pip install scipy"
+        ) from None
 
     B, H, W = masks.shape
     result = torch.zeros_like(masks, dtype=torch.float32)
