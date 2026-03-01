@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from sam3.device import get_autocast_device_type
+
 from .act import build_act
 from .norm import build_norm
 from ..utils import get_same_padding, list_sum, resize, val2list, val2tuple
@@ -92,13 +94,14 @@ class UpSampleLayer(nn.Module):
         self.factor = None if self.size is not None else factor
         self.align_corners = align_corners
 
-    @torch.autocast(device_type="cuda", enabled=False)
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if (self.size is not None and tuple(x.shape[-2:]) == self.size) or self.factor == 1:
             return x
-        if x.dtype in [torch.float16, torch.bfloat16]:
-            x = x.float()
-        return resize(x, self.size, self.factor, self.mode, self.align_corners)
+        device_type = get_autocast_device_type(x.device)
+        with torch.autocast(device_type=device_type, enabled=False):
+            if x.dtype in [torch.float16, torch.bfloat16]:
+                x = x.float()
+            return resize(x, self.size, self.factor, self.mode, self.align_corners)
 
 
 class ConvPixelUnshuffleDownSampleLayer(nn.Module):
@@ -578,77 +581,77 @@ class LiteMLA(nn.Module):
             act_func=act_func[1],
         )
 
-    @torch.autocast(device_type="cuda", enabled=False)
     def relu_linear_att(self, qkv: torch.Tensor) -> torch.Tensor:
         B, _, H, W = list(qkv.size())
+        device_type = get_autocast_device_type(qkv.device)
+        with torch.autocast(device_type=device_type, enabled=False):
+            if qkv.dtype == torch.float16:
+                qkv = qkv.float()
 
-        if qkv.dtype == torch.float16:
-            qkv = qkv.float()
+            qkv = torch.reshape(
+                qkv,
+                (
+                    B,
+                    -1,
+                    3 * self.dim,
+                    H * W,
+                ),
+            )
+            q, k, v = (
+                qkv[:, :, 0 : self.dim],
+                qkv[:, :, self.dim : 2 * self.dim],
+                qkv[:, :, 2 * self.dim :],
+            )
 
-        qkv = torch.reshape(
-            qkv,
-            (
-                B,
-                -1,
-                3 * self.dim,
-                H * W,
-            ),
-        )
-        q, k, v = (
-            qkv[:, :, 0 : self.dim],
-            qkv[:, :, self.dim : 2 * self.dim],
-            qkv[:, :, 2 * self.dim :],
-        )
+            # lightweight linear attention
+            q = self.kernel_func(q)
+            k = self.kernel_func(k)
 
-        # lightweight linear attention
-        q = self.kernel_func(q)
-        k = self.kernel_func(k)
+            # linear matmul
+            trans_k = k.transpose(-1, -2)
 
-        # linear matmul
-        trans_k = k.transpose(-1, -2)
+            v = F.pad(v, (0, 0, 0, 1), mode="constant", value=1)
+            vk = torch.matmul(v, trans_k)
+            out = torch.matmul(vk, q)
+            if out.dtype == torch.bfloat16:
+                out = out.float()
+            out = out[:, :, :-1] / (out[:, :, -1:] + self.eps)
 
-        v = F.pad(v, (0, 0, 0, 1), mode="constant", value=1)
-        vk = torch.matmul(v, trans_k)
-        out = torch.matmul(vk, q)
-        if out.dtype == torch.bfloat16:
-            out = out.float()
-        out = out[:, :, :-1] / (out[:, :, -1:] + self.eps)
+            out = torch.reshape(out, (B, -1, H, W))
+            return out
 
-        out = torch.reshape(out, (B, -1, H, W))
-        return out
-
-    @torch.autocast(device_type="cuda", enabled=False)
     def relu_quadratic_att(self, qkv: torch.Tensor) -> torch.Tensor:
         B, _, H, W = list(qkv.size())
+        device_type = get_autocast_device_type(qkv.device)
+        with torch.autocast(device_type=device_type, enabled=False):
+            qkv = torch.reshape(
+                qkv,
+                (
+                    B,
+                    -1,
+                    3 * self.dim,
+                    H * W,
+                ),
+            )
+            q, k, v = (
+                qkv[:, :, 0 : self.dim],
+                qkv[:, :, self.dim : 2 * self.dim],
+                qkv[:, :, 2 * self.dim :],
+            )
 
-        qkv = torch.reshape(
-            qkv,
-            (
-                B,
-                -1,
-                3 * self.dim,
-                H * W,
-            ),
-        )
-        q, k, v = (
-            qkv[:, :, 0 : self.dim],
-            qkv[:, :, self.dim : 2 * self.dim],
-            qkv[:, :, 2 * self.dim :],
-        )
+            q = self.kernel_func(q)
+            k = self.kernel_func(k)
 
-        q = self.kernel_func(q)
-        k = self.kernel_func(k)
+            att_map = torch.matmul(k.transpose(-1, -2), q)  # b h n n
+            original_dtype = att_map.dtype
+            if original_dtype in [torch.float16, torch.bfloat16]:
+                att_map = att_map.float()
+            att_map = att_map / (torch.sum(att_map, dim=2, keepdim=True) + self.eps)  # b h n n
+            att_map = att_map.to(original_dtype)
+            out = torch.matmul(v, att_map)  # b h d n
 
-        att_map = torch.matmul(k.transpose(-1, -2), q)  # b h n n
-        original_dtype = att_map.dtype
-        if original_dtype in [torch.float16, torch.bfloat16]:
-            att_map = att_map.float()
-        att_map = att_map / (torch.sum(att_map, dim=2, keepdim=True) + self.eps)  # b h n n
-        att_map = att_map.to(original_dtype)
-        out = torch.matmul(v, att_map)  # b h d n
-
-        out = torch.reshape(out, (B, -1, H, W))
-        return out
+            out = torch.reshape(out, (B, -1, H, W))
+            return out
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # generate multi-scale q, k, v

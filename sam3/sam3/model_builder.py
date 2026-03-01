@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 from huggingface_hub import hf_hub_download
 from iopath.common.file_io import g_pathmgr
+from sam3.device import get_device
 from sam3.model.decoder import (
     TransformerDecoder,
     TransformerDecoderLayer,
@@ -630,8 +631,7 @@ def _load_checkpoint(model, checkpoint_path):
 
 def _setup_device_and_mode(model, device, eval_mode):
     """Setup model device and evaluation mode."""
-    if device == "cuda":
-        model = model.cuda()
+    model = model.to(device)
     if eval_mode:
         model.eval()
     return model
@@ -639,7 +639,7 @@ def _setup_device_and_mode(model, device, eval_mode):
 
 def build_sam3_image_model(
     bpe_path=None,
-    device="cuda" if torch.cuda.is_available() else "cpu",
+    device=None,
     eval_mode=True,
     checkpoint_path=None,
     load_from_HF=True,
@@ -654,7 +654,7 @@ def build_sam3_image_model(
 
     Args:
         bpe_path: Path to the BPE tokenizer vocabulary
-        device: Device to load the model on ('cuda' or 'cpu')
+        device: Device to load the model on ('cuda', 'mps', or 'cpu'). Auto-detected if None.
         eval_mode: Whether to set the model to evaluation mode
         checkpoint_path: Optional path to model checkpoint
         enable_segmentation: Whether to enable segmentation head
@@ -666,6 +666,8 @@ def build_sam3_image_model(
     Returns:
         A SAM3 image model
     """
+    if device is None:
+        device = get_device()
     if bpe_path is None:
         bpe_path = os.path.join(
             os.path.dirname(__file__), "..", "assets", "bpe_simple_vocab_16e6.txt.gz"
@@ -907,7 +909,7 @@ def _create_student_vision_backbone(
 
 def build_efficientsam3_image_model(
     bpe_path=None,
-    device="cuda" if torch.cuda.is_available() else "cpu",
+    device=None,
     eval_mode=True,
     checkpoint_path=None,
     load_from_HF=False,
@@ -925,7 +927,7 @@ def build_efficientsam3_image_model(
 
     Args:
         bpe_path: Path to the BPE tokenizer vocabulary
-        device: Device to load the model on ('cuda' or 'cpu')
+        device: Device to load the model on ('cuda', 'mps', or 'cpu'). Auto-detected if None.
         eval_mode: Whether to set the model to evaluation mode
         checkpoint_path: Optional path to EfficientSAM3 model checkpoint
         load_from_HF: Whether to load checkpoint from HuggingFace (if available)
@@ -940,6 +942,8 @@ def build_efficientsam3_image_model(
     Returns:
         An EfficientSAM3 image model
     """
+    if device is None:
+        device = get_device()
     if efficientvit_model is not None:
         backbone_type = "efficientvit"
         model_name = efficientvit_model
@@ -1017,7 +1021,7 @@ def build_efficientsam3_video_model(
     has_presence_token: bool = True,
     strict_state_dict_loading: bool = False,
     apply_temporal_disambiguation: bool = True,
-    device="cuda" if torch.cuda.is_available() else "cpu",
+    device=None,
     compile: bool = False,
     backbone_type: str = "repvit",
     model_name: str = "m1.1",
@@ -1030,6 +1034,8 @@ def build_efficientsam3_video_model(
     (EfficientViT/RepViT/TinyViT) while keeping the same detector+tracker
     inference wrapper.
     """
+    if device is None:
+        device = get_device()
     if bpe_path is None:
         bpe_path = os.path.join(
             os.path.dirname(__file__), "..", "assets", "bpe_simple_vocab_16e6.txt.gz"
@@ -1153,7 +1159,7 @@ def build_sam3_video_model(
     geo_encoder_use_img_cross_attn: bool = True,
     strict_state_dict_loading: bool = True,
     apply_temporal_disambiguation: bool = True,
-    device="cuda" if torch.cuda.is_available() else "cpu",
+    device=None,
     compile=False,
 ) -> Sam3VideoInferenceWithInstanceInteractivity:
     """
@@ -1166,6 +1172,8 @@ def build_sam3_video_model(
     Returns:
         Sam3VideoInferenceWithInstanceInteractivity: The instantiated dense tracking model
     """
+    if device is None:
+        device = get_device()
     if bpe_path is None:
         bpe_path = os.path.join(
             os.path.dirname(__file__), "..", "assets", "bpe_simple_vocab_16e6.txt.gz"
@@ -1299,7 +1307,7 @@ def build_efficientsam3_video_model(
     has_presence_token: bool = True,
     strict_state_dict_loading: bool = False,
     apply_temporal_disambiguation: bool = True,
-    device="cuda" if torch.cuda.is_available() else "cpu",
+    device=None,
     compile=False,
     backbone_type="efficientvit",
     model_name="b0",
@@ -1319,6 +1327,8 @@ def build_efficientsam3_video_model(
     Returns:
         Sam3VideoInferenceWithInstanceInteractivity: The instantiated dense tracking model
     """
+    if device is None:
+        device = get_device()
     if efficientvit_model is not None:
         backbone_type = "efficientvit"
         model_name = efficientvit_model

@@ -47,9 +47,10 @@ def parse_args():
 def main():
     args = parse_args()
     print("Setting up device...")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    
-    if device == "cuda":
+    from sam3.device import get_device
+    device = get_device()
+
+    if device.type == "cuda":
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
 
@@ -111,7 +112,8 @@ def main():
     width, height = image_pil.size
     print(f"Image Size: {width}x{height}")
     
-    dtype_context = torch.autocast("cuda", dtype=torch.bfloat16) if device == "cuda" else torch.no_grad()
+    from sam3.device import get_autocast_device_type, get_autocast_dtype
+    dtype_context = torch.autocast(get_autocast_device_type(device), dtype=get_autocast_dtype(device)) if device.type in ("cuda", "mps") else torch.no_grad()
     
     with dtype_context:
         print(f"Using confidence threshold: {args.threshold}")

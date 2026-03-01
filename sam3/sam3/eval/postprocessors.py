@@ -151,7 +151,7 @@ class PostProcessImage(nn.Module):
             return None
         if self.always_interpolate_masks_on_gpu:
             gpu_device = target_sizes.device
-            assert gpu_device.type == "cuda"
+            assert gpu_device.type in ("cuda", "mps")
             pred_masks = pred_masks.to(device=gpu_device)
         if consistent:
             assert keep is None, "TODO: implement?"
@@ -455,7 +455,7 @@ class PostProcessAPIVideo(PostProcessImage):
             meta_td = meta_td[tracked_obj_ids_idx[PROMPT_AXIS].cpu()]
             if self.always_interpolate_masks_on_gpu:
                 gpu_device = meta_td["original_size"].device
-                assert gpu_device.type == "cuda"
+                assert gpu_device.type in ("cuda", "mps")
                 tracked_objs_outs_td = tracked_objs_outs_td.to(device=gpu_device)
             frame_results_td = self(
                 tracked_objs_outs_td.unsqueeze(1),

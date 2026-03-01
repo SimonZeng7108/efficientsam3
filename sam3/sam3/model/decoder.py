@@ -17,6 +17,8 @@ from torchvision.ops.roi_align import RoIAlign
 
 from .act_ckpt_utils import activation_ckpt_wrapper
 
+from sam3.device import get_autocast_device_type
+
 from .box_ops import box_cxcywh_to_xyxy
 
 from .model_misc import (
@@ -71,7 +73,7 @@ class TransformerDecoderLayer(nn.Module):
         return tensor if pos is None else tensor + pos
 
     def forward_ffn(self, tgt):
-        with torch.amp.autocast(device_type="cuda", enabled=False):
+        with torch.amp.autocast(device_type=get_autocast_device_type(tgt.device), enabled=False):
             tgt2 = self.linear2(self.dropout3(self.activation(self.linear1(tgt))))
         tgt = tgt + self.dropout4(tgt2)
         tgt = self.norm3(tgt)
@@ -278,7 +280,7 @@ class TransformerDecoder(nn.Module):
             if resolution is not None and stride is not None:
                 feat_size = resolution // stride
                 coords_h, coords_w = self._get_coords(
-                    feat_size, feat_size, device="cuda"
+                    feat_size, feat_size, device="cpu"
                 )
                 self.compilable_cord_cache = (coords_h, coords_w)
                 self.compilable_stored_size = (feat_size, feat_size)
@@ -342,6 +344,11 @@ class TransformerDecoder(nn.Module):
         ):
             # good, hitting the cache, will be compilable
             coords_h, coords_w = self.compilable_cord_cache
+            # Ensure cached coords are on the same device as the input
+            if coords_h.device != reference_boxes.device:
+                coords_h = coords_h.to(reference_boxes.device)
+                coords_w = coords_w.to(reference_boxes.device)
+                self.compilable_cord_cache = (coords_h, coords_w)
         else:
             # cache miss, will create compilation issue
             # In case we're not compiling, we'll still rely on the dict-based cache

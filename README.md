@@ -114,8 +114,13 @@ Stage 3: We fine-tune the complete pipeline using SAM3 data. <br>
 EfficientSAM3 purposely shares the same software contract as upstream SAM3:
 
 - **Python** ≥ 3.12
-- **PyTorch** 2.7.0 (CUDA 12.6 build recommended)
-- **CUDA**-capable GPUs with drivers that support CUDA ≥ 12.6
+- **PyTorch** 2.7.0
+- **Device**: NVIDIA GPU (CUDA), Apple Silicon (MPS), or CPU
+
+For non-CUDA platforms (MPS/CPU), install `scipy` for distance transform operations:
+```bash
+pip install scipy
+```
 
 Follow the exact environment setup from the [official SAM3 README](sam3/README.md) or use the condensed steps below:
 
@@ -128,7 +133,13 @@ conda create -n efficientsam3 python=3.12 -y
 conda activate efficientsam3
 
 pip install --upgrade pip
+
+# Install PyTorch (choose one based on your device):
+# CUDA (default):
 pip install torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+
+# MPS/CPU (Apple Silicon or CPU-only):
+pip install torch==2.7.0 torchvision torchaudio
 
 # Install repo dependencies via the root pyproject (brings in SAM3 + Stage-1 extras)
 pip install -e ".[stage1]"

@@ -5,7 +5,29 @@ import torch
 import torch.nn.functional as F
 from numpy.typing import NDArray
 
-from sam3.model.edt import edt_triton
+try:
+    from sam3.model.edt import edt_triton
+except ImportError:
+    edt_triton = None  # Triton not available (e.g. macOS)
+
+
+def _edt_scipy(masks: torch.Tensor) -> torch.Tensor:
+    """Euclidean distance transform using scipy (fallback for non-CUDA platforms)."""
+    try:
+        from scipy.ndimage import distance_transform_edt
+    except ImportError:
+        raise ImportError(
+            "scipy is required for distance transform on non-CUDA platforms (CPU/MPS). "
+            "Install with: pip install scipy"
+        ) from None
+
+    B, H, W = masks.shape
+    result = torch.zeros_like(masks, dtype=torch.float32)
+    masks_np = masks.cpu().numpy()
+    for b in range(B):
+        dt = distance_transform_edt(masks_np[b])
+        result[b] = torch.from_numpy(dt).to(result.device)
+    return result
 
 
 def sample_box_points(
@@ -175,8 +197,9 @@ def sample_one_point_from_error_center(gt_masks, pred_masks, padding=True):
         padded_fp_masks = fp_masks
         padded_fn_masks = fn_masks
 
-    fn_mask_dt = edt_triton(padded_fn_masks)
-    fp_mask_dt = edt_triton(padded_fp_masks)
+    _edt_fn = edt_triton if edt_triton is not None else _edt_scipy
+    fn_mask_dt = _edt_fn(padded_fn_masks)
+    fp_mask_dt = _edt_fn(padded_fp_masks)
     if padding:
         fn_mask_dt = fn_mask_dt[:, 1:-1, 1:-1]
         fp_mask_dt = fp_mask_dt[:, 1:-1, 1:-1]

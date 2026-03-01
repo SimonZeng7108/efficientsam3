@@ -14,7 +14,10 @@ from torchvision.transforms import v2
 class Sam3Processor:
     """ """
 
-    def __init__(self, model, resolution=1008, device="cuda", confidence_threshold=0.5):
+    def __init__(self, model, resolution=1008, device=None, confidence_threshold=0.5):
+        if device is None:
+            from sam3.device import get_device
+            device = get_device()
         self.model = model
         self.resolution = resolution
         self.device = device

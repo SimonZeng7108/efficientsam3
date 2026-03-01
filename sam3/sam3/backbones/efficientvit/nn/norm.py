@@ -4,8 +4,15 @@ import torch
 import torch.nn as nn
 from torch.nn.modules.batchnorm import _BatchNorm
 
-from .triton_rms_norm import TritonRMSNorm2dFunc
 from ..utils import build_kwargs_from_config
+
+# Try importing Triton-based RMSNorm (CUDA-only); fall back to pure PyTorch
+try:
+    from .triton_rms_norm import TritonRMSNorm2dFunc
+
+    _TRITON_AVAILABLE = True
+except ImportError:
+    _TRITON_AVAILABLE = False
 
 __all__ = ["LayerNorm2d", "TritonRMSNorm2d", "build_norm", "reset_bn", "set_norm_eps"]
 
@@ -19,9 +26,20 @@ class LayerNorm2d(nn.LayerNorm):
         return out
 
 
+def _rms_norm_2d_pytorch(x: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor, eps: float) -> torch.Tensor:
+    """Pure PyTorch RMSNorm2d fallback for non-CUDA devices."""
+    # x: (M, C, H, W)
+    x_float = x.float()
+    rms = torch.sqrt(x_float.pow(2).mean(dim=1, keepdim=True) + eps)
+    x_normed = x_float / rms
+    return (x_normed * weight.view(1, -1, 1, 1) + bias.view(1, -1, 1, 1)).to(x.dtype)
+
+
 class TritonRMSNorm2d(nn.LayerNorm):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return TritonRMSNorm2dFunc.apply(x, self.weight, self.bias, self.eps)
+        if _TRITON_AVAILABLE and x.is_cuda:
+            return TritonRMSNorm2dFunc.apply(x, self.weight, self.bias, self.eps)
+        return _rms_norm_2d_pytorch(x, self.weight, self.bias, self.eps)
 
 
 # register normalization function here

@@ -15,6 +15,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 # Assuming running from root where 'sam3' package is located
 from sam3 import build_efficientsam3_image_model
 from sam3.model.sam3_image_processor import Sam3Processor
+from sam3.device import get_device
 
 def calculate_iou(pred_mask, gt_mask):
     intersection = np.logical_and(pred_mask, gt_mask).sum()
@@ -25,9 +26,12 @@ def calculate_iou(pred_mask, gt_mask):
 
 import time
 
-def evaluate_model(model_path, backbone, model_name, coco_root, split='val2017', num_samples=-1, device='cuda'):
+def evaluate_model(model_path, backbone, model_name, coco_root, split='val2017', num_samples=-1, device=None):
     print(f"Evaluating model: {model_path}")
     start_time = time.time()
+
+    if device is None:
+        device = get_device()
     
     # Load Model
     try:
@@ -139,7 +143,8 @@ def main():
     parser.add_argument('--coco_root', type=str, default='data/coco', help='Path to COCO dataset')
     parser.add_argument('--output_dir', type=str, default='output', help='Directory containing models')
     parser.add_argument('--num_samples', type=int, default=-1, help='Number of samples to evaluate')
-    parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
+    from sam3.device import get_device
+    parser.add_argument('--device', type=str, default=str(get_device()))
     args = parser.parse_args()
 
     models_dir = args.output_dir

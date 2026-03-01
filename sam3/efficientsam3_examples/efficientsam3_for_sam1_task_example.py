@@ -34,12 +34,8 @@ os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 sam3_root = os.path.join(os.path.dirname(sam3.__file__), "..")
 
 # Select the device for computation
-if torch.cuda.is_available():
-    device = torch.device("cuda")
-elif torch.backends.mps.is_available():
-    device = torch.device("mps")
-else:
-    device = torch.device("cpu")
+from sam3.device import get_device, get_autocast_device_type, get_autocast_dtype
+device = get_device()
 print(f"using device: {device}")
 
 # Setup device-specific optimizations
@@ -53,6 +49,9 @@ if device.type == "cuda":
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
 elif device.type == "mps":
+    # use float16 for MPS (bfloat16 not fully supported)
+    autocast_context = torch.autocast("mps", dtype=torch.float16)
+    autocast_context.__enter__()
     print(
         "\nSupport for MPS devices is preliminary. SAM 3 is trained with CUDA and might "
         "give numerically different outputs and sometimes degraded performance on MPS. "
@@ -123,12 +122,8 @@ def main():
     assets_dir = os.path.join(script_dir, "../assets")
 
     parser = argparse.ArgumentParser(description='EfficientSAM3 Interactive Instance Segmentation')
-    parser.add_argument('--checkpoint', type=str, 
-<<<<<<< HEAD
-                       default='/home/simon7108528_msi_linux/e-drive/side_projects/efficientsam3/output/efficient_sam3_tinyvit_s.pt', #
-=======
-                       default='/home/simon7108528_msi_linux/e-drive/side_projects/efficientsam3/output/efficient_sam3_efficientvit_s.pt', #
->>>>>>> stage1_text_encoder
+    parser.add_argument('--checkpoint', type=str,
+                       default=None,
                        help='Path to EfficientSAM3 checkpoint')
     parser.add_argument('--image', type=str, 
                        default=os.path.join(assets_dir, 'images/truck.jpg'),
@@ -148,10 +143,6 @@ def main():
     args = parser.parse_args()
 
     if args.headless:
-<<<<<<< HEAD
-=======
-        # import matplotlib.pyplot as plt # Already imported globally
->>>>>>> stage1_text_encoder
         plt.show = lambda: None
         print("Running in headless mode - display disabled")
 

@@ -258,7 +258,8 @@ def main() -> None:
         default=None,
         help="Optional SAM3 checkpoint path to use for the teacher (overrides checkpoint config.MODEL.RESUME)",
     )
-    parser.add_argument("--device", default="cuda")
+    from sam3.device import get_device
+    parser.add_argument("--device", default=str(get_device()))
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument(
         "--max-texts",
