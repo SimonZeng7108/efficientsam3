@@ -5,6 +5,19 @@ from pathlib import Path
 import torch
 
 
+def _strip_prefix(key: str, prefix: str) -> str:
+    return key[len(prefix):] if key.startswith(prefix) else key
+
+
+def _normalize_student_key(key: str) -> str:
+    key = _strip_prefix(key, "module.")
+
+    # If user passes an already-merged checkpoint, collapse to local student key.
+    key = _strip_prefix(key, "detector.backbone.language_backbone.")
+    key = _strip_prefix(key, "backbone.language_backbone.")
+    return key
+
+
 def _torch_load(path, map_location="cpu", **kwargs):
     try:
         return torch.load(path, map_location=map_location, weights_only=False, **kwargs)
@@ -103,6 +116,7 @@ def main():
     for key, value in student_sd.items():
         # Student keys might be "encoder.token_embedding.weight"
         # We prepend prefix
+        key = _normalize_student_key(key)
         merged_key = f"{prefix}{key}" if prefix else key
         merged[merged_key] = value
 

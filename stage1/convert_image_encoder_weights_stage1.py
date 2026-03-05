@@ -5,6 +5,22 @@ from pathlib import Path
 import torch
 
 
+def _strip_prefix(key: str, prefix: str) -> str:
+    return key[len(prefix):] if key.startswith(prefix) else key
+
+
+def _normalize_student_key(key: str) -> str:
+    key = _strip_prefix(key, "module.")
+    key = _strip_prefix(key, "student_trunk.")
+
+    # If user passes an already-merged checkpoint, collapse to local student key.
+    key = _strip_prefix(key, "detector.backbone.vision_backbone.trunk.model.")
+    key = _strip_prefix(key, "detector.backbone.vision_backbone.trunk.")
+    key = _strip_prefix(key, "backbone.vision_backbone.trunk.model.")
+    key = _strip_prefix(key, "backbone.vision_backbone.trunk.")
+    return key
+
+
 def _torch_load(path, map_location="cpu", **kwargs):
     try:
         return torch.load(path, map_location=map_location, weights_only=False, **kwargs)
@@ -52,7 +68,7 @@ def parse_args():
     parser.add_argument(
         "--target-prefix",
         type=str,
-        default="detector.backbone.vision_backbone.trunk.",
+        default="detector.backbone.vision_backbone.trunk.model.",
         help="Prefix to prepend to every student weight before merging.",
     )
     parser.add_argument(
@@ -92,7 +108,7 @@ def main():
     replace_prefix = (
         args.replace_prefix.strip(".")
         if args.replace_prefix is not None
-        else args.target_prefix.strip(".")
+        else "detector.backbone.vision_backbone.trunk"
     )
     replace_prefix = f"{replace_prefix}." if replace_prefix else ""
     skip_prefixes = [
@@ -101,6 +117,7 @@ def main():
 
     merged = {}
     for key, value in student_sd.items():
+        key = _normalize_student_key(key)
         merged_key = f"{prefix}{key}" if prefix else key
         merged[merged_key] = value
 

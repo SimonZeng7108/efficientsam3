@@ -3,6 +3,31 @@ import os
 from pathlib import Path
 import torch
 
+
+def _strip_prefix(key: str, prefix: str) -> str:
+    return key[len(prefix):] if key.startswith(prefix) else key
+
+
+def _normalize_image_student_key(key: str) -> str:
+    key = _strip_prefix(key, "module.")
+    key = _strip_prefix(key, "student_trunk.")
+
+    # If someone passes an already-merged checkpoint, collapse to local student key.
+    key = _strip_prefix(key, "detector.backbone.vision_backbone.trunk.model.")
+    key = _strip_prefix(key, "detector.backbone.vision_backbone.trunk.")
+    key = _strip_prefix(key, "backbone.vision_backbone.trunk.model.")
+    key = _strip_prefix(key, "backbone.vision_backbone.trunk.")
+    return key
+
+
+def _normalize_text_student_key(key: str) -> str:
+    key = _strip_prefix(key, "module.")
+
+    # If someone passes an already-merged checkpoint, collapse to local student key.
+    key = _strip_prefix(key, "detector.backbone.language_backbone.")
+    key = _strip_prefix(key, "backbone.language_backbone.")
+    return key
+
 def _torch_load(path, map_location="cpu", **kwargs):
     try:
         return torch.load(path, map_location=map_location, weights_only=False, **kwargs)
@@ -83,26 +108,25 @@ def main():
     merged = {}
     
     # Prefixes
-    # The student checkpoint has keys like "backbone.model.input_stem..."
-    # The model expects keys like "backbone.vision_backbone.trunk.model.backbone.model.input_stem..."
-    # So we need to prepend "detector.backbone.vision_backbone.trunk.model."
-    image_prefix = "detector.backbone.vision_backbone.trunk.model."
-    text_prefix = "detector.backbone.language_backbone."
+    image_target_prefix = "detector.backbone.vision_backbone.trunk.model."
+    text_target_prefix = "detector.backbone.language_backbone."
+
+    # Teacher keys to replace completely
+    image_replace_prefix = "detector.backbone.vision_backbone.trunk."
+    text_replace_prefix = "detector.backbone.language_backbone."
     
     # 1. Add Image Student Weights
-    print(f"Merging Image Student weights (prefix: {image_prefix})...")
+    print(f"Merging Image Student weights (target prefix: {image_target_prefix})...")
     for key, value in image_sd.items():
-        # Remove student_trunk prefix if present (artifact from training wrapper)
-        if key.startswith("student_trunk."):
-            key = key.replace("student_trunk.", "")
-            
-        merged_key = f"{image_prefix}{key}"
+        key = _normalize_image_student_key(key)
+        merged_key = f"{image_target_prefix}{key}"
         merged[merged_key] = value
 
     # 2. Add Text Student Weights
-    print(f"Merging Text Student weights (prefix: {text_prefix})...")
+    print(f"Merging Text Student weights (target prefix: {text_target_prefix})...")
     for key, value in text_sd.items():
-        merged_key = f"{text_prefix}{key}"
+        key = _normalize_text_student_key(key)
+        merged_key = f"{text_target_prefix}{key}"
         merged[merged_key] = value
 
     # 3. Add Teacher Weights (skipping those replaced)
@@ -113,10 +137,10 @@ def main():
     
     for key, value in teacher_sd.items():
         # Check if this key belongs to image or text backbone
-        if key.startswith(image_prefix):
+        if key.startswith(image_replace_prefix):
             replaced += 1
             continue
-        if key.startswith(text_prefix):
+        if key.startswith(text_replace_prefix):
             replaced += 1
             continue
             
@@ -127,7 +151,7 @@ def main():
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
     torch.save({"model": merged}, args.output)
     print(f"Combined checkpoint saved to: {args.output}")
-    print(f"Teacher params: Replaced={replaced}, Appended={appended}")
+    print(f"Teacher params: Replaced={replaced}, Skipped={skipped}, Appended={appended}")
 
 if __name__ == "__main__":
     main()
