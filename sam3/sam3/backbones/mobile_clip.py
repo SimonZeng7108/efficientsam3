@@ -389,7 +389,6 @@ class MultiHeadAttention(nn.Module):
         query = query * self.scaling
         key = key.transpose(-1, -2)
         attn = torch.matmul(query, key)
-
         if attn_mask is not None:
             attn_mask = attn_mask.unsqueeze(1)
             attn = attn + attn_mask
@@ -706,6 +705,23 @@ class RepMixerBlock(nn.Module):
 # ==============================================================================
 
 class MobileCLIPTextTransformer(nn.Module):
+    def resize_pos_embed(self, new_length: int):
+        """Resize positional embeddings to new context length."""
+        if self.positional_embedding is None:
+            return
+
+        pos_embed = self.positional_embedding.pos_embed.pos_embed
+        current_length = pos_embed.shape[2]
+        if new_length == current_length:
+            return
+
+        # Simple slicing for truncation
+        if new_length < current_length:
+            print(f"Resizing positional embeddings from {current_length} to {new_length}")
+            new_pos_embed = pos_embed[:, :, :new_length, :].clone()
+            self.positional_embedding.pos_embed.pos_embed = nn.Parameter(new_pos_embed)
+            self.positional_embedding.pos_embed.num_embeddings = new_length
+
     def __init__(self, cfg: dict, projection_dim: int, skip_embeddings: bool = False, *args, **kwargs) -> None:
         super().__init__()
 

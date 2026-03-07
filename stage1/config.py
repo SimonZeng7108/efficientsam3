@@ -58,6 +58,8 @@ _C.DISTILL.SAVE_TEACHER_EMBED = False
 _C.DISTILL.NO_RAND = True
 _C.DISTILL.MAX_ALLOWED_PROMPTS = -1
 _C.DISTILL.MASK_PAD_TOKENS = False
+_C.DISTILL.CONTEXT_LENGTH = 32  # Default context length for text encoder (can be 8, 16, or 32)
+_C.DISTILL.CONSISTENCY_LOSS = 0.0  # Weight for permutation invariance loss (0 = disabled)
 
 # -----------------------------------------------------------------------------
 # Training settings

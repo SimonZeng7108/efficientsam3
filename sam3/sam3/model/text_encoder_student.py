@@ -25,31 +25,34 @@ class TextStudentEncoder(nn.Module):
             projection_dim=cfg["dim"]
         )
         
-        # Post-Projection (Student Dim -> Output Dim)
+        # Post-Projection (Student Dim -> SAM3 d_model)
         self.projector = nn.Linear(cfg["dim"], output_dim)
+
+    def set_context_length(self, context_length: int):
+        """Resize positional embeddings to a new context length.
+
+        Call this after checkpoint loading to truncate from the default ctx=77.
+        """
+        self.context_length = context_length
+        if hasattr(self.encoder, "resize_pos_embed"):
+            self.encoder.resize_pos_embed(context_length)
 
     def forward(self, text, input_boxes=None, device=None):
         # 1. Tokenize
         tokenized = self.tokenizer(text, context_length=self.context_length).to(device)
         
-        # 2. Get input embeddings
-        # We use the student's embedding layer
-        input_embeds = self.encoder.forward_embedding(tokenized) # [Batch, Seq, Dim]
-        
-        # 3. MobileCLIP Transformer
-        # Pass embeddings directly
-        text_memory = self.encoder(input_embeds, return_all_tokens=True, input_is_embeddings=True) 
-        
-        # 4. Post-Project
-        text_memory = self.projector(text_memory) # [Batch, Seq, OutputDim]
-        
-        # 5. Prepare output tuple compatible with SAM3VLBackbone
-        # text_attention_mask: [Batch, Seq] (True for padding, False for valid - inverted logic)
-        # But wait, VETextEncoder returns (tokenized != 0).bool().ne(1)
-        # (tokenized != 0) is True for valid. .ne(1) makes it False for valid.
-        # So False is valid, True is padding.
+        # 2. Get input embeddings via student embedding layer
+        input_embeds = self.encoder.forward_embedding(tokenized)  # [B, Seq, Dim]
+
+        # 3. MobileCLIP Transformer (pass embeddings to skip redundant lookup)
+        text_memory = self.encoder(
+            input_embeds, return_all_tokens=True, input_is_embeddings=True
+        )  # [B, Seq, Dim]
+
+        # 4. Post-project to SAM3 d_model
+        text_memory = self.projector(text_memory)  # [B, Seq, OutputDim]
+
+        # 5. Attention mask: False=valid token, True=padding
         text_attention_mask = (tokenized != 0).bool().ne(1)
-        
-        # Return tuple: (mask, memory, embeds)
-        # memory and embeds are [Seq, Batch, Dim]
+
         return text_attention_mask, text_memory.transpose(0, 1), input_embeds.transpose(0, 1)

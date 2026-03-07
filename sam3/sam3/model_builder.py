@@ -497,7 +497,7 @@ def _create_text_encoder(bpe_path: str) -> VETextEncoder:
     )
 
 
-def _create_student_text_encoder(bpe_path: str, backbone_type: str) -> TextStudentEncoder:
+def _create_student_text_encoder(bpe_path: str, backbone_type: str, context_length: int = 32) -> TextStudentEncoder:
     """Create Student text encoder."""
     
     # Default config values
@@ -545,10 +545,17 @@ def _create_student_text_encoder(bpe_path: str, backbone_type: str) -> TextStude
             "n_heads_per_layer": 12,
             "model_name": "base", 
         })
-    
+
+    # Note: cfg["context_length"] (77) controls the positional embedding TABLE size.
+    # It MUST stay at 77 to match all checkpoints (all trained with default MobileCLIP
+    # positional embeddings, even when fewer tokens were used during training).
+    # The `context_length` param here only controls tokenization length (how many tokens
+    # are processed). After loading a checkpoint, call set_context_length(N) to truncate
+    # the pos-embed table for memory efficiency and enforce a smaller context window.
+
     return TextStudentEncoder(
         cfg=cfg,
-        context_length=32, # Match teacher input length
+        context_length=context_length, # Tokenization length (default 32)
         output_dim=256, # SAM3 d_model
         bpe_path=bpe_path
     )
@@ -648,6 +655,8 @@ def build_sam3_image_model(
     compile=False,
     enable_text_encoder=True,
     enable_vision_encoder=True,
+    text_encoder_type=None,
+    text_encoder_context_length=77,
 ):
     """
     Build SAM3 image model
@@ -662,6 +671,11 @@ def build_sam3_image_model(
         compile_mode: To enable compilation, set to "default"
         enable_text_encoder: Whether to enable text encoder
         enable_vision_encoder: Whether to enable vision encoder
+        text_encoder_type: Optional student text encoder type for LiteText models
+            (e.g. 'MobileCLIP-S0', 'MobileCLIP-S1', 'MobileCLIP2-L').
+            If None, uses the standard SAM3 text encoder.
+        text_encoder_context_length: Target context length for text encoder (default: 77).
+            Only used when text_encoder_type is set. Common values: 16, 32, 77.
 
     Returns:
         A SAM3 image model
@@ -683,7 +697,13 @@ def build_sam3_image_model(
 
     # Create text components
     if enable_text_encoder:
-        text_encoder = _create_text_encoder(bpe_path)
+        if text_encoder_type:
+            # LiteText: init at ctx=77 to match checkpoint pos-embed, then truncate after load.
+            text_encoder = _create_student_text_encoder(
+                bpe_path, text_encoder_type, context_length=77
+            )
+        else:
+            text_encoder = _create_text_encoder(bpe_path)
     else:
         text_encoder = None
 
@@ -725,6 +745,10 @@ def build_sam3_image_model(
     # Load checkpoint if provided
     if checkpoint_path is not None:
         _load_checkpoint(model, checkpoint_path)
+
+    # Truncate text encoder context length after checkpoint loading
+    if text_encoder_type and text_encoder_context_length < 77:
+        model.backbone.language_backbone.set_context_length(text_encoder_context_length)
 
     # Setup device and mode
     model = _setup_device_and_mode(model, device, eval_mode)
@@ -775,7 +799,12 @@ def _create_student_vision_backbone(
     
     # Position encoding
     position_encoding = _create_position_encoding(precompute_resolution=1008)
-    
+
+    if backbone_type == "sam3":
+        return _create_vision_backbone(
+            compile_mode=compile_mode, enable_inst_interactivity=enable_inst_interactivity
+        )
+
     if backbone_type == "efficientvit":
         from sam3.backbones.efficientvit.efficientvit.backbone import (
             efficientvit_backbone_b0,
@@ -921,6 +950,7 @@ def build_efficientsam3_image_model(
     # Legacy argument support
     efficientvit_model=None,
     text_encoder_type=None, # e.g. "MobileCLIP-S0"
+    text_encoder_context_length=77,
 ):
     """
     Build EfficientSAM3 image model with a student backbone
@@ -938,6 +968,8 @@ def build_efficientsam3_image_model(
         model_name: Model variant (e.g. 'b0', 'm1.1', '5m')
         efficientvit_model: Deprecated, use backbone_type and model_name instead
         text_encoder_type: Type of text encoder (e.g. 'MobileCLIP-S0'). If None, uses standard SAM3 text encoder.
+        text_encoder_context_length: Target context length for text encoder (default: 77).
+            Only used when text_encoder_type is set. Common values: 16, 32, 77.
 
     Returns:
         An EfficientSAM3 image model
@@ -963,7 +995,8 @@ def build_efficientsam3_image_model(
 
     # Create text components
     if text_encoder_type:
-        text_encoder = _create_student_text_encoder(bpe_path, text_encoder_type)
+        # LiteText: init at ctx=77 to match checkpoint pos-embed, then truncate after load.
+        text_encoder = _create_student_text_encoder(bpe_path, text_encoder_type, context_length=77)
     else:
         text_encoder = _create_text_encoder(bpe_path)
 
@@ -1008,6 +1041,10 @@ def build_efficientsam3_image_model(
     if checkpoint_path is not None:
         _load_checkpoint(model, checkpoint_path)
 
+    # Truncate text encoder context length after checkpoint loading
+    if text_encoder_type and text_encoder_context_length < 77:
+        model.backbone.language_backbone.set_context_length(text_encoder_context_length)
+
     # Setup device and mode
     model = _setup_device_and_mode(model, device, eval_mode)
 
@@ -1026,6 +1063,7 @@ def build_efficientsam3_video_model(
     backbone_type: str = "repvit",
     model_name: str = "m1.1",
     text_encoder_type: Optional[str] = None,
+    text_encoder_context_length: int = 77,
     enable_inst_interactivity: bool = True,
 ) -> Sam3VideoInferenceWithInstanceInteractivity:
     """Build EfficientSAM3 video model (SAM 2-style interactive VOS API).
@@ -1052,7 +1090,8 @@ def build_efficientsam3_video_model(
     )
 
     if text_encoder_type:
-        text_encoder = _create_student_text_encoder(bpe_path, text_encoder_type)
+        # LiteText: initialize with context_length=77 for checkpoint weight compatibility
+        text_encoder = _create_student_text_encoder(bpe_path, text_encoder_type, context_length=77)
     else:
         text_encoder = _create_text_encoder(bpe_path)
 
@@ -1147,6 +1186,10 @@ def build_efficientsam3_video_model(
         if unexpected_keys:
             print(f"Unexpected keys: {unexpected_keys[:10]}")
 
+    # Truncate text encoder context length after checkpoint loading
+    if text_encoder_type and text_encoder_context_length < 77:
+        model.detector.backbone.language_backbone.set_context_length(text_encoder_context_length)
+
     model.to(device=device)
     return model
 
@@ -1161,13 +1204,29 @@ def build_sam3_video_model(
     apply_temporal_disambiguation: bool = True,
     device=None,
     compile=False,
+    text_encoder_type: Optional[str] = None,
+    text_encoder_context_length: int = 77,
+    student_text_encoder_checkpoint: Optional[str] = None,
 ) -> Sam3VideoInferenceWithInstanceInteractivity:
     """
     Build SAM3 dense tracking model.
 
     Args:
-        checkpoint_path: Optional path to checkpoint file
-        bpe_path: Path to the BPE tokenizer file
+        checkpoint_path: Full video model checkpoint (tracker + detector).
+            With text_encoder_type, this loads the base video weights (e.g. sam3.pt);
+            the student text encoder is overlaid on top.
+        load_from_HF: Whether to download base video checkpoint from HuggingFace
+            (only used when checkpoint_path is None).
+        bpe_path: Path to the BPE tokenizer file.
+        text_encoder_type: Optional student text encoder type for LiteText models
+            (e.g. 'MobileCLIP-S0'). If None, uses the standard SAM3 text encoder.
+        text_encoder_context_length: Target context length (default: 77).
+            Common values: 16, 32, 77.
+        student_text_encoder_checkpoint: Path to a LiteText *image* checkpoint
+            (e.g. efficient_sam3_image_encoder_mobileclip_s0_ctx16.pt).
+            Only the language_backbone keys are loaded from this checkpoint.
+            Use alongside checkpoint_path/load_from_HF for the video base weights.
+            If None and text_encoder_type is set, language backbone is randomly initialized.
 
     Returns:
         Sam3VideoInferenceWithInstanceInteractivity: The instantiated dense tracking model
@@ -1184,7 +1243,13 @@ def build_sam3_video_model(
 
     # Build Detector components
     visual_neck = _create_vision_backbone()
-    text_encoder = _create_text_encoder(bpe_path)
+    if text_encoder_type:
+        # LiteText: init at ctx=77 to match checkpoint pos-embed, then truncate after load.
+        text_encoder = _create_student_text_encoder(
+            bpe_path, text_encoder_type, context_length=77
+        )
+    else:
+        text_encoder = _create_text_encoder(bpe_path)
     backbone = SAM3VLBackbone(scalp=1, visual=visual_neck, text=text_encoder)
     transformer = _create_sam3_transformer(has_presence_token=has_presence_token)
     segmentation_head: UniversalSegmentationHead = _create_segmentation_head()
@@ -1273,25 +1338,76 @@ def build_sam3_video_model(
             compile_model=compile,
         )
 
-    # Load checkpoint if provided
-    if load_from_HF and checkpoint_path is None:
-        checkpoint_path = download_ckpt_from_hf()
-    if checkpoint_path is not None:
-        with g_pathmgr.open(checkpoint_path, "rb") as f:
-            ckpt = torch.load(f, map_location="cpu", weights_only=True)
-        if "model" in ckpt and isinstance(ckpt["model"], dict):
-            ckpt = ckpt["model"]
+    # Load checkpoint
+    if text_encoder_type:
+        # LiteText video workflow:
+        # 1. Load the base video checkpoint (tracker + vision backbone)
+        base_ckpt_path = checkpoint_path
+        if base_ckpt_path is None and load_from_HF:
+            base_ckpt_path = download_ckpt_from_hf()
+        if base_ckpt_path is not None:
+            ckpt = _load_state_dict_from_path(base_ckpt_path)
+            cleaned = {k.replace("student_trunk.", ""): v for k, v in ckpt.items()}
+            # strict=False so tracker keys load from base, language keys from student below
+            model.load_state_dict(cleaned, strict=False)
 
-        missing_keys, unexpected_keys = model.load_state_dict(
-            ckpt, strict=strict_state_dict_loading
-        )
-        if missing_keys:
-            print(f"Missing keys: {missing_keys}")
-        if unexpected_keys:
-            print(f"Unexpected keys: {unexpected_keys}")
+        # 2. Overlay student text encoder weights (language backbone only)
+        lang_ckpt_path = student_text_encoder_checkpoint
+        if lang_ckpt_path is not None:
+            lang_ckpt = _load_state_dict_from_path(lang_ckpt_path)
+            lang_weights = {k: v for k, v in lang_ckpt.items() if "language_backbone" in k}
+            missing, unexpected = model.load_state_dict(lang_weights, strict=False)
+            lang_loaded = len(lang_ckpt) - len([k for k in lang_ckpt if "language_backbone" not in k])
+            print(f"Loaded {len(lang_weights)} student text encoder weights from {lang_ckpt_path}")
+
+        # 3. Truncate context length after all weights are loaded
+        if text_encoder_context_length < 77:
+            model.detector.backbone.language_backbone.set_context_length(text_encoder_context_length)
+    else:
+        # Standard SAM3 video model loading
+        if load_from_HF and checkpoint_path is None:
+            checkpoint_path = download_ckpt_from_hf()
+        if checkpoint_path is not None:
+            with g_pathmgr.open(checkpoint_path, "rb") as f:
+                try:
+                    ckpt = torch.load(f, map_location="cpu", weights_only=True)
+                except TypeError:
+                    ckpt = torch.load(f, map_location="cpu")
+            if "model" in ckpt and isinstance(ckpt["model"], dict):
+                ckpt = ckpt["model"]
+
+            missing_keys, unexpected_keys = model.load_state_dict(
+                ckpt, strict=strict_state_dict_loading
+            )
+            if missing_keys:
+                print(f"Missing keys: {missing_keys}")
+            if unexpected_keys:
+                print(f"Unexpected keys: {unexpected_keys}")
 
     model.to(device=device)
     return model
+
+
+def _load_state_dict_from_path(checkpoint_path: str) -> dict:
+    """Load a checkpoint dict from path, unwrapping common wrapper keys.
+
+    Supports checkpoints saved as:
+    - {"model": state_dict}
+    - {"state_dict": state_dict}
+    - state_dict
+    """
+    with g_pathmgr.open(checkpoint_path, "rb") as f:
+        try:
+            ckpt = torch.load(f, map_location="cpu", weights_only=True)
+        except TypeError:
+            ckpt = torch.load(f, map_location="cpu")
+    if isinstance(ckpt, dict) and "model" in ckpt and isinstance(ckpt["model"], dict):
+        return ckpt["model"]
+    if isinstance(ckpt, dict) and "state_dict" in ckpt and isinstance(ckpt["state_dict"], dict):
+        return ckpt["state_dict"]
+    if isinstance(ckpt, dict):
+        return ckpt
+    raise TypeError(f"Unsupported checkpoint type at {checkpoint_path}: {type(ckpt)}")
 
 
 def build_sam3_video_predictor(*model_args, gpus_to_use=None, **model_kwargs):
@@ -1312,6 +1428,7 @@ def build_efficientsam3_video_model(
     backbone_type="efficientvit",
     model_name="b0",
     text_encoder_type=None,
+    text_encoder_context_length: int = 77,
     efficientvit_model=None,
 ) -> Sam3VideoInferenceWithInstanceInteractivity:
     """
@@ -1320,9 +1437,11 @@ def build_efficientsam3_video_model(
     Args:
         checkpoint_path: Optional path to checkpoint file
         bpe_path: Path to the BPE tokenizer file
-        backbone_type: Type of backbone ('efficientvit', 'repvit', 'tinyvit')
+        backbone_type: Type of backbone ('sam3', 'efficientvit', 'repvit', 'tinyvit')
         model_name: Model variant (e.g. 'b0', 'm1.1', '5m')
         text_encoder_type: Type of text encoder (e.g. 'MobileCLIP-S0'). If None, uses standard SAM3 text encoder.
+        text_encoder_context_length: Target context length for text encoder (default: 77).
+            Only used when text_encoder_type is set. Common values: 16, 32, 77.
 
     Returns:
         Sam3VideoInferenceWithInstanceInteractivity: The instantiated dense tracking model
@@ -1354,7 +1473,8 @@ def build_efficientsam3_video_model(
 
     # Use Student Text Encoder if specified
     if text_encoder_type:
-        text_encoder = _create_student_text_encoder(bpe_path, text_encoder_type)
+        # LiteText: init at ctx=77 to match checkpoint pos-embed, then truncate after load.
+        text_encoder = _create_student_text_encoder(bpe_path, text_encoder_type, context_length=77)
     else:
         text_encoder = _create_text_encoder(bpe_path)
 
@@ -1454,20 +1574,22 @@ def build_efficientsam3_video_model(
         pass  # Implement if needed
 
     if checkpoint_path is not None:
-        with g_pathmgr.open(checkpoint_path, "rb") as f:
-            ckpt = torch.load(f, map_location="cpu", weights_only=True)
-        if "model" in ckpt and isinstance(ckpt["model"], dict):
-            ckpt = ckpt["model"]
+        ckpt = _load_state_dict_from_path(checkpoint_path)
 
-        # Handle EfficientSAM3 checkpoint keys (similar to image model potentially)
-        # Assuming checkpoint keys match model structure or need simple cleaning
+        cleaned_ckpt = {k.replace("student_trunk.", ""): v for k, v in ckpt.items()}
+
+        # Handle EfficientSAM3 checkpoint keys
         missing_keys, unexpected_keys = model.load_state_dict(
-            ckpt, strict=strict_state_dict_loading
+            cleaned_ckpt, strict=strict_state_dict_loading
         )
         if missing_keys:
             print(f"Missing keys: {missing_keys[:10]}")
         if unexpected_keys:
             print(f"Unexpected keys: {unexpected_keys[:10]}")
+
+    # Truncate text encoder context length after checkpoint loading
+    if text_encoder_type and text_encoder_context_length < 77:
+        model.detector.backbone.language_backbone.set_context_length(text_encoder_context_length)
 
     model.to(device=device)
     return model
@@ -1480,6 +1602,7 @@ def build_efficientsam3_video_predictor(
     backbone_type="efficientvit",
     model_name="b0",
     text_encoder_type=None,
+    text_encoder_context_length: int = 77,
     efficientvit_model=None,
     strict_state_dict_loading: bool = False,
     gpus_to_use=None,
@@ -1492,6 +1615,7 @@ def build_efficientsam3_video_predictor(
         backbone_type=backbone_type,
         model_name=model_name,
         text_encoder_type=text_encoder_type,
+        text_encoder_context_length=text_encoder_context_length,
         efficientvit_model=efficientvit_model,
         strict_state_dict_loading=strict_state_dict_loading,
         **kwargs,

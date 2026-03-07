@@ -27,7 +27,19 @@ class Sam3VideoPredictor:
     def __init__(
         self,
         checkpoint_path=None,
+        # EfficientSAM3 support: allow building the video model with
+        # EfficientSAM3 student vision backbone + optional student text encoder.
+        use_efficientsam3: bool = False,
+        backbone_type: str = "repvit",
+        model_name: str = "m1.1",
+        text_encoder_type: Optional[str] = None,
+        text_encoder_context_length: int = 77,
+        # LiteText: separate image checkpoint that supplies the student text encoder weights.
+        # Use together with checkpoint_path (full video model) or load_from_HF=True.
+        student_text_encoder_checkpoint: Optional[str] = None,
+        enable_inst_interactivity: bool = True,
         bpe_path=None,
+        load_from_HF=True,
         has_presence_token=True,
         geo_encoder_use_img_cross_attn=True,
         strict_state_dict_loading=True,
@@ -40,24 +52,29 @@ class Sam3VideoPredictor:
     ):
         self.async_loading_frames = async_loading_frames
         self.video_loader_type = video_loader_type
-        
-        if model_builder is None:
-            from sam3.model_builder import build_sam3_video_model
-            model_builder = build_sam3_video_model
 
-        # Only pass known arguments to the default builder, 
-        # or pass all kwargs if using a custom builder
-        if model_builder.__name__ == "build_sam3_video_model":
-            self.model = model_builder(
-                checkpoint_path=checkpoint_path,
-                bpe_path=bpe_path,
-                has_presence_token=has_presence_token,
-                geo_encoder_use_img_cross_attn=geo_encoder_use_img_cross_attn,
-                strict_state_dict_loading=strict_state_dict_loading,
-                apply_temporal_disambiguation=apply_temporal_disambiguation,
+        from sam3.model_builder import build_sam3_video_model, build_efficientsam3_video_model
+
+        if use_efficientsam3:
+            # EfficientSAM3 video model with student vision + optional student text encoder
+            self.model = (
+                build_efficientsam3_video_model(
+                    checkpoint_path=checkpoint_path,
+                    bpe_path=bpe_path,
+                    has_presence_token=has_presence_token,
+                    strict_state_dict_loading=strict_state_dict_loading,
+                    apply_temporal_disambiguation=apply_temporal_disambiguation,
+                    backbone_type=backbone_type,
+                    model_name=model_name,
+                    text_encoder_type=text_encoder_type,
+                    text_encoder_context_length=text_encoder_context_length,
+                    enable_inst_interactivity=enable_inst_interactivity,
+                )
+                .cuda()
+                .eval()
             )
-        else:
-            # For custom builders (like efficient sam), pass all args
+        elif model_builder is not None:
+            # Custom model builder
             self.model = model_builder(
                 checkpoint_path=checkpoint_path,
                 bpe_path=bpe_path,
@@ -66,6 +83,24 @@ class Sam3VideoPredictor:
                 strict_state_dict_loading=strict_state_dict_loading,
                 apply_temporal_disambiguation=apply_temporal_disambiguation,
                 **custom_model_kwargs,
+            )
+        else:
+            # Standard SAM3 video model (ViT vision + standard or LiteText text encoder)
+            self.model = (
+                build_sam3_video_model(
+                    checkpoint_path=checkpoint_path,
+                    load_from_HF=load_from_HF,
+                    bpe_path=bpe_path,
+                    has_presence_token=has_presence_token,
+                    geo_encoder_use_img_cross_attn=geo_encoder_use_img_cross_attn,
+                    strict_state_dict_loading=strict_state_dict_loading,
+                    apply_temporal_disambiguation=apply_temporal_disambiguation,
+                    text_encoder_type=text_encoder_type,
+                    text_encoder_context_length=text_encoder_context_length,
+                    student_text_encoder_checkpoint=student_text_encoder_checkpoint,
+                )
+                .cuda()
+                .eval()
             )
 
 
