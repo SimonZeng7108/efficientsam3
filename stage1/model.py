@@ -95,8 +95,12 @@ def build_text_student_model(config, logger=None):
         # Default fallback
         pass
 
-    # Get context length from config (default 32, can be 8 or 16 for efficiency)
+    # CONTEXT_LENGTH controls tokenization; POS_EMBED_TABLE_SIZE controls the learnable table.
     context_length = getattr(config.DISTILL, 'CONTEXT_LENGTH', 32)
+    pos_embed_table_size = getattr(config.DISTILL, 'POS_EMBED_TABLE_SIZE', 0)
+    if pos_embed_table_size in (None, 0):
+        pos_embed_table_size = context_length
+    cfg["context_length"] = pos_embed_table_size
 
     model = TextStudentEncoder(
         cfg=cfg,
@@ -106,6 +110,7 @@ def build_text_student_model(config, logger=None):
 
     if logger:
         logger.info(f"Text encoder context_length: {context_length}")
+        logger.info(f"Text encoder pos_embed_table_size: {pos_embed_table_size}")
 
     # Load pretrained weights if specified
     if hasattr(config.MODEL, 'PRETRAINED') and config.MODEL.PRETRAINED:

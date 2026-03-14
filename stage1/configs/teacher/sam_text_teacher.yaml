@@ -7,13 +7,14 @@ TRAIN:
   EPOCHS: 1
 
 DATA:
-  DATASET: recap_datacomp
-  DATA_PATH: data/recap_subset
+  DATASET: text_annotations
+  DATA_PATH: data/text_annotations_combined_5_dataset.json
   BATCH_SIZE: 64
   NUM_WORKERS: 8
 
 DISTILL:
   EMBED_DIM: 256
-  NUM_EMBED: 32
+  NUM_EMBED: 16
+  CONTEXT_LENGTH: 16
   SAVE_TEACHER_EMBED: True
-  TEACHER_EMBED_PATH: output/stage1_text_teacher/embeddings/
+  TEACHER_EMBED_PATH: output/stage1_text_teacher/embeddings_ctx16/

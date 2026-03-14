@@ -118,7 +118,9 @@ class COCOCustom(COCO):
         elif type(resFile) == np.ndarray:
             anns = self.loadNumpyAnnotations(resFile)
         else:
-            anns = resFile
+            # Shallow-copy each dict so in-place mutations (e.g. adding "bbox")
+            # don't affect the caller's list across multiple annotator calls.
+            anns = [dict(ann) for ann in resFile]
         assert type(anns) == list, "results in not an array of objects"
         annsImgIds = [ann["image_id"] for ann in anns]
         # MODIFICATION: faster and cached subset check
@@ -137,7 +139,7 @@ class COCOCustom(COCO):
             ]
             for id, ann in enumerate(anns):
                 ann["id"] = id + 1
-        elif "bbox" in anns[0] and not anns[0]["bbox"] == []:
+        elif "bbox" in anns[0] and len(anns[0]["bbox"]) > 0:
             res.dataset["categories"] = copy.deepcopy(self.dataset["categories"])
             for id, ann in enumerate(anns):
                 bb = ann["bbox"]
@@ -220,7 +222,7 @@ class CGF1Eval(COCOeval):
         else:
             gt = [_ for cId in p.catIds for _ in self._gts[imgId, cId]]
             dt = [_ for cId in p.catIds for _ in self._dts[imgId, cId]]
-        if len(gt) == 0 and len(dt) == 0:
+        if len(gt) == 0 or len(dt) == 0:
             return []
 
         if p.iouType == "segm":
@@ -274,6 +276,23 @@ class CGF1Eval(COCOeval):
                 "TPs": np.zeros((len(p.iouThrs),), dtype=np.int64),
                 "FPs": np.zeros((len(p.iouThrs),), dtype=np.int64),
                 "FNs": np.ones((len(p.iouThrs),), dtype=np.int64) * len(gt),
+                "local_F1s": np.zeros((len(p.iouThrs),), dtype=np.int64),
+                "local_positive_F1s": np.zeros((len(p.iouThrs),), dtype=np.int64),
+                "num_dt": len(dt),
+            }
+
+
+        if len(gt) == 0 and len(dt) > 0:
+            # This is a "false positive" case: predictions exist but no GTs
+            return {
+                "image_id": imgId,
+                "IL_TP": 0,
+                "IL_TN": 0,
+                "IL_FP": 1,
+                "IL_FN": 0,
+                "TPs": np.zeros((len(p.iouThrs),), dtype=np.int64),
+                "FPs": np.ones((len(p.iouThrs),), dtype=np.int64) * len(dt),
+                "FNs": np.zeros((len(p.iouThrs),), dtype=np.int64),
                 "local_F1s": np.zeros((len(p.iouThrs),), dtype=np.int64),
                 "local_positive_F1s": np.zeros((len(p.iouThrs),), dtype=np.int64),
                 "num_dt": len(dt),

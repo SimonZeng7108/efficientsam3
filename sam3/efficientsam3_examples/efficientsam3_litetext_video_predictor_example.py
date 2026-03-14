@@ -61,8 +61,8 @@ def parse_args():
     p.add_argument(
         "--litetext-checkpoint",
         default=os.path.join(
-            _project_root, "output", "sam3_litetext",
-            "efficient_sam3_image_encoder_mobileclip_s0_ctx16.pt"
+            _project_root, "output", "ablation_merged",
+            "efficient_sam3_text_s0_ctx16_fixed.pt"
         ),
         help="Path to the LiteText image checkpoint (student text encoder weights).",
     )
@@ -74,7 +74,19 @@ def parse_args():
     )
     p.add_argument(
         "--ctx", type=int, default=16,
-        help="Context length the checkpoint was trained with (default: 16)",
+        help="Token context length to use at inference (default: 16)",
+    )
+    p.add_argument(
+        "--pos-embed-table-size",
+        type=int,
+        default=None,
+        help="Positional embedding table size. Defaults to --ctx for fixed/slice inference.",
+    )
+    p.add_argument(
+        "--interpolate-pos-embed",
+        action="store_true",
+        default=False,
+        help="Optional legacy mode: interpolate the positional table at inference instead of slicing.",
     )
     p.add_argument(
         "--frame-stride", type=int, default=30,
@@ -179,7 +191,10 @@ def main():
         print(f"ERROR: LiteText checkpoint not found: {litetext_ckpt}")
         return
     print(f"LiteText checkpoint: {litetext_ckpt}")
-    print(f"Text encoder       : {args.backbone_type}  ctx={args.ctx}")
+    print(
+        f"Text encoder       : {args.backbone_type}  ctx={args.ctx}  "
+        f"interp={args.interpolate_pos_embed}"
+    )
 
     gpus_to_use = list(range(torch.cuda.device_count())) if device == "cuda" else None
 
@@ -192,6 +207,8 @@ def main():
         # LiteText options
         text_encoder_type=args.backbone_type,
         text_encoder_context_length=args.ctx,
+        text_encoder_pos_embed_table_size=args.pos_embed_table_size,
+        interpolate_pos_embed=args.interpolate_pos_embed,
         student_text_encoder_checkpoint=litetext_ckpt,
         strict_state_dict_loading=False,
     )

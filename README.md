@@ -195,18 +195,27 @@ masks, scores, _ = model.predict_inst(
   <img src="https://github.com/SimonZeng7108/efficientsam3/blob/main/images/es-tv-mc-m-teaser.png" width="30%">
 </p>
 
- **MobileCLIP-S1 (63.56M)** distilled from **SAM3 Text Encoder (353.72M)** — trained on **1% Recap-DataComp-1B**.
+ **MobileCLIP-S1 (63.56M)** distilled from **SAM3 Text Encoder (353.72M)**.
+
+
 
 ```python
 from sam3.model_builder import build_efficientsam3_image_model
 from sam3.model.sam3_image_processor import Sam3Processor
 
-# Load model with text encoder
+# Load model with student text encoder
+# Default recommended setup:
+# - fixed training checkpoint
+# - slice-based inference
+# - eval context matches training context
 model = build_efficientsam3_image_model(
     checkpoint_path="efficient_sam3_tinyvit_m_mobileclip_s1.pt",
     backbone_type="tinyvit",
     model_name="11m",
-    text_encoder_type="MobileCLIP-S1"
+    text_encoder_type="MobileCLIP-S1",
+    text_encoder_context_length=16,
+    text_encoder_pos_embed_table_size=16,
+    interpolate_pos_embed=False,
 )
 
 # Process image and predict with text prompt
@@ -216,6 +225,20 @@ inference_state = processor.set_text_prompt(prompt="shoe", state=inference_state
 masks = inference_state["masks"]
 scores = inference_state["scores"]
 print(len(scores), scores)
+```
+
+For an older interpolation-style checkpoint, use:
+
+```python
+model = build_efficientsam3_image_model(
+    checkpoint_path="legacy_interp_checkpoint.pt",
+    backbone_type="tinyvit",
+    model_name="11m",
+    text_encoder_type="MobileCLIP-S1",
+    text_encoder_context_length=16,
+    text_encoder_pos_embed_table_size=77,
+    interpolate_pos_embed=True,
+)
 ```
 
 For detailed examples including point/box prompts, batched inference, and more, see [sam3/efficientsam3_examples/efficientsam3_for_sam1_task_example.py](sam3/efficientsam3_examples/efficientsam3_for_sam1_task_example.py). For text prompt inference, see [sam3/efficientsam3_examples/efficientsam3_image_predictor_example.ipynb](sam3/efficientsam3_examples/efficientsam3_image_predictor_example.ipynb).
@@ -298,6 +321,12 @@ For dataset setup and download scripts (`data/download_*.sh`) covering COCO, DAV
 
 SAM3-LiteText replaces the SAM3 text encoder with a lightweight distilled text encoder, reducing text encoder parameters by up to **88%** with comparable performance. See the [SAM3-LiteText paper](https://arxiv.org/abs/2602.12173) for details.
 
+Recommended default for SAM3-LiteText:
+
+- Use a **fixed** checkpoint (`pos_embed_table_size == context_length`)
+- Run inference with **slice** behavior by default
+- Only turn on interpolation for older legacy checkpoints that were trained with a larger positional table
+
 | Model | Text Encoder | Ctx | Text Params | Weights |
 |-------|--------------|-----|-------------|---------|
 | **SAM3-LiteText-S0-16** | MobileCLIP-S0 | 16 | 42.54M | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/efficient_sam3_image_encoder_mobileclip_s0_ctx16.pt)/ [GDrive](https://drive.google.com/file/d/1Eo81WYzfozFSvgvwlScGorUAIfMVPAFm/view?usp=sharing) |
@@ -305,6 +334,30 @@ SAM3-LiteText replaces the SAM3 text encoder with a lightweight distilled text e
 | **SAM3-LiteText-L-16** | MobileCLIP2-L | 16 | 123.80M | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/efficient_sam3_image_encoder_mobileclip2_l_ctx16.pt)/ [GDrive](https://drive.google.com/file/d/1Mc4pk0FNCWwPTGoj1CCdAhkkNz02CUyY/view?usp=sharing) |
 
 > All models use the **SAM3 ViT-H image encoder** (461.84M vision params). The text encoder parameters shown represent the distilled student replacing the original 353.72M text encoder, achieving up to **88% parameter reduction**.
+
+Example:
+
+```python
+from sam3.model_builder import build_sam3_image_model
+from sam3.model.sam3_image_processor import Sam3Processor
+
+model = build_sam3_image_model(
+    checkpoint_path="efficient_sam3_image_encoder_mobileclip_s0_ctx16.pt",
+    load_from_HF=False,
+    text_encoder_type="MobileCLIP-S0",
+    text_encoder_context_length=16,
+    text_encoder_pos_embed_table_size=16,
+    interpolate_pos_embed=False,
+    enable_segmentation=True,
+    enable_inst_interactivity=False,
+)
+
+processor = Sam3Processor(model)
+inference_state = processor.set_image(image)
+inference_state = processor.set_text_prompt(prompt="dog", state=inference_state)
+print(inference_state["scores"])
+```
+
 
 ---
 

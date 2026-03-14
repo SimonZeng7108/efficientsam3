@@ -88,6 +88,18 @@ def parse_args():
         default="mobileclip_s0",
         help="Name of the text student model (used for filename).",
     )
+    parser.add_argument(
+        "--text-context-length",
+        type=int,
+        default=None,
+        help="Optional metadata only: token context length used by the text student.",
+    )
+    parser.add_argument(
+        "--text-pos-embed-table-size",
+        type=int,
+        default=None,
+        help="Optional metadata only: positional embedding table size used by the text student.",
+    )
     return parser.parse_args()
 
 def main():
@@ -149,7 +161,13 @@ def main():
         appended += 1
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
-    torch.save({"model": merged}, args.output)
+    payload = {"model": merged}
+    if args.text_context_length is not None or args.text_pos_embed_table_size is not None:
+        payload["meta"] = {
+            "text_context_length": args.text_context_length,
+            "text_pos_embed_table_size": args.text_pos_embed_table_size,
+        }
+    torch.save(payload, args.output)
     print(f"Combined checkpoint saved to: {args.output}")
     print(f"Teacher params: Replaced={replaced}, Skipped={skipped}, Appended={appended}")
 

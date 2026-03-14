@@ -5,6 +5,7 @@ Simple inference script for SAM3-LiteText.
 
 import os
 import sys
+import argparse
 import torch
 import matplotlib.pyplot as plt
 from PIL import Image
@@ -18,28 +19,66 @@ from sam3.model.sam3_image_processor import Sam3Processor
 from sam3.visualization_utils import plot_results
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Simple SAM3-LiteText image inference")
+    parser.add_argument(
+        "--checkpoint",
+        default="output/ablation_merged/efficient_sam3_text_s0_ctx16_fixed.pt",
+        help="Path to the merged LiteText checkpoint",
+    )
+    parser.add_argument(
+        "--backbone-type",
+        default="MobileCLIP-S0",
+        choices=["MobileCLIP-S0", "MobileCLIP-S1", "MobileCLIP2-L"],
+        help="LiteText backbone type (default: MobileCLIP-S0)",
+    )
+    parser.add_argument(
+        "--context-length",
+        type=int,
+        default=16,
+        help="Token context length to use at inference (default: 16)",
+    )
+    parser.add_argument(
+        "--pos-embed-table-size",
+        type=int,
+        default=None,
+        help="Positional embedding table size. Defaults to --context-length for fixed/slice inference.",
+    )
+    parser.add_argument(
+        "--interpolate-pos-embed",
+        action="store_true",
+        default=False,
+        help="Optional legacy mode: interpolate the positional table at inference instead of slicing.",
+    )
+    parser.add_argument("--image-path", default="sam3/assets/dog_person.jpeg")
+    parser.add_argument("--prompt", default="dog")
+    parser.add_argument("--output-path", default="litetext_result_dog.png")
+    return parser.parse_args()
+
+
 def run_inference():
-    # --- Configuration ---
-    checkpoint_path = "output/sam3_litetext/efficient_sam3_image_encoder_mobileclip_s0_ctx16.pt"
+    args = parse_args()
 
-    backbone_type = "MobileCLIP-S0"  # "MobileCLIP-S0", "MobileCLIP-S1", "MobileCLIP2-L"
-    target_context_length = 16       # 16, 32, or 77
-
-    image_path = "sam3/assets/dog_person.jpeg"
+    checkpoint_path = args.checkpoint
+    backbone_type = args.backbone_type
+    target_context_length = args.context_length
+    pos_embed_table_size = args.pos_embed_table_size
+    image_path = args.image_path
     bpe_path = "sam3/assets/bpe_simple_vocab_16e6.txt.gz"
-    prompt = "dog"
-    output_path = "litetext_result_dog.png"
+    prompt = args.prompt
+    output_path = args.output_path
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    # ---------------------
 
     print(f"Using device: {device}")
 
     if not os.path.exists(checkpoint_path):
         print(f"Error: Checkpoint not found at {checkpoint_path}")
-        # return
+        return
 
-    # 1. Build SAM3-LiteText model in a single call
-    print(f"Building SAM3-LiteText model ({backbone_type}, ctx={target_context_length})...")
+    print(
+        f"Building SAM3-LiteText model ({backbone_type}, ctx={target_context_length}, "
+        f"interp={args.interpolate_pos_embed})..."
+    )
     model = build_sam3_image_model(
         bpe_path=bpe_path,
         checkpoint_path=checkpoint_path,
@@ -49,6 +88,8 @@ def run_inference():
         compile=False,
         text_encoder_type=backbone_type,
         text_encoder_context_length=target_context_length,
+        text_encoder_pos_embed_table_size=pos_embed_table_size,
+        interpolate_pos_embed=args.interpolate_pos_embed,
         device=device,
     )
 

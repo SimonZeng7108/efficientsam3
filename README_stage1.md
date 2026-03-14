@@ -163,6 +163,23 @@ bash stage1/scripts/train_image_student.sh \
 Set `MODEL.BACKBONE` in the config file to one of:
 `MobileCLIP-S0`, `MobileCLIP-S1`, `MobileCLIP2-L`.
 
+**Default positional embedding behavior (simple version):**
+
+- Training now defaults to **fixed** positional embeddings.
+- This means `DISTILL.POS_EMBED_TABLE_SIZE` matches `DISTILL.CONTEXT_LENGTH`.
+- Example:
+  - `CONTEXT_LENGTH: 16` -> position table size `16`
+  - `CONTEXT_LENGTH: 32` -> position table size `32`
+- This is the recommended default because it is simpler and gave stable results in the ablation study.
+- If you want to reproduce the older interpolation-style training, set:
+  - `DISTILL.POS_EMBED_TABLE_SIZE: 77`
+
+**Inference / evaluation default:**
+
+- LiteText inference now defaults to **slice/truncate** behavior.
+- In simple terms: if the stored position table is longer than the requested context, we cut it down to the requested length.
+- Optional interpolation at inference is still supported, but it must be requested explicitly.
+
 **Option 1: Train from scratch (random initialization)**
 ```bash
 bash stage1/scripts/train_text_student.sh \

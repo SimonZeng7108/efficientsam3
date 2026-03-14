@@ -1,0 +1,13 @@
+BASE: ['es_mc_s.yaml']
+
+MODEL:
+  NAME: EfficientSAM3_Text_S0_CTX32
+
+OUTPUT: output/stage1_text/mobileclip_s0_ctx32
+TAG: text_ctx32
+
+DISTILL:
+  NUM_EMBED: 32
+  TEACHER_EMBED_PATH: 'output/stage1_text_teacher/embeddings_ctx32/'
+  CONTEXT_LENGTH: 32
+  POS_EMBED_TABLE_SIZE: 32

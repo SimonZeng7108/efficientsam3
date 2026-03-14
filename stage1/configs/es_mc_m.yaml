@@ -1,22 +1,22 @@
 MODEL:
-  NAME: EfficientSAM3_Text_M
+  NAME: EfficientSAM3_Text_S1
   BACKBONE: MobileCLIP-S1
   PRETRAINED: ''
   RESUME: ''
 
 TRAIN:
   START_EPOCH: 0
-  EPOCHS: 50
-  WARMUP_EPOCHS: 5
-  WEIGHT_DECAY: 0.01
-  BASE_LR: 1e-3
+  EPOCHS: 100
+  WARMUP_EPOCHS: 10
+  WEIGHT_DECAY: 0.05
+  BASE_LR: 5e-3
   WARMUP_LR: 1e-6
-  MIN_LR: 1e-5
-  CLIP_GRAD: 5.0
+  MIN_LR: 5e-6
+  CLIP_GRAD: 1.0
   AUTO_RESUME: True
-  ACCUMULATION_STEPS: 1
+  ACCUMULATION_STEPS: 2
   USE_CHECKPOINT: False
-  LAYER_LR_DECAY: 1.0
+  LAYER_LR_DECAY: 0.9
   EVAL_BN_WHEN_TRAINING: False
   FIND_UNUSED_PARAMETERS: True
 
@@ -32,10 +32,10 @@ TRAIN:
     MOMENTUM: 0.9
 
 AMP_ENABLE: True
-OUTPUT: output/stage1_text/mobileclip_m
-TAG: default
-SAVE_FREQ: 1
-PRINT_FREQ: 10
+OUTPUT: output/stage1_text/mobileclip_s1
+TAG: text_ctx16
+SAVE_FREQ: 5
+PRINT_FREQ: 100
 SEED: 0
 EVAL_MODE: False
 THROUGHPUT_MODE: False
@@ -43,8 +43,8 @@ LOCAL_RANK: 0
 
 DATA:
   IMG_SIZE: 1008
-  DATASET: recap_datacomp
-  DATA_PATH: data/
+  DATASET: text_annotations
+  DATA_PATH: data/text_annotations_combined_5_dataset.json
   BATCH_SIZE: 64
   NUM_WORKERS: 8
 
@@ -53,12 +53,16 @@ DISTILL:
   ENCODER_ONLY: True
   EMBED_DIM: 256
   EMBED_SIZE: 0
-  NUM_EMBED: 32
+  NUM_EMBED: 16
   PIXEL_WISE: 1.0
   CHANNEL_WISE: 0.0
   CORRELATION: 0.0
-  COSINE: 1.0
-  TEACHER_EMBED_PATH: 'output/stage1_text_teacher/embeddings'
+  COSINE: 2.0
+  TEACHER_EMBED_PATH: 'output/stage1_text_teacher/embeddings_ctx16/'
   SAVE_TEACHER_EMBED: False
   NO_RAND: True
   MAX_ALLOWED_PROMPTS: -1
+  MASK_PAD_TOKENS: True
+  CONTEXT_LENGTH: 16
+  POS_EMBED_TABLE_SIZE: 16
+  CONSISTENCY_LOSS: 0.05

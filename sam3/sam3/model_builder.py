@@ -497,7 +497,12 @@ def _create_text_encoder(bpe_path: str) -> VETextEncoder:
     )
 
 
-def _create_student_text_encoder(bpe_path: str, backbone_type: str, context_length: int = 32) -> TextStudentEncoder:
+def _create_student_text_encoder(
+    bpe_path: str,
+    backbone_type: str,
+    context_length: int = 32,
+    pos_embed_table_size: Optional[int] = None,
+) -> TextStudentEncoder:
     """Create Student text encoder."""
     
     # Default config values
@@ -546,19 +551,44 @@ def _create_student_text_encoder(bpe_path: str, backbone_type: str, context_leng
             "model_name": "base", 
         })
 
-    # Note: cfg["context_length"] (77) controls the positional embedding TABLE size.
-    # It MUST stay at 77 to match all checkpoints (all trained with default MobileCLIP
-    # positional embeddings, even when fewer tokens were used during training).
-    # The `context_length` param here only controls tokenization length (how many tokens
-    # are processed). After loading a checkpoint, call set_context_length(N) to truncate
-    # the pos-embed table for memory efficiency and enforce a smaller context window.
+    if pos_embed_table_size is None:
+        pos_embed_table_size = context_length
+    cfg["context_length"] = pos_embed_table_size
+
+    # `cfg["context_length"]` controls the positional embedding TABLE size, while the
+    # TextStudentEncoder `context_length` controls tokenization / active sequence length.
+    # Keeping them separate lets us reproduce both interpolation-style and fixed-table
+    # checkpoints during inference.
 
     return TextStudentEncoder(
         cfg=cfg,
-        context_length=context_length, # Tokenization length (default 32)
+        context_length=context_length,
         output_dim=256, # SAM3 d_model
         bpe_path=bpe_path
     )
+
+
+def _resolve_text_pos_embed_table_size(
+    text_encoder_context_length: int,
+    text_encoder_pos_embed_table_size: Optional[int],
+) -> int:
+    if text_encoder_pos_embed_table_size in (None, 0):
+        return text_encoder_context_length
+    return text_encoder_pos_embed_table_size
+
+
+def _apply_text_context_policy(
+    language_backbone,
+    text_encoder_context_length: int,
+    text_encoder_pos_embed_table_size: int,
+    interpolate_pos_embed: bool,
+):
+    if text_encoder_context_length >= text_encoder_pos_embed_table_size:
+        return
+    if interpolate_pos_embed:
+        language_backbone.context_length = text_encoder_context_length
+    else:
+        language_backbone.set_context_length(text_encoder_context_length)
 
 
 def _create_vision_backbone(
@@ -657,6 +687,8 @@ def build_sam3_image_model(
     enable_vision_encoder=True,
     text_encoder_type=None,
     text_encoder_context_length=77,
+    text_encoder_pos_embed_table_size: Optional[int] = None,
+    interpolate_pos_embed: bool = False,
 ):
     """
     Build SAM3 image model
@@ -676,6 +708,11 @@ def build_sam3_image_model(
             If None, uses the standard SAM3 text encoder.
         text_encoder_context_length: Target context length for text encoder (default: 77).
             Only used when text_encoder_type is set. Common values: 16, 32, 77.
+        text_encoder_pos_embed_table_size: Positional embedding table size for the
+            student text encoder. Defaults to `text_encoder_context_length`, which
+            makes fixed-table / slice-based inference the default.
+        interpolate_pos_embed: If True, keep the original positional table and
+            interpolate it at inference. If False, slice to the requested context.
 
     Returns:
         A SAM3 image model
@@ -686,6 +723,9 @@ def build_sam3_image_model(
         bpe_path = os.path.join(
             os.path.dirname(__file__), "..", "assets", "bpe_simple_vocab_16e6.txt.gz"
         )
+    text_encoder_pos_embed_table_size = _resolve_text_pos_embed_table_size(
+        text_encoder_context_length, text_encoder_pos_embed_table_size
+    )
     # Create visual components
     compile_mode = "default" if compile else None
     if enable_vision_encoder:
@@ -698,9 +738,11 @@ def build_sam3_image_model(
     # Create text components
     if enable_text_encoder:
         if text_encoder_type:
-            # LiteText: init at ctx=77 to match checkpoint pos-embed, then truncate after load.
             text_encoder = _create_student_text_encoder(
-                bpe_path, text_encoder_type, context_length=77
+                bpe_path,
+                text_encoder_type,
+                context_length=text_encoder_context_length,
+                pos_embed_table_size=text_encoder_pos_embed_table_size,
             )
         else:
             text_encoder = _create_text_encoder(bpe_path)
@@ -746,9 +788,15 @@ def build_sam3_image_model(
     if checkpoint_path is not None:
         _load_checkpoint(model, checkpoint_path)
 
-    # Truncate text encoder context length after checkpoint loading
-    if text_encoder_type and text_encoder_context_length < 77:
-        model.backbone.language_backbone.set_context_length(text_encoder_context_length)
+    # Truncate text encoder context length after checkpoint loading when the
+    # underlying table is larger than the active tokenization window.
+    if text_encoder_type:
+        _apply_text_context_policy(
+            model.backbone.language_backbone,
+            text_encoder_context_length,
+            text_encoder_pos_embed_table_size,
+            interpolate_pos_embed,
+        )
 
     # Setup device and mode
     model = _setup_device_and_mode(model, device, eval_mode)
@@ -951,6 +999,8 @@ def build_efficientsam3_image_model(
     efficientvit_model=None,
     text_encoder_type=None, # e.g. "MobileCLIP-S0"
     text_encoder_context_length=77,
+    text_encoder_pos_embed_table_size: Optional[int] = None,
+    interpolate_pos_embed: bool = False,
 ):
     """
     Build EfficientSAM3 image model with a student backbone
@@ -970,6 +1020,11 @@ def build_efficientsam3_image_model(
         text_encoder_type: Type of text encoder (e.g. 'MobileCLIP-S0'). If None, uses standard SAM3 text encoder.
         text_encoder_context_length: Target context length for text encoder (default: 77).
             Only used when text_encoder_type is set. Common values: 16, 32, 77.
+        text_encoder_pos_embed_table_size: Positional embedding table size for the
+            student text encoder. Defaults to `text_encoder_context_length`, which
+            makes fixed-table / slice-based inference the default.
+        interpolate_pos_embed: If True, keep the original positional table and
+            interpolate it at inference. If False, slice to the requested context.
 
     Returns:
         An EfficientSAM3 image model
@@ -984,6 +1039,9 @@ def build_efficientsam3_image_model(
         bpe_path = os.path.join(
             os.path.dirname(__file__), "..", "assets", "bpe_simple_vocab_16e6.txt.gz"
         )
+    text_encoder_pos_embed_table_size = _resolve_text_pos_embed_table_size(
+        text_encoder_context_length, text_encoder_pos_embed_table_size
+    )
     # Create visual components with student backbone
     compile_mode = "default" if compile else None
     vision_encoder = _create_student_vision_backbone(
@@ -995,8 +1053,12 @@ def build_efficientsam3_image_model(
 
     # Create text components
     if text_encoder_type:
-        # LiteText: init at ctx=77 to match checkpoint pos-embed, then truncate after load.
-        text_encoder = _create_student_text_encoder(bpe_path, text_encoder_type, context_length=77)
+        text_encoder = _create_student_text_encoder(
+            bpe_path,
+            text_encoder_type,
+            context_length=text_encoder_context_length,
+            pos_embed_table_size=text_encoder_pos_embed_table_size,
+        )
     else:
         text_encoder = _create_text_encoder(bpe_path)
 
@@ -1041,9 +1103,15 @@ def build_efficientsam3_image_model(
     if checkpoint_path is not None:
         _load_checkpoint(model, checkpoint_path)
 
-    # Truncate text encoder context length after checkpoint loading
-    if text_encoder_type and text_encoder_context_length < 77:
-        model.backbone.language_backbone.set_context_length(text_encoder_context_length)
+    # Truncate text encoder context length after checkpoint loading when the
+    # underlying table is larger than the active tokenization window.
+    if text_encoder_type:
+        _apply_text_context_policy(
+            model.backbone.language_backbone,
+            text_encoder_context_length,
+            text_encoder_pos_embed_table_size,
+            interpolate_pos_embed,
+        )
 
     # Setup device and mode
     model = _setup_device_and_mode(model, device, eval_mode)
@@ -1064,6 +1132,8 @@ def build_efficientsam3_video_model(
     model_name: str = "m1.1",
     text_encoder_type: Optional[str] = None,
     text_encoder_context_length: int = 77,
+    text_encoder_pos_embed_table_size: Optional[int] = None,
+    interpolate_pos_embed: bool = False,
     enable_inst_interactivity: bool = True,
 ) -> Sam3VideoInferenceWithInstanceInteractivity:
     """Build EfficientSAM3 video model (SAM 2-style interactive VOS API).
@@ -1078,6 +1148,9 @@ def build_efficientsam3_video_model(
         bpe_path = os.path.join(
             os.path.dirname(__file__), "..", "assets", "bpe_simple_vocab_16e6.txt.gz"
         )
+    text_encoder_pos_embed_table_size = _resolve_text_pos_embed_table_size(
+        text_encoder_context_length, text_encoder_pos_embed_table_size
+    )
 
     tracker = build_tracker(apply_temporal_disambiguation=apply_temporal_disambiguation)
 
@@ -1090,8 +1163,12 @@ def build_efficientsam3_video_model(
     )
 
     if text_encoder_type:
-        # LiteText: initialize with context_length=77 for checkpoint weight compatibility
-        text_encoder = _create_student_text_encoder(bpe_path, text_encoder_type, context_length=77)
+        text_encoder = _create_student_text_encoder(
+            bpe_path,
+            text_encoder_type,
+            context_length=text_encoder_context_length,
+            pos_embed_table_size=text_encoder_pos_embed_table_size,
+        )
     else:
         text_encoder = _create_text_encoder(bpe_path)
 
@@ -1186,9 +1263,15 @@ def build_efficientsam3_video_model(
         if unexpected_keys:
             print(f"Unexpected keys: {unexpected_keys[:10]}")
 
-    # Truncate text encoder context length after checkpoint loading
-    if text_encoder_type and text_encoder_context_length < 77:
-        model.detector.backbone.language_backbone.set_context_length(text_encoder_context_length)
+    # Truncate text encoder context length after checkpoint loading when the
+    # underlying table is larger than the active tokenization window.
+    if text_encoder_type:
+        _apply_text_context_policy(
+            model.detector.backbone.language_backbone,
+            text_encoder_context_length,
+            text_encoder_pos_embed_table_size,
+            interpolate_pos_embed,
+        )
 
     model.to(device=device)
     return model
@@ -1206,6 +1289,8 @@ def build_sam3_video_model(
     compile=False,
     text_encoder_type: Optional[str] = None,
     text_encoder_context_length: int = 77,
+    text_encoder_pos_embed_table_size: Optional[int] = None,
+    interpolate_pos_embed: bool = False,
     student_text_encoder_checkpoint: Optional[str] = None,
 ) -> Sam3VideoInferenceWithInstanceInteractivity:
     """
@@ -1222,6 +1307,11 @@ def build_sam3_video_model(
             (e.g. 'MobileCLIP-S0'). If None, uses the standard SAM3 text encoder.
         text_encoder_context_length: Target context length (default: 77).
             Common values: 16, 32, 77.
+        text_encoder_pos_embed_table_size: Positional embedding table size for the
+            student text encoder. Defaults to `text_encoder_context_length`, which
+            makes fixed-table / slice-based inference the default.
+        interpolate_pos_embed: If True, keep the original positional table and
+            interpolate it at inference. If False, slice to the requested context.
         student_text_encoder_checkpoint: Path to a LiteText *image* checkpoint
             (e.g. efficient_sam3_image_encoder_mobileclip_s0_ctx16.pt).
             Only the language_backbone keys are loaded from this checkpoint.
@@ -1237,6 +1327,9 @@ def build_sam3_video_model(
         bpe_path = os.path.join(
             os.path.dirname(__file__), "..", "assets", "bpe_simple_vocab_16e6.txt.gz"
         )
+    text_encoder_pos_embed_table_size = _resolve_text_pos_embed_table_size(
+        text_encoder_context_length, text_encoder_pos_embed_table_size
+    )
 
     # Build Tracker module
     tracker = build_tracker(apply_temporal_disambiguation=apply_temporal_disambiguation)
@@ -1244,9 +1337,11 @@ def build_sam3_video_model(
     # Build Detector components
     visual_neck = _create_vision_backbone()
     if text_encoder_type:
-        # LiteText: init at ctx=77 to match checkpoint pos-embed, then truncate after load.
         text_encoder = _create_student_text_encoder(
-            bpe_path, text_encoder_type, context_length=77
+            bpe_path,
+            text_encoder_type,
+            context_length=text_encoder_context_length,
+            pos_embed_table_size=text_encoder_pos_embed_table_size,
         )
     else:
         text_encoder = _create_text_encoder(bpe_path)
@@ -1360,9 +1455,14 @@ def build_sam3_video_model(
             lang_loaded = len(lang_ckpt) - len([k for k in lang_ckpt if "language_backbone" not in k])
             print(f"Loaded {len(lang_weights)} student text encoder weights from {lang_ckpt_path}")
 
-        # 3. Truncate context length after all weights are loaded
-        if text_encoder_context_length < 77:
-            model.detector.backbone.language_backbone.set_context_length(text_encoder_context_length)
+        # 3. Truncate context length after all weights are loaded when the
+        # underlying table is larger than the active tokenization window.
+        _apply_text_context_policy(
+            model.detector.backbone.language_backbone,
+            text_encoder_context_length,
+            text_encoder_pos_embed_table_size,
+            interpolate_pos_embed,
+        )
     else:
         # Standard SAM3 video model loading
         if load_from_HF and checkpoint_path is None:
@@ -1429,6 +1529,8 @@ def build_efficientsam3_video_model(
     model_name="b0",
     text_encoder_type=None,
     text_encoder_context_length: int = 77,
+    text_encoder_pos_embed_table_size: Optional[int] = None,
+    interpolate_pos_embed: bool = False,
     efficientvit_model=None,
 ) -> Sam3VideoInferenceWithInstanceInteractivity:
     """
@@ -1442,6 +1544,11 @@ def build_efficientsam3_video_model(
         text_encoder_type: Type of text encoder (e.g. 'MobileCLIP-S0'). If None, uses standard SAM3 text encoder.
         text_encoder_context_length: Target context length for text encoder (default: 77).
             Only used when text_encoder_type is set. Common values: 16, 32, 77.
+        text_encoder_pos_embed_table_size: Positional embedding table size for the
+            student text encoder. Defaults to `text_encoder_context_length`, which
+            makes fixed-table / slice-based inference the default.
+        interpolate_pos_embed: If True, keep the original positional table and
+            interpolate it at inference. If False, slice to the requested context.
 
     Returns:
         Sam3VideoInferenceWithInstanceInteractivity: The instantiated dense tracking model
@@ -1456,6 +1563,9 @@ def build_efficientsam3_video_model(
         bpe_path = os.path.join(
             os.path.dirname(__file__), "..", "assets", "bpe_simple_vocab_16e6.txt.gz"
         )
+    text_encoder_pos_embed_table_size = _resolve_text_pos_embed_table_size(
+        text_encoder_context_length, text_encoder_pos_embed_table_size
+    )
 
     compile_mode = "default" if compile else None
 
@@ -1473,8 +1583,12 @@ def build_efficientsam3_video_model(
 
     # Use Student Text Encoder if specified
     if text_encoder_type:
-        # LiteText: init at ctx=77 to match checkpoint pos-embed, then truncate after load.
-        text_encoder = _create_student_text_encoder(bpe_path, text_encoder_type, context_length=77)
+        text_encoder = _create_student_text_encoder(
+            bpe_path,
+            text_encoder_type,
+            context_length=text_encoder_context_length,
+            pos_embed_table_size=text_encoder_pos_embed_table_size,
+        )
     else:
         text_encoder = _create_text_encoder(bpe_path)
 
@@ -1587,9 +1701,15 @@ def build_efficientsam3_video_model(
         if unexpected_keys:
             print(f"Unexpected keys: {unexpected_keys[:10]}")
 
-    # Truncate text encoder context length after checkpoint loading
-    if text_encoder_type and text_encoder_context_length < 77:
-        model.detector.backbone.language_backbone.set_context_length(text_encoder_context_length)
+    # Truncate text encoder context length after checkpoint loading when the
+    # underlying table is larger than the active tokenization window.
+    if text_encoder_type:
+        _apply_text_context_policy(
+            model.detector.backbone.language_backbone,
+            text_encoder_context_length,
+            text_encoder_pos_embed_table_size,
+            interpolate_pos_embed,
+        )
 
     model.to(device=device)
     return model
@@ -1603,6 +1723,8 @@ def build_efficientsam3_video_predictor(
     model_name="b0",
     text_encoder_type=None,
     text_encoder_context_length: int = 77,
+    text_encoder_pos_embed_table_size: Optional[int] = None,
+    interpolate_pos_embed: bool = False,
     efficientvit_model=None,
     strict_state_dict_loading: bool = False,
     gpus_to_use=None,
@@ -1616,6 +1738,8 @@ def build_efficientsam3_video_predictor(
         model_name=model_name,
         text_encoder_type=text_encoder_type,
         text_encoder_context_length=text_encoder_context_length,
+        text_encoder_pos_embed_table_size=text_encoder_pos_embed_table_size,
+        interpolate_pos_embed=interpolate_pos_embed,
         efficientvit_model=efficientvit_model,
         strict_state_dict_loading=strict_state_dict_loading,
         **kwargs,

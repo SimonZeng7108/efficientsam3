@@ -37,6 +37,14 @@ def main(config, args):
     dataset_train, _, data_loader_train, _ = build_loader(config, build_val=False)
 
     logger.info("Building SAM3 text teacher encoder")
+    logger.info(
+        "Teacher embedding export uses the configured text context length only; "
+        "there is no student positional-table interpolation in this step."
+    )
+    logger.info(
+        f"Teacher context_length={getattr(config.DISTILL, 'CONTEXT_LENGTH', 'unknown')} "
+        f"-> saving to {config.DISTILL.TEACHER_EMBED_PATH}"
+    )
     model = build_text_teacher_model(config)
     model.cuda()
 

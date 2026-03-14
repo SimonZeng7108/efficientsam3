@@ -1,0 +1,9 @@
+BASE: ['sam_text_teacher.yaml']
+
+MODEL:
+  NAME: SAM3-Text-Teacher-CTX16
+
+DISTILL:
+  NUM_EMBED: 16
+  CONTEXT_LENGTH: 16
+  TEACHER_EMBED_PATH: output/stage1_text_teacher/embeddings_ctx16/

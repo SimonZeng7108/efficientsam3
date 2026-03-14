@@ -23,7 +23,7 @@ if project_root not in sys.path:
     sys.path.append(project_root)
 
 import sam3
-from sam3.model_builder import build_sam3_image_model, _create_student_text_encoder, _load_checkpoint
+from sam3.model_builder import build_sam3_image_model
 from sam3.model.sam3_image_processor import Sam3Processor
 from sam3.visualization_utils import draw_box_on_image, normalize_bbox, plot_results
 from sam3.model.box_ops import box_xywh_to_cxcywh
@@ -41,6 +41,31 @@ def parse_args():
         type=str,
         default=None,
         help="Path to the checkpoint file"
+    )
+    parser.add_argument(
+        "--backbone-type",
+        type=str,
+        default="MobileCLIP-S0",
+        choices=["MobileCLIP-S0", "MobileCLIP-S1", "MobileCLIP2-L"],
+        help="LiteText backbone type (default: MobileCLIP-S0)",
+    )
+    parser.add_argument(
+        "--context-length",
+        type=int,
+        default=16,
+        help="Token context length to use at inference (default: 16)",
+    )
+    parser.add_argument(
+        "--pos-embed-table-size",
+        type=int,
+        default=None,
+        help="Positional embedding table size. Defaults to --context-length for fixed/slice inference.",
+    )
+    parser.add_argument(
+        "--interpolate-pos-embed",
+        action="store_true",
+        default=False,
+        help="Optional legacy mode: interpolate the positional table at inference instead of slicing.",
     )
     return parser.parse_args()
 
@@ -64,14 +89,12 @@ def main():
     image_path = os.path.join(project_root, "sam3", "assets", "dog_person.jpeg")
     
     # Checkpoint path
-    # This example defaults to a *hybrid* checkpoint:
-    # - SAM3 ViT vision encoder (unchanged)
-    # - MobileCLIP-S0 student text encoder (replaces teacher text encoder)
+    # Default to the fixed ctx16 LiteText checkpoint.
     if args.checkpoint:
         checkpoint_path = args.checkpoint
     else:
         checkpoint_path = os.path.join(
-            project_root, "output", "efficient_sam3_image_encoder_mobileclip_s0.pth"
+            project_root, "output", "ablation_merged", "efficient_sam3_text_s0_ctx16_fixed.pt"
         )
 
     if not os.path.exists(image_path):
@@ -84,24 +107,23 @@ def main():
         return
 
     # 2. Load Model
-    print("Loading SAM3 (ViT vision) + MobileCLIP-S0 (student text) model...")
-    # Build a standard SAM3 image model (ViT vision backbone).
-    # Then swap in a MobileCLIP student text encoder so the checkpoint's
-    # `detector.backbone.language_backbone.*` keys load into the correct module.
+    print(
+        "Loading SAM3 (ViT vision) + LiteText student text encoder "
+        f"({args.backbone_type}, ctx={args.context_length}, interp={args.interpolate_pos_embed})..."
+    )
     model = build_sam3_image_model(
         bpe_path=bpe_path,
-        checkpoint_path=None,  # load after swapping text encoder
+        checkpoint_path=checkpoint_path,
         load_from_HF=False,
         enable_segmentation=True,
         enable_inst_interactivity=False,
         compile=False,
+        text_encoder_type=args.backbone_type,
+        text_encoder_context_length=args.context_length,
+        text_encoder_pos_embed_table_size=args.pos_embed_table_size,
+        interpolate_pos_embed=args.interpolate_pos_embed,
         device=device,
     )
-    model.backbone.language_backbone = _create_student_text_encoder(
-        bpe_path=bpe_path,
-        backbone_type="MobileCLIP-S0",
-    ).to(device)
-    _load_checkpoint(model, checkpoint_path)
     model.to(device)
     model.eval()
 

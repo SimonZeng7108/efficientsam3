@@ -49,6 +49,19 @@ def main(args, config):
     dataset_train, _, data_loader_train, _ = build_loader(config, build_val=False)
 
     logger.info(f"Creating text student model")
+    context_length = getattr(config.DISTILL, "CONTEXT_LENGTH", 32)
+    pos_embed_table_size = getattr(config.DISTILL, "POS_EMBED_TABLE_SIZE", 0)
+    if pos_embed_table_size in (None, 0):
+        pos_embed_table_size = context_length
+    train_strategy = (
+        "fixed"
+        if pos_embed_table_size == context_length
+        else f"interp-like (table={pos_embed_table_size})"
+    )
+    logger.info(
+        f"Text distillation setup: context_length={context_length}, "
+        f"pos_embed_table_size={pos_embed_table_size}, strategy={train_strategy}"
+    )
     model = build_text_student_model(config, logger=logger)
     if not args.only_cpu:
         model.cuda()
