@@ -1,4 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
+
+# pyre-unsafe
 import ast
 import concurrent.futures
 import os
@@ -9,7 +11,6 @@ from concurrent.futures import as_completed, ThreadPoolExecutor
 from pathlib import Path
 
 import yt_dlp
-
 from utils import (
     annotation_files,
     config,

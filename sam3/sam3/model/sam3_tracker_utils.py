@@ -1,33 +1,12 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 import numpy as np
 import torch
 import torch.nn.functional as F
 from numpy.typing import NDArray
-
-try:
-    from sam3.model.edt import edt_triton
-except ImportError:
-    edt_triton = None  # Triton not available (e.g. macOS)
-
-
-def _edt_scipy(masks: torch.Tensor) -> torch.Tensor:
-    """Euclidean distance transform using scipy (fallback for non-CUDA platforms)."""
-    try:
-        from scipy.ndimage import distance_transform_edt
-    except ImportError:
-        raise ImportError(
-            "scipy is required for distance transform on non-CUDA platforms (CPU/MPS). "
-            "Install with: pip install scipy"
-        ) from None
-
-    B, H, W = masks.shape
-    result = torch.zeros_like(masks, dtype=torch.float32)
-    masks_np = masks.cpu().numpy()
-    for b in range(B):
-        dt = distance_transform_edt(masks_np[b])
-        result[b] = torch.from_numpy(dt).to(result.device)
-    return result
+from sam3.model.edt import edt_triton
 
 
 def sample_box_points(
@@ -197,9 +176,8 @@ def sample_one_point_from_error_center(gt_masks, pred_masks, padding=True):
         padded_fp_masks = fp_masks
         padded_fn_masks = fn_masks
 
-    _edt_fn = edt_triton if edt_triton is not None else _edt_scipy
-    fn_mask_dt = _edt_fn(padded_fn_masks)
-    fp_mask_dt = _edt_fn(padded_fp_masks)
+    fn_mask_dt = edt_triton(padded_fn_masks)
+    fp_mask_dt = edt_triton(padded_fp_masks)
     if padding:
         fn_mask_dt = fn_mask_dt[:, 1:-1, 1:-1]
         fp_mask_dt = fp_mask_dt[:, 1:-1, 1:-1]
@@ -389,7 +367,17 @@ def get_best_gt_match_from_multimasks(pred_multimasks, gt_masks, pred_scores=Non
     return best_pred_mask
 
 
-def fill_holes_in_mask_scores(mask, max_area, fill_holes=True, remove_sprinkles=True):
+def fill_holes_in_mask_scores(
+    mask,
+    max_area=None,
+    fill_holes=True,
+    remove_sprinkles=True,
+    fill_hole_area=None,
+    sprinkle_removal_area=None,
+):
+    # Support onevision-style keyword args
+    if fill_hole_area is not None and max_area is None:
+        max_area = fill_hole_area
     """
     A post processor to fill small holes in mask scores with area under `max_area`.
     Holes are those small connected components in either background or foreground.

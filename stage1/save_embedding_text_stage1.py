@@ -142,6 +142,10 @@ def save_embeddings_one_epoch(config, model, data_loader, epoch):
         batch_time.update(time.time() - end)
         end = time.time()
 
+        if getattr(config.DATA, 'DEBUG', False) and idx >= 0:
+            logger.info("DATA.DEBUG=True: breaking after 1 batch.")
+            break
+
         if idx % config.PRINT_FREQ == 0:
             memory_used = (
                 torch.cuda.max_memory_allocated() / (1024.0 * 1024.0)

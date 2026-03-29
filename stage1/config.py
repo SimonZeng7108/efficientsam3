@@ -126,6 +126,7 @@ def update_config(config, args):
     _update_config_from_file(config, args.cfg)
 
     config.defrost()
+    teacher_embed_path_before_override = config.DISTILL.TEACHER_EMBED_PATH
     if args.opts:
         config.merge_from_list(args.opts)
 
@@ -155,6 +156,12 @@ def update_config(config, args):
     if args.local_rank is None and 'LOCAL_RANK' in os.environ:
         args.local_rank = int(os.environ['LOCAL_RANK'])
     config.LOCAL_RANK = args.local_rank
+
+    if args.output and config.DISTILL.SAVE_TEACHER_EMBED:
+        embed_leaf = os.path.basename(
+            os.path.normpath(config.DISTILL.TEACHER_EMBED_PATH or teacher_embed_path_before_override)
+        )
+        config.DISTILL.TEACHER_EMBED_PATH = os.path.join(config.OUTPUT, embed_leaf)
 
     # config.OUTPUT = os.path.join(config.OUTPUT, config.MODEL.NAME, config.TAG)
 

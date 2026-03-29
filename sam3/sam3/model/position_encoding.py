@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 import math
 from typing import Optional
 
@@ -36,16 +38,21 @@ class PositionEmbeddingSine(nn.Module):
         # Precompute positional encodings under `precompute_resolution` to fill the cache
         # and avoid symbolic shape tracing errors in torch.compile in PyTorch 2.4 nightly.
         if precompute_resolution is not None:
-            # We precompute pos enc for stride 4, 8, 16 and 32 to fill `self.cache`.
+            # We precompute pos enc for all strides used by both DualViTDetNeck and
+            # TriViTDetNeck (scale_factors 4.0, 2.0, 1.0, 0.5 applied to backbone
+            # output at stride 14 from 1008px input → 72x72).
             precompute_sizes = [
+                (int(precompute_resolution // 3.5), int(precompute_resolution // 3.5)),
                 (precompute_resolution // 4, precompute_resolution // 4),
+                (int(precompute_resolution // 7), int(precompute_resolution // 7)),
                 (precompute_resolution // 8, precompute_resolution // 8),
+                (int(precompute_resolution // 14), int(precompute_resolution // 14)),
                 (precompute_resolution // 16, precompute_resolution // 16),
+                (int(precompute_resolution // 28), int(precompute_resolution // 28)),
                 (precompute_resolution // 32, precompute_resolution // 32),
             ]
-            from sam3.device import get_device
             for size in precompute_sizes:
-                tensors = torch.zeros((1, 1) + size, device=get_device())
+                tensors = torch.zeros((1, 1) + size, device="cuda")
                 self.forward(tensors)
                 # further clone and detach it in the cache (just to be safe)
                 self.cache[size] = self.cache[size].clone().detach()

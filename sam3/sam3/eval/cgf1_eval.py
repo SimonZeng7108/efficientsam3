@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 import contextlib
 import copy
 import json
@@ -118,17 +120,15 @@ class COCOCustom(COCO):
         elif type(resFile) == np.ndarray:
             anns = self.loadNumpyAnnotations(resFile)
         else:
-            # Shallow-copy each dict so in-place mutations (e.g. adding "bbox")
-            # don't affect the caller's list across multiple annotator calls.
-            anns = [dict(ann) for ann in resFile]
+            anns = resFile
         assert type(anns) == list, "results in not an array of objects"
         annsImgIds = [ann["image_id"] for ann in anns]
         # MODIFICATION: faster and cached subset check
         if not hasattr(self, "img_id_set"):
             self.img_id_set = set(self.getImgIds())
-        assert set(annsImgIds).issubset(
-            self.img_id_set
-        ), "Results do not correspond to current coco set"
+        assert set(annsImgIds).issubset(self.img_id_set), (
+            "Results do not correspond to current coco set"
+        )
         # END MODIFICATION
         if "caption" in anns[0]:
             imgIds = set([img["id"] for img in res.dataset["images"]]) & set(
@@ -139,7 +139,7 @@ class COCOCustom(COCO):
             ]
             for id, ann in enumerate(anns):
                 ann["id"] = id + 1
-        elif "bbox" in anns[0] and len(anns[0]["bbox"]) > 0:
+        elif "bbox" in anns[0] and not anns[0]["bbox"] == []:
             res.dataset["categories"] = copy.deepcopy(self.dataset["categories"])
             for id, ann in enumerate(anns):
                 bb = ann["bbox"]
@@ -222,7 +222,7 @@ class CGF1Eval(COCOeval):
         else:
             gt = [_ for cId in p.catIds for _ in self._gts[imgId, cId]]
             dt = [_ for cId in p.catIds for _ in self._dts[imgId, cId]]
-        if len(gt) == 0 or len(dt) == 0:
+        if len(gt) == 0 and len(dt) == 0:
             return []
 
         if p.iouType == "segm":
@@ -281,23 +281,6 @@ class CGF1Eval(COCOeval):
                 "num_dt": len(dt),
             }
 
-
-        if len(gt) == 0 and len(dt) > 0:
-            # This is a "false positive" case: predictions exist but no GTs
-            return {
-                "image_id": imgId,
-                "IL_TP": 0,
-                "IL_TN": 0,
-                "IL_FP": 1,
-                "IL_FN": 0,
-                "TPs": np.zeros((len(p.iouThrs),), dtype=np.int64),
-                "FPs": np.ones((len(p.iouThrs),), dtype=np.int64) * len(dt),
-                "FNs": np.zeros((len(p.iouThrs),), dtype=np.int64),
-                "local_F1s": np.zeros((len(p.iouThrs),), dtype=np.int64),
-                "local_positive_F1s": np.zeros((len(p.iouThrs),), dtype=np.int64),
-                "num_dt": len(dt),
-            }
-
         # Load pre-computed ious
         ious = self.ious[(imgId, catId)]
 
@@ -318,9 +301,9 @@ class CGF1Eval(COCOeval):
             TP = (match_scores >= thresh).sum()
             FP = len(dt) - TP
             FN = len(gt) - TP
-            assert (
-                FP >= 0 and FN >= 0
-            ), f"FP: {FP}, FN: {FN}, TP: {TP}, match_scores: {match_scores}, len(dt): {len(dt)}, len(gt): {len(gt)}, ious: {ious}"
+            assert FP >= 0 and FN >= 0, (
+                f"FP: {FP}, FN: {FN}, TP: {TP}, match_scores: {match_scores}, len(dt): {len(dt)}, len(gt): {len(gt)}, ious: {ious}"
+            )
             TPs.append(TP)
             FPs.append(FP)
             FNs.append(FN)
@@ -616,9 +599,9 @@ class CGF1Evaluator:
 
         """
         assert len(self.coco_gts) > 0, "No ground truth provided for evaluation."
-        assert len(self.coco_gts) == len(
-            self.coco_evals
-        ), "Mismatch in number of ground truths and evaluators."
+        assert len(self.coco_gts) == len(self.coco_evals), (
+            "Mismatch in number of ground truths and evaluators."
+        )
 
         if self.verbose:
             print(f"Loading predictions from {pred_file}")
@@ -685,17 +668,17 @@ class CGF1Evaluator:
         if len(scorings) == 1:
             return scorings[0]
 
-        assert (
-            scorings[0].ndim == 3
-        ), f"Expecting results in [numCats, numAreas, numImgs] format, got {scorings[0].shape}"
-        assert (
-            scorings[0].shape[0] == 1
-        ), f"Expecting a single category, got {scorings[0].shape[0]}"
+        assert scorings[0].ndim == 3, (
+            f"Expecting results in [numCats, numAreas, numImgs] format, got {scorings[0].shape}"
+        )
+        assert scorings[0].shape[0] == 1, (
+            f"Expecting a single category, got {scorings[0].shape[0]}"
+        )
 
         for scoring in scorings:
-            assert (
-                scoring.shape == scorings[0].shape
-            ), f"Shape mismatch: {scoring.shape}, {scorings[0].shape}"
+            assert scoring.shape == scorings[0].shape, (
+                f"Shape mismatch: {scoring.shape}, {scorings[0].shape}"
+            )
 
         selected_imgs = []
         for img_id in range(scorings[0].shape[-1]):

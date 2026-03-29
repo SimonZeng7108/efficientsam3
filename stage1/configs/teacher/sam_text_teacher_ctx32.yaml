@@ -1,7 +1,7 @@
 BASE: ['sam_text_teacher.yaml']
 
 MODEL:
-  NAME: SAM3-Text-Teacher-CTX32
+  NAME: SAM3.1-Text-Teacher-CTX32
 
 DISTILL:
   NUM_EMBED: 32

@@ -1,5 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 """Dataset class for modulated detection"""
 
 import json
@@ -15,38 +17,9 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 import torch
 import torch.utils.data
 import torchvision
-
-
-_VIDEO_FRAME_BACKEND = None
-try:
-    import decord
-    from decord import cpu, VideoReader
-    _VIDEO_FRAME_BACKEND = "decord"
-except ImportError:
-    pass
-
-if _VIDEO_FRAME_BACKEND is None:
-    try:
-        from torchcodec.decoders import VideoDecoder
-        _VIDEO_FRAME_BACKEND = "torchcodec"
-    except ImportError:
-        pass
-
-if _VIDEO_FRAME_BACKEND is None:
-    try:
-        import cv2
-        _VIDEO_FRAME_BACKEND = "cv2"
-    except ImportError:
-        pass
-
-if _VIDEO_FRAME_BACKEND is None:
-    raise ImportError
-
 from iopath.common.file_io import g_pathmgr
-
 from PIL import Image as PILImage
 from PIL.Image import DecompressionBombError
-
 from sam3.model.box_ops import box_xywh_to_xyxy
 from torchvision.datasets.vision import VisionDataset
 
@@ -225,31 +198,22 @@ class CustomCocoDetectionAPI(VisionDataset):
 
             all_img_metadata.append(current_meta)
             path = os.path.join(self.root, path)
-
             try:
                 if ".mp4" in path and path[-4:] == ".mp4":
-                    video_path, frame_idx = path.split("@")
-                    frame_idx = int(frame_idx)
+                    # Going to load a video frame
+                    from decord import cpu, VideoReader
 
-                    # load the video frame
-                    if _VIDEO_FRAME_BACKEND == "decord":
-                        video = VideoReader(video_path, ctx=cpu(0))
-                        pil_image = torchvision.transforms.ToPILImage()(video[frame_idx].asnumpy())
-                    elif _VIDEO_FRAME_BACKEND == "torchcodec":
-                        frame_tensor = VideoDecoder(video_path)[frame_idx]
-                        pil_image = torchvision.transforms.ToPILImage()(frame_tensor)
-                    else:  # cv2
-                        cap = cv2.VideoCapture(video_path)
-                        if not cap.isOpened():
-                            raise RuntimeError(f"Failed to open video: {video_path}")
-                        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-                        ret, frame_bgr = cap.read()
-                        cap.release()
-                        if not ret:
-                            raise RuntimeError(f"Failed to read frame {frame_idx} from {video_path}")
-                        pil_image = PILImage.fromarray(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
-
-                    all_images.append((img_id, pil_image))
+                    video_path, frame = path.split("@")
+                    video = VideoReader(video_path, ctx=cpu(0))
+                    # Convert to PIL image
+                    all_images.append(
+                        (
+                            img_id,
+                            torchvision.transforms.ToPILImage()(
+                                video[int(frame)].asnumpy()
+                            ),
+                        )
+                    )
                 else:
                     with g_pathmgr.open(path, "rb") as fopen:
                         all_images.append((img_id, PILImage.open(fopen).convert("RGB")))
@@ -269,9 +233,9 @@ class CustomCocoDetectionAPI(VisionDataset):
         if self.coco is not None:
             return
 
-        assert g_pathmgr.isfile(
-            self.annFile
-        ), f"please provide valid annotation file. Missing: {self.annFile}"
+        assert g_pathmgr.isfile(self.annFile), (
+            f"please provide valid annotation file. Missing: {self.annFile}"
+        )
         annFile = g_pathmgr.get_local_path(self.annFile)
 
         if self.coco is not None:
@@ -361,11 +325,11 @@ class CustomCocoDetectionAPI(VisionDataset):
         else:
             num_queries_per_stage = stage2num_queries.most_common(1)[0][1]
         for stage, num_queries in stage2num_queries.items():
-            assert (
-                num_queries == num_queries_per_stage
-            ), f"Number of queries in stage {stage} is {num_queries}, expected {num_queries_per_stage}"
+            assert num_queries == num_queries_per_stage, (
+                f"Number of queries in stage {stage} is {num_queries}, expected {num_queries_per_stage}"
+            )
 
-        for query_id, query in enumerate(queries):
+        for query in queries:
             h, w = id2imsize[query["image_id"]]
             if (
                 "input_box" in query

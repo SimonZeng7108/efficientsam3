@@ -304,6 +304,10 @@ def train_one_epoch(
             step = epoch * num_steps + idx
             loss_writer.add_scalar("loss/total", loss.item(), step)
 
+        if getattr(config.DATA, 'DEBUG', False) and idx >= 0:
+            logger.info("DATA.DEBUG=True: breaking after 1 batch.")
+            break
+
     epoch_time = time.time() - start
     logger.info(
         f"EPOCH {epoch} training takes {datetime.timedelta(seconds=int(epoch_time))}"

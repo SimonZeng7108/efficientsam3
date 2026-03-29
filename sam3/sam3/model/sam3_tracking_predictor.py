@@ -1,10 +1,11 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 import logging
 from collections import OrderedDict
 
 import torch
-
 from sam3.model.sam3_tracker_base import concat_points, NO_OBJ_SCORE, Sam3TrackerBase
 from sam3.model.sam3_tracker_utils import fill_holes_in_mask_scores
 from sam3.model.utils.sam2_utils import load_video_frames
@@ -46,17 +47,8 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         self.max_point_num_in_prompt_enc = max_point_num_in_prompt_enc
         self.non_overlap_masks_for_output = non_overlap_masks_for_output
 
-        # Keep autocast enabled for the whole demo process when CUDA or MPS is available.
-        # (Avoid creating an autocast context on CPU-only environments.)
-        self.bf16_context = None
-        if torch.cuda.is_available() or torch.backends.mps.is_available():
-            from sam3.device import get_autocast_device_type, get_autocast_dtype, get_device
-            device = get_device()
-            self.bf16_context = torch.autocast(
-                device_type=get_autocast_device_type(device),
-                dtype=get_autocast_dtype(device),
-            )
-            self.bf16_context.__enter__()  # keep using for the entire model process
+        self.bf16_context = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+        self.bf16_context.__enter__()  # keep using for the entire model process
 
         self.iter_use_prev_mask_pred = True
         self.add_all_frames_to_correct_as_cond = True
@@ -74,24 +66,6 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         async_loading_frames=False,
     ):
         """Initialize a inference state."""
-        def _infer_module_device(module):
-            try:
-                return next(module.parameters()).device
-            except StopIteration:
-                try:
-                    return next(module.buffers()).device
-                except StopIteration:
-                    return None
-
-        # If a caller overwrote `self.backbone` (common in the SAM2-video-task demo),
-        # ensure the tracker is on the same device as the backbone before creating state.
-        backbone_module = getattr(self, "backbone", self)
-        if backbone_module is None:
-            backbone_module = self
-        backbone_device = _infer_module_device(backbone_module)
-        if backbone_device is not None and backbone_device != self.device:
-            self.to(device=backbone_device)
-
         inference_state = {}
         # whether to offload the video frames to CPU memory
         # turning on this option saves the GPU memory with only a very small overhead
@@ -105,12 +79,7 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
         if offload_state_to_cpu:
             inference_state["storage_device"] = torch.device("cpu")
         else:
-            # Keep storage device consistent with where the model runs.
-            inference_state["storage_device"] = (
-                inference_state["device"]
-                if inference_state["device"].type == "cuda"
-                else torch.device("cpu")
-            )
+            inference_state["storage_device"] = torch.device("cuda")
 
         if video_path is not None:
             images, video_height, video_width = load_video_frames(
@@ -332,9 +301,7 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
                     prev_out = obj_output_dict["non_cond_frame_outputs"].get(frame_idx)
 
             if prev_out is not None and prev_out["pred_masks"] is not None:
-                prev_sam_mask_logits = prev_out["pred_masks"].to(
-                    inference_state["device"], non_blocking=True
-                )
+                prev_sam_mask_logits = prev_out["pred_masks"].cuda(non_blocking=True)
                 # Clamp the scale of prev_sam_mask_logits to avoid rare numerical issues.
                 prev_sam_mask_logits = torch.clamp(prev_sam_mask_logits, -32.0, 32.0)
         current_out, _ = self._run_single_frame_inference(
@@ -1043,7 +1010,6 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
 
     def _get_image_feature(self, inference_state, frame_idx, batch_size):
         """Compute the image features on a given frame."""
-        device = inference_state["device"]
         # Look up in the cache
         image, backbone_out = inference_state["cached_features"].get(
             frame_idx, (None, None)
@@ -1056,29 +1022,13 @@ class Sam3TrackerPredictor(Sam3TrackerBase):
                 )
             else:
                 # Cache miss -- we will run inference on a single image
-                image = (
-                    inference_state["images"][frame_idx]
-                    .to(device, non_blocking=True)
-                    .float()
-                    .unsqueeze(0)
-                )
+                image = inference_state["images"][frame_idx].cuda().float().unsqueeze(0)
                 backbone_out = self.forward_image(image)
                 # Cache the most recent frame's feature (for repeated interactions with
                 # a frame; we can use an LRU cache for more frames in the future).
                 inference_state["cached_features"] = {frame_idx: (image, backbone_out)}
         if "tracker_backbone_out" in backbone_out:
             backbone_out = backbone_out["tracker_backbone_out"]  # get backbone output
-
-        # Ensure cached features are on the compute device.
-        if isinstance(image, torch.Tensor) and image.device != device:
-            image = image.to(device, non_blocking=True)
-        if isinstance(backbone_out, dict):
-            for key in ("backbone_fpn", "vision_pos_enc"):
-                if key in backbone_out and isinstance(backbone_out[key], (list, tuple)):
-                    backbone_out[key] = [
-                        t.to(device, non_blocking=True) if isinstance(t, torch.Tensor) else t
-                        for t in backbone_out[key]
-                    ]
 
         # expand the features to have the same dimension as the number of objects
         expanded_image = image.expand(batch_size, -1, -1, -1)

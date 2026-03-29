@@ -1,24 +1,22 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+# pyre-unsafe
+
 import os
 from copy import deepcopy
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
-
 from sam3.model.model_misc import SAM3Output
-
 from sam3.model.sam1_task_predictor import SAM3InteractiveImagePredictor
 from sam3.model.vl_combiner import SAM3VLBackbone
 from sam3.perflib.nms import nms_masks
-
 from sam3.train.data.collator import BatchedDatapoint
 
 from .act_ckpt_utils import activation_ckpt_wrapper
-
 from .box_ops import box_cxcywh_to_xyxy
-
+from .data_misc import FindStage
 from .geometry_encoders import Prompt
 from .model_misc import inverse_sigmoid
 
@@ -445,6 +443,7 @@ class Sam3Image(torch.nn.Module):
         find_input,
         find_target,
         geometric_prompt: Prompt,
+        **kwargs,
     ):
         with torch.profiler.record_function("SAM3Image._encode_prompt"):
             prompt, prompt_mask, backbone_out = self._encode_prompt(
@@ -477,10 +476,14 @@ class Sam3Image(torch.nn.Module):
 
         # Run segmentation heads
         with torch.profiler.record_function("SAM3Image._run_segmentation_heads"):
+            # Apply id_mapping to img_ids if backbone features were recomputed
+            seg_img_ids = find_input.img_ids
+            if "id_mapping" in backbone_out and backbone_out["id_mapping"] is not None:
+                seg_img_ids = backbone_out["id_mapping"][seg_img_ids]
             self._run_segmentation_heads(
                 out=out,
                 backbone_out=backbone_out,
-                img_ids=find_input.img_ids,
+                img_ids=seg_img_ids,
                 vis_feat_sizes=encoder_out["vis_feat_sizes"],
                 encoder_hidden_states=out["encoder_hidden_states"],
                 prompt=prompt,
@@ -518,6 +521,28 @@ class Sam3Image(torch.nn.Module):
             ].unsqueeze(1)
 
         return out
+
+    def _get_geo_prompt_from_find_input(self, find_input: FindStage):
+        """Construct an initial geometric prompt from the find input."""
+        point_embeddings, point_mask, point_labels = None, None, None
+        if find_input.input_points_before_embed is not None:
+            # Point embeddings are batch first, switch to seq first
+            point_embeddings = find_input.input_points_before_embed.transpose(0, 1)
+
+            # they are stored as (x,y,label), so we unpack
+            point_labels = point_embeddings[..., -1]
+            point_embeddings = point_embeddings[..., :-1]
+            point_mask = find_input.input_points_mask
+
+        geometric_prompt = Prompt(
+            box_embeddings=find_input.input_boxes_before_embed,
+            box_mask=find_input.input_boxes_mask,
+            box_labels=find_input.input_boxes_label,
+            point_embeddings=point_embeddings,
+            point_mask=point_mask,
+            point_labels=point_labels,
+        )
+        return geometric_prompt
 
     def _get_dummy_prompt(self, num_prompts=1):
         device = self.device
@@ -659,9 +684,9 @@ class Sam3Image(torch.nn.Module):
             inference_state["original_heights"],
             inference_state["original_widths"],
         )
-        assert (
-            batch_size == len(orig_heights) == len(orig_widths)
-        ), f"Batch size mismatch in predict_inst_batch. Got {batch_size}, {len(orig_heights)}, {len(orig_widths)}"
+        assert batch_size == len(orig_heights) == len(orig_widths), (
+            f"Batch size mismatch in predict_inst_batch. Got {batch_size}, {len(orig_heights)}, {len(orig_widths)}"
+        )
         feats = [
             feat.permute(1, 2, 0).view(batch_size, -1, *feat_size)
             for feat, feat_size in zip(

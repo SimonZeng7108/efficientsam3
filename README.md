@@ -7,6 +7,7 @@
 [![arXiv](https://img.shields.io/badge/arXiv-EfficientSAM3-b31b1b.svg)](https://arxiv.org/abs/2511.15833) [![arXiv](https://img.shields.io/badge/arXiv-SAM3--LiteText-b31b1b.svg)](https://arxiv.org/abs/2602.12173) [![Project Page](https://img.shields.io/badge/Project-Page-green)](https://simonzeng7108.github.io/efficientsam3/) [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-EfficientSAM3-blue)](https://huggingface.co/Simon7108528/EfficientSAM3) [![Discord](https://img.shields.io/badge/Discord-Join-7289da?logo=discord&logoColor=white)](https://discord.gg/FMyaQca7xT)
 ---
 ## Updates
+- **[2026/03/27]** Synced with **SAM3.1 (Object Multiplex)** runtime. EfficientSAM3 now tracks the latest SAM3.1 code path and supports SAM3.1 checkpoints (including multiplex video predictor flow).
 - **[2026/02/18]** **SAM3-LiteText** released! SAM3-LiteText reduces text encoder parameters by up to 88% with similar performance to the original text encoder. [Paper](https://arxiv.org/abs/2602.12173) available on arXiv. Code available in [`sam3_litetext`](https://github.com/SimonZeng7108/efficientsam3/tree/sam3_litetext) branch and weights on [Hugging Face](https://huggingface.co/Simon7108528/EfficientSAM3/tree/main/sam3_litetext).
 - **[2026/01/11]** Stage 1 geometry-prompt fine-tuned (**ft**) weights released/updated (image encoders on 1% SA-1B; text encoders fine-tuned on SA-Co Gold+Silver).
 - **[2025/12/08]** Stage 1 text encoder weights released for all 3 variants (MobileCLIP S0, S1, and MobileCLIP2 L) - distilled on 1% Recap-DataComp-1B dataset.
@@ -37,7 +38,7 @@
 
 ---
 
-[SAM3](https://github.com/facebookresearch/sam3) (Segment Anything Model 3) has introduced powerful **Promptable Concept Segmentation (PCS)** capabilities, enabling semantic understanding and temporal object tracking beyond traditional mask generation. However, SAM3's massive vision backbone and dense memory bank make it impractical for real-time, on-device applications where computational resources and latency constraints are critical.
+[SAM3](https://github.com/facebookresearch/sam3) (Segment Anything Model 3) has introduced powerful **Promptable Concept Segmentation (PCS)** capabilities, enabling semantic understanding and temporal object tracking beyond traditional mask generation. The latest SAM3.1 release adds **Object Multiplex**, a shared-memory approach for more efficient multi-object video tracking. However, SAM3's massive vision backbone and dense memory bank still make full-scale deployment impractical for real-time, on-device applications where computational resources and latency constraints are critical.
 
 **EfficientSAM3** addresses this challenge by distilling SAM3's capabilities into lightweight architectures suitable for edge devices, enabling high-quality concept segmentation on mobile phones, embedded systems, and resource-constrained platforms.
 
@@ -111,10 +112,10 @@ Stage 3: We fine-tune the complete pipeline using SAM3 data. <br>
 
 ## Installation
 
-EfficientSAM3 purposely shares the same software contract as upstream SAM3:
+EfficientSAM3 follows the latest SAM3.1 runtime stack while keeping Stage-1 tooling compatible with Python 3.10+:
 
-- **Python** ≥ 3.12
-- **PyTorch** 2.7.0
+- **Python** ≥ 3.10 (3.12 recommended)
+- **PyTorch** ≥ 2.10.0
 - **Device**: NVIDIA GPU (CUDA), Apple Silicon (MPS), or CPU
 
 For non-CUDA platforms (MPS/CPU), install `scipy` for distance transform operations:
@@ -136,19 +137,29 @@ pip install --upgrade pip
 
 # Install PyTorch (choose one based on your device):
 # CUDA (default):
-pip install torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+pip install torch==2.10.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 
 # MPS/CPU (Apple Silicon or CPU-only):
-pip install torch==2.7.0 torchvision torchaudio
+pip install torch==2.10.0 torchvision torchaudio
 
 # Install repo dependencies via the root pyproject (brings in SAM3 + Stage-1 extras)
 pip install -e ".[stage1]"
+
+# Optional dependencies for faster SAM3.1 multiplex inference (FlashAttention 3, CUDA/Linux)
+pip install -e ".[sam31-runtime]"
+pip install git+https://github.com/ronghanghu/cc_torch.git
 
 # Note: the Stage-1 extra includes the SAM1 package dependency
 # (PyPI name: segment-anything, import name: segment_anything).
 # If your environment cannot resolve it from PyPI, install the vendored repo instead:
 # pip install -e ./segment-anything
 ```
+
+If you run SAM3.1 multiplex with `use_fa3=True`, the runtime imports `flash_attn_interface`.
+If `flash_attn_interface` is unavailable in your environment, either:
+
+- install the SAM3.1 runtime extra via `.[sam31-runtime]` (Linux/CUDA), or
+- set `use_fa3=False` when constructing the SAM3.1 multiplex predictor.
 
 ---
 

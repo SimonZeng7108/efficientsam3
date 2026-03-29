@@ -1,12 +1,12 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
+
+# pyre-unsafe
 from typing import Dict, List
 
 import numpy as np
 import PIL
 import torch
-
 from sam3.model import box_ops
-
 from sam3.model.data_misc import FindStage, interpolate
 from torchvision.transforms import v2
 
@@ -14,10 +14,7 @@ from torchvision.transforms import v2
 class Sam3Processor:
     """ """
 
-    def __init__(self, model, resolution=1008, device=None, confidence_threshold=0.5):
-        if device is None:
-            from sam3.device import get_device
-            device = get_device()
+    def __init__(self, model, resolution=1008, device="cuda", confidence_threshold=0.5):
         self.model = model
         self.resolution = resolution
         self.device = device
@@ -84,9 +81,9 @@ class Sam3Processor:
         if not isinstance(images, list):
             raise ValueError("Images must be a list of PIL images or tensors")
         assert len(images) > 0, "Images list must not be empty"
-        assert isinstance(
-            images[0], PIL.Image.Image
-        ), "Images must be a list of PIL images"
+        assert isinstance(images[0], PIL.Image.Image), (
+            "Images must be a list of PIL images"
+        )
 
         state["original_heights"] = [image.height for image in images]
         state["original_widths"] = [image.width for image in images]
@@ -197,7 +194,7 @@ class Sam3Processor:
         out_probs = out_logits.sigmoid()
         presence_score = outputs["presence_logit_dec"].sigmoid().unsqueeze(1)
         out_probs = (out_probs * presence_score).squeeze(-1)
-        
+
         keep = out_probs > self.confidence_threshold
         out_probs = out_probs[keep]
         out_masks = out_masks[keep]

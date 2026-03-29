@@ -22,7 +22,7 @@ from sam3.backbones.efficientvit import (
     efficientvit_backbone_b1,
     efficientvit_backbone_b2,
 )
-from sam3.sam3.backbones.mobile_clip import MobileCLIPTextTransformer
+from sam3.backbones.mobile_clip import MobileCLIPTextTransformer
 from sam3.model.tokenizer_ve import SimpleTokenizer
 from sam3.model.text_encoder_student import TextStudentEncoder
 
@@ -223,7 +223,6 @@ class SAM3ImageTeacherEncoder(nn.Module):
             enable_segmentation=True,
             enable_inst_interactivity=False,
             compile=False,
-            enable_text_encoder=False,
         )
         for param in self.sam3.parameters():
             param.requires_grad = False
@@ -261,8 +260,6 @@ class SAM3TextTeacherEncoder(nn.Module):
             enable_segmentation=True,
             enable_inst_interactivity=False,
             compile=False,
-            enable_text_encoder=True,
-            enable_vision_encoder=False,
         )
         for param in self.sam3.parameters():
             param.requires_grad = False

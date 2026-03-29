@@ -1,7 +1,7 @@
 MODEL:
-  NAME: SAM3-Teacher
+  NAME: SAM3.1-Teacher
   BACKBONE: vit_h
-  RESUME: sam3_checkpoints/sam3.pt
+  RESUME: sam3_1_checkpoints/sam3.1_multiplex.pt
 
 TRAIN:
   EPOCHS: 1
