@@ -325,16 +325,45 @@ def _annotation_text(
     """
     text_annotation = text_annotation or {}
     return _choose_text_label(
+        text_annotation.get("label_10"),
         # _text.json labels come from the VLM acceptance pass and are highest quality
         text_annotation.get("label"),
         text_annotation.get("normalized_label"),
+        raw_record.get("label_10"),
         # raw JSONL record label (from VLM inference, may be stub)
         raw_record.get("label"),
         raw_record.get("normalized_label"),
+        annotation.get("label_10"),
         # label embedded in base/text annotation struct
         annotation.get("label"),
+        annotation.get("text_label"),
+        annotation.get("prompt_label"),
         annotation.get("normalized_label"),
     )
+
+
+def _annotation_label_triplet(
+    annotation: Dict[str, Any],
+    raw_record: Dict[str, Any],
+    text_annotation: Dict[str, Any] | None = None,
+) -> tuple[str, str, str]:
+    text_annotation = text_annotation or {}
+    label_10 = _annotation_text(
+        annotation=annotation,
+        raw_record=raw_record,
+        text_annotation=text_annotation,
+    )
+    label_5 = _choose_text_label(
+        text_annotation.get("label_5"),
+        raw_record.get("label_5"),
+        annotation.get("label_5"),
+    )
+    label_2 = _choose_text_label(
+        text_annotation.get("label_2"),
+        raw_record.get("label_2"),
+        annotation.get("label_2"),
+    )
+    return label_10, label_5, label_2
 
 
 def _is_raw_record_visualizable(
@@ -623,14 +652,14 @@ def _render_from_raw_jsonl(
             raw_record=record,
         )
 
-        resolved_label = _annotation_text(
+        label_10, label_5, label_2 = _annotation_label_triplet(
             annotation=base_ann,
             raw_record=record,
             text_annotation=text_ann,
         )
         if require_label and (
-            resolved_label == "annotation pending"
-            or _is_placeholder_label(resolved_label)
+            label_10 == "annotation pending"
+            or _is_placeholder_label(label_10)
         ):
             continue
 
@@ -640,7 +669,10 @@ def _render_from_raw_jsonl(
                 {
                     "bbox_xywh": bbox_xywh,
                     # Use "label" key so _annotation_structure_text reads it directly
-                    "label": resolved_label,
+                    "label": label_10,
+                    "label_10": label_10,
+                    "label_5": label_5,
+                    "label_2": label_2,
                     "mask_id": str(record["mask_id"]),
                     "image_id": str(record.get("image_id") or ""),
                     "area": area,
@@ -736,14 +768,13 @@ def main() -> None:
                 if rendered >= args.num_examples:
                     break
 
-                resolved_label = _choose_text_label(
-                    ann.get("label"),
-                    ann.get("text_label"),
-                    ann.get("prompt_label"),
+                label_10, label_5, label_2 = _annotation_label_triplet(
+                    annotation=ann,
+                    raw_record={},
                 )
                 if args.require_label and (
-                    resolved_label == "annotation pending"
-                    or _is_placeholder_label(resolved_label)
+                    label_10 == "annotation pending"
+                    or _is_placeholder_label(label_10)
                 ):
                     continue
 
@@ -781,7 +812,10 @@ def main() -> None:
                     annotations=[
                         {
                             "bbox_xywh": bbox_xywh,
-                            "label": resolved_label,
+                            "label": label_10,
+                            "label_10": label_10,
+                            "label_5": label_5,
+                            "label_2": label_2,
                             "mask_id": mask_id,
                             "image_id": str(image_info.get("image_id") or ""),
                             "area": ann.get("area"),
@@ -875,13 +909,13 @@ def main() -> None:
                 break
             mask_id = str(ann["id"])
             raw_record = raw_record_by_mask_id.get(mask_id, {})
-            resolved_label = _annotation_text(
+            label_10, label_5, label_2 = _annotation_label_triplet(
                 annotation=ann,
                 raw_record=raw_record,
             )
             if args.require_label and (
-                resolved_label == "annotation pending"
-                or _is_placeholder_label(resolved_label)
+                label_10 == "annotation pending"
+                or _is_placeholder_label(label_10)
             ):
                 continue
             bbox_xywh = _annotation_bbox_xywh(ann)
@@ -923,7 +957,10 @@ def main() -> None:
                 annotations=[
                     {
                         "bbox_xywh": bbox_xywh,
-                        "label": resolved_label,
+                        "label": label_10,
+                        "label_10": label_10,
+                        "label_5": label_5,
+                        "label_2": label_2,
                         "mask_id": mask_id,
                         "image_id": str(image_info.get("image_id") or ""),
                         "area": area_value,

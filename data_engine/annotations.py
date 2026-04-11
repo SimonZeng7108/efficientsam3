@@ -156,19 +156,19 @@ def build_qwen_labeling_messages(
 ) -> List[Dict[str, Any]]:
     system_prompt = (
         "You are an expert generic labler for mask annotations. "
-        "Return JSON only with ONE key: 'label'. "
         "Describe the main visible object or object part within the tight boundaries of this cropped image. "
         "The cropped image you see corresponds to the most top, bottom, left and right points of the target object. "
         "Make sure the words used are common object noun phrases whenever possible. "
         "Use at most 10 words. Avoid full sentences, adjectives without nouns, and vague words "
         "like object, thing, item, stuff, region, area, or unknown unless nothing better is possible. "
-        "If the crop is too ambiguous, too small, or unreadable, still try to give your best noun phrase guess."
+        "If the crop is too ambiguous, too small, or unreadable, still try to give your best noun phrase guess. "
+        "Return only the noun phrase label text."
     )
     user_prompt = (
         "Describe what is visible in this cropped image in as much detail as possible, "
-        "but keep the final label to 10 words or fewer as a valid JSON with key 'label'. "
+        "but keep the final label to 10 words or fewer. "
         "Focus on the main visible object or object part. "
-        "Return JSON only."
+        "Return only the label text."
     )
     return [
         {"role": "system", "content": system_prompt},
@@ -402,7 +402,8 @@ def _annotation_structure_text(
     image_size: Tuple[int, int],
 ) -> str:
     label = str(
-        annotation.get("label")
+        annotation.get("label_10")
+        or annotation.get("label")
         or annotation.get("query_text")
         or annotation.get("annotation_text")
         or ""
@@ -420,8 +421,16 @@ def _annotation_structure_text(
     
     lines = [
         f"◆ {entry_kind.upper()} ID: {entry_id}",
-        f"  Text Label: \"{label}\"",
+        f"  Label_10: \"{label}\"",
     ]
+
+    label_5 = str(annotation.get("label_5") or "").strip()
+    if label_5 and label_5 != "annotation pending":
+        lines.append(f"  Label_5: \"{label_5}\"")
+
+    label_2 = str(annotation.get("label_2") or "").strip()
+    if label_2 and label_2 != "annotation pending":
+        lines.append(f"  Label_2: \"{label_2}\"")
 
     if annotation.get("object_ids_output") is not None:
         lines.append(

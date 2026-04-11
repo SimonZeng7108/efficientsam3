@@ -89,13 +89,22 @@ python data_engine/generate.py \
 - --start-index: start from a specific annotation index
 - --limit-images: process only N images
 - --max-masks-per-image: cap masks per image
-- --min-area (default 5000)
-- --min-predicted-iou (default 0.95)
-- --min-stability-score (default 0.98)
+- --min-area (default 4000)
+- --min-predicted-iou (default 0.93)
+- --min-stability-score (default 0.95)
 - --crop-box-source mask|bbox (default mask)
 - --overwrite: regenerate even if mask_id already exists in raw JSONL
 - --num-mask-sample-points (default 10)
 - --no-write-enhanced-annotations: disable enhanced JSON writing
+- --text-rewrite-model (default Qwen/Qwen3.5-2B)
+- --rewrite-max-tokens (default 96)
+- --disable-label-rewrite
+
+Notes:
+- The quality thresholds are hard-clamped to minimum values of 4000 / 0.93 / 0.95. Lower CLI values are ignored.
+- Label rewrite uses two separate text-model calls:
+  - label_5: noun phrase with at most 5 words
+  - label_2: noun phrase with exactly 2 words
 
 ### Generator outputs
 
@@ -120,8 +129,13 @@ data/sa-1b-1p_reorg/annotations/train/sa_xxxxxx_enhanced.json
 ~~~
 
 Enhanced files contain only accepted masks. Each accepted annotation keeps original fields and adds:
-- label
+- label_10
+- label_5
+- label_2
 - mask_sample_points_xy
+
+An *_enhanced.json file is written for each processed source annotation JSON.
+If no masks pass gating for that image, the enhanced file is still written with an empty annotations list.
 
 ## 4) Visualizer Usage
 
@@ -152,9 +166,9 @@ python data_engine/visualize_sa1b.py \
   --split train \
   --raw-jsonl data/sa1b_stage3_pseudo/raw/train.jsonl \
   --num-examples 20 \
-  --min-area 5000 \
-  --min-predicted-iou 0.95 \
-  --min-stability-score 0.98 \
+-  --min-area 4000 \
+-  --min-predicted-iou 0.93 \
+-  --min-stability-score 0.95 \
   --require-label \
   --output-dir output/stage3/data_engine_sa1b_examples
 ~~~

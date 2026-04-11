@@ -23,7 +23,7 @@ try:
         bbox_xywh_to_xyxy,
         build_qwen_labeling_messages,
         is_generic_label,
-        parse_model_json_response,
+        normalize_label,
         phrase_word_count,
     )
 except ModuleNotFoundError:
@@ -50,11 +50,14 @@ except ModuleNotFoundError:
     bbox_xywh_to_xyxy = annotations_module.bbox_xywh_to_xyxy
     build_qwen_labeling_messages = annotations_module.build_qwen_labeling_messages
     is_generic_label = annotations_module.is_generic_label
-    parse_model_json_response = annotations_module.parse_model_json_response
+    normalize_label = annotations_module.normalize_label
     phrase_word_count = annotations_module.phrase_word_count
 
 _LOCAL_MODEL = None
 _LOCAL_PROCESSOR = None
+_TEXT_REWRITE_MODEL = None
+_TEXT_REWRITE_TOKENIZER = None
+_TEXT_REWRITE_MODEL_NAME: Optional[str] = None
 
 
 def parse_args() -> argparse.Namespace:
@@ -84,7 +87,24 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--model", default=DEFAULT_MODEL_NAME, type=str)
+    parser.add_argument(
+        "--text-rewrite-model",
+        default="Qwen/Qwen3.5-2B",
+        type=str,
+        help="Text-only model used to rewrite accepted labels into shorter prompt variants.",
+    )
     parser.add_argument("--max-tokens", default=256, type=int)
+    parser.add_argument(
+        "--rewrite-max-tokens",
+        default=96,
+        type=int,
+        help="Maximum output tokens for the text rewrite model.",
+    )
+    parser.add_argument(
+        "--disable-label-rewrite",
+        action="store_true",
+        help="Skip the text-only label rewrite pass.",
+    )
     parser.add_argument(
         "--device-map",
         default="auto",
@@ -251,6 +271,182 @@ def _run_stub_vlm_response(image_id: str, mask_id: str) -> str:
         "label_source": "stub_backend",
     }
     return json.dumps(payload, ensure_ascii=False)
+
+
+def _ensure_local_text_rewrite_model(
+    model_name: str,
+    device_map: str,
+    dtype_name: str,
+):
+    global _TEXT_REWRITE_MODEL, _TEXT_REWRITE_TOKENIZER, _TEXT_REWRITE_MODEL_NAME
+    if (
+        _TEXT_REWRITE_MODEL is not None
+        and _TEXT_REWRITE_TOKENIZER is not None
+        and _TEXT_REWRITE_MODEL_NAME == model_name
+    ):
+        return _TEXT_REWRITE_MODEL, _TEXT_REWRITE_TOKENIZER
+
+    try:
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+    except ImportError as error:
+        raise RuntimeError(
+            "Text rewrite requires `transformers` with AutoModelForCausalLM support."
+        ) from error
+
+    torch_dtype = _resolve_torch_dtype(dtype_name)
+    _TEXT_REWRITE_MODEL = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        torch_dtype=torch_dtype,
+        device_map=device_map,
+        trust_remote_code=True,
+    )
+    _TEXT_REWRITE_TOKENIZER = AutoTokenizer.from_pretrained(
+        model_name,
+        trust_remote_code=True,
+    )
+    _TEXT_REWRITE_MODEL_NAME = model_name
+    return _TEXT_REWRITE_MODEL, _TEXT_REWRITE_TOKENIZER
+
+
+def _build_text_rewrite_messages(
+    label: str,
+    max_words: int,
+    exact_words: Optional[int] = None,
+) -> List[Dict[str, str]]:
+    limit_instruction = (
+        f"Use exactly {exact_words} words."
+        if exact_words is not None
+        else f"Use at most {max_words} words."
+    )
+    system_prompt = (
+        "You are an expert linguist that shortens object descriptions into concise, grammatically correct noun phrases. "
+        "Return only the shortened noun phrase. Do not include punctuation, quotes, or explanations."
+    )
+    user_prompt = (
+        f"Original label: {label}\n\n"
+        "Shorten the label into a grammatically correct noun phrase describing the main object. "
+        "Keep the most important modifiers and the core noun. "
+        f"{limit_instruction}"
+    )
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def _extract_plain_label_line(text: Optional[str]) -> str:
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("```"):
+        raw = raw.strip("`")
+        if "\n" in raw:
+            raw = raw.split("\n", 1)[1]
+
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    if not lines:
+        return ""
+    first = lines[0].strip("-•* \t\"'")
+    if ":" in first:
+        left, right = first.split(":", 1)
+        if len(left.split()) <= 3 and right.strip():
+            first = right.strip()
+    return first
+
+
+def _parse_vl_label_response(
+    raw_text: Optional[str],
+) -> Tuple[str, float, bool, str, bool]:
+    label_10 = normalize_label(_extract_plain_label_line(raw_text), max_words=10)
+    if not label_10:
+        return _reject_record("empty_label")
+
+    rejected = is_generic_label(label_10) or phrase_word_count(label_10) > 10
+    reject_reason = ""
+    if rejected:
+        if is_generic_label(label_10):
+            reject_reason = "generic_label"
+        else:
+            reject_reason = "ambiguous_or_long"
+    return label_10, 1.0, False, reject_reason, rejected
+
+
+def _run_local_text_rewrite_request(
+    label: str,
+    model_name: str,
+    max_tokens: int,
+    device_map: str,
+    dtype_name: str,
+    max_words: int,
+    exact_words: Optional[int] = None,
+) -> Optional[str]:
+    model, tokenizer = _ensure_local_text_rewrite_model(
+        model_name=model_name,
+        device_map=device_map,
+        dtype_name=dtype_name,
+    )
+    messages = _build_text_rewrite_messages(
+        label=label,
+        max_words=max_words,
+        exact_words=exact_words,
+    )
+    try:
+        if hasattr(tokenizer, "apply_chat_template"):
+            prompt_text = tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        else:
+            prompt_text = (
+                f"System: {messages[0]['content']}\n"
+                f"User: {messages[1]['content']}\n"
+                "Assistant:"
+            )
+        inputs = tokenizer([str(prompt_text)], return_tensors="pt", padding=True)
+        inputs = inputs.to(model.device)
+        generated_ids = model.generate(
+            **inputs,
+            max_new_tokens=max_tokens,
+            do_sample=False,
+        )
+        input_ids = inputs.get("input_ids")
+        if input_ids is None:
+            return None
+        generated_ids_trimmed = [
+            out_ids[len(in_ids) :]
+            for in_ids, out_ids in zip(input_ids, generated_ids)
+        ]
+        output_text = tokenizer.batch_decode(
+            generated_ids_trimmed,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False,
+        )
+        if not output_text:
+            return None
+        return output_text[0]
+    except Exception as error:
+        print(f"Local text rewrite request failed: {error}")
+        return None
+
+
+def _parse_text_rewrite_phrase(
+    raw_text: Optional[str],
+    max_words: int,
+    exact_words: Optional[int] = None,
+) -> str:
+    if not raw_text:
+        raise ValueError("Empty response from text model")
+
+    phrase = normalize_label(_extract_plain_label_line(raw_text), max_words=max_words)
+    if not phrase:
+        raise ValueError(f"Could not parse valid phrase. Raw: {raw_text}")
+
+    words = phrase.split()
+    if exact_words is not None:
+        phrase = " ".join(words[:exact_words])
+
+    return phrase
 
 
 def _run_local_transformers_request(
@@ -561,6 +757,8 @@ def _build_record(
     ambiguous: bool,
     reject_reason: str,
     rejected: bool,
+    label_5: str,
+    label_2: str,
     num_mask_sample_points: int,
     inference_backend: str,
 ) -> Dict[str, Any]:
@@ -612,7 +810,10 @@ def _build_record(
         "stability_score": float(ann.get("stability_score", 0.0)),
         "segmentation": ann["segmentation"],
         "label": label,
+        "label_10": label,
         "normalized_label": label,
+        "label_5": str(label_5 or "").strip(),
+        "label_2": str(label_2 or "").strip(),
         "confidence": confidence,
         "ambiguous": ambiguous,
         "rejected": rejected,
@@ -698,7 +899,12 @@ def _is_record_accepted_for_text_export(
     min_stability_score: float,
     min_predicted_iou: float,
 ) -> bool:
-    label = str(record.get("normalized_label") or record.get("label") or "").strip()
+    label = str(
+        record.get("label_10")
+        or record.get("normalized_label")
+        or record.get("label")
+        or ""
+    ).strip()
     if not label:
         return False
     if bool(record.get("rejected", False)):
@@ -723,8 +929,19 @@ def _build_enhanced_annotation(
     record: Dict[str, Any],
 ) -> Dict[str, Any]:
     output_annotation = dict(source_annotation)
-    label = str(record.get("normalized_label") or record.get("label") or "").strip()
-    output_annotation["label"] = label
+    label_10 = str(
+        record.get("label_10")
+        or record.get("normalized_label")
+        or record.get("label")
+        or ""
+    ).strip()
+    label_5 = str(record.get("label_5") or "").strip()
+    label_2 = str(record.get("label_2") or "").strip()
+    output_annotation["label_10"] = label_10
+    if label_5:
+        output_annotation["label_5"] = label_5
+    if label_2:
+        output_annotation["label_2"] = label_2
     output_annotation["mask_sample_points_xy"] = [
         [float(point[0]), float(point[1])]
         for point in record.get("mask_sample_points_xy", [])
@@ -763,7 +980,12 @@ def _write_enhanced_annotation_file(
         if record is None:
             continue
 
-        label = str(record.get("normalized_label") or record.get("label") or "").strip()
+        label = str(
+            record.get("label_10")
+            or record.get("normalized_label")
+            or record.get("label")
+            or ""
+        ).strip()
         if not label:
             continue
 
@@ -777,12 +999,6 @@ def _write_enhanced_annotation_file(
                 record=record,
             )
         )
-
-    if not enhanced_annotations:
-        # Do not emit empty enhanced annotation files.
-        if output_path.exists():
-            output_path.unlink()
-        return None, 0
 
     output_data["annotations"] = enhanced_annotations
     with output_path.open("w") as fout:
@@ -862,6 +1078,8 @@ def main() -> None:
     enhanced_json_files_skipped_empty = 0
     enhanced_masks_kept = 0
     enhanced_masks_from_existing = 0
+    label_rewrite_requests = 0
+    label_rewrite_failures = 0
     with raw_jsonl.open("a") as fout:
         for ann_path in ann_files:
             with ann_path.open("r") as fopen:
@@ -877,10 +1095,18 @@ def main() -> None:
 
             image = Image.open(image_path).convert("RGB")
             annotations = ann_data.get("annotations", [])
+            valid_annotations = [
+                ann for ann in annotations
+                if float(ann.get("area", 0.0)) > args.min_area and
+                   float(ann.get("predicted_iou", 0.0)) >= args.min_predicted_iou and
+                   float(ann.get("stability_score", 0.0)) >= args.min_stability_score
+            ]
             if args.max_masks_per_image is not None:
-                annotations = annotations[: args.max_masks_per_image]
+                annotations_to_process = valid_annotations[: args.max_masks_per_image]
+            else:
+                annotations_to_process = annotations
 
-            for mask_index, ann in enumerate(annotations):
+            for mask_index, ann in enumerate(annotations_to_process):
                 mask_id = str(ann["id"])
                 if mask_id in existing_mask_ids:
                     skipped += 1
@@ -971,27 +1197,53 @@ def main() -> None:
                         )
                         raw_response = ""
                     else:
-                        try:
-                            label, confidence, ambiguous, reject_reason = parse_model_json_response(
-                                raw_response
-                            )
-                            rejected = (
-                                ambiguous
-                                or not label
-                                or is_generic_label(label)
-                                or phrase_word_count(label) > 10
-                            )
-                            if rejected and not reject_reason:
-                                if not label:
-                                    reject_reason = "empty_label"
-                                elif is_generic_label(label):
-                                    reject_reason = "generic_label"
-                                else:
-                                    reject_reason = "ambiguous_or_long"
-                        except Exception as error:
-                            label, confidence, ambiguous, reject_reason, rejected = _reject_record(
-                                f"parse_error:{error}"
-                            )
+                        label, confidence, ambiguous, reject_reason, rejected = _parse_vl_label_response(
+                            raw_response
+                        )
+
+                label_5 = ""
+                label_2 = ""
+                if label and not rejected:
+                    if args.disable_label_rewrite:
+                         raise ValueError("disable_label_rewrite is set, but fallback is disabled. Cannot proceed without text rewrite model.")
+
+                    if args.inference_backend != "local_transformers":
+                         raise ValueError("inference_backend must be local_transformers for text rewrite.")
+
+                    label_rewrite_requests += 1
+                    rewrite_5_raw_response = _run_local_text_rewrite_request(
+                        label=label,
+                        model_name=args.text_rewrite_model,
+                        max_tokens=args.rewrite_max_tokens,
+                        device_map=args.device_map,
+                        dtype_name=args.torch_dtype,
+                        max_words=5,
+                    )
+                    if rewrite_5_raw_response is None:
+                        raise RuntimeError("rewrite_5_raw_response is None")
+                    label_5 = _parse_text_rewrite_phrase(
+                        raw_text=rewrite_5_raw_response,
+                        max_words=5,
+                    )
+
+                    label_rewrite_requests += 1
+                    rewrite_2_raw_response = _run_local_text_rewrite_request(
+                        label=label,
+                        model_name=args.text_rewrite_model,
+                        max_tokens=args.rewrite_max_tokens,
+                        device_map=args.device_map,
+                        dtype_name=args.torch_dtype,
+                        max_words=2,
+                        exact_words=2,
+                    )
+                    if rewrite_2_raw_response is None:
+                        raise RuntimeError("rewrite_2_raw_response is None")
+                    label_2 = _parse_text_rewrite_phrase(
+                        raw_text=rewrite_2_raw_response,
+                        max_words=2,
+                        exact_words=2,
+                    )
+
                 record = _build_record(
                     image_info=image_info,
                     image_path=image_path,
@@ -1006,6 +1258,8 @@ def main() -> None:
                     ambiguous=ambiguous,
                     reject_reason=reject_reason,
                     rejected=rejected,
+                    label_5=label_5,
+                    label_2=label_2,
                     num_mask_sample_points=args.num_mask_sample_points,
                     inference_backend=args.inference_backend,
                 )
@@ -1057,6 +1311,11 @@ def main() -> None:
                 "enhanced_json_files_skipped_empty": enhanced_json_files_skipped_empty,
                 "enhanced_masks_kept": enhanced_masks_kept,
                 "enhanced_masks_from_existing": enhanced_masks_from_existing,
+                "text_rewrite_model": None
+                if args.disable_label_rewrite
+                else args.text_rewrite_model,
+                "label_rewrite_requests": label_rewrite_requests,
+                "label_rewrite_failures": label_rewrite_failures,
                 "min_area_threshold": args.min_area,
                 "min_predicted_iou_threshold": args.min_predicted_iou,
                 "min_stability_score_threshold": args.min_stability_score,
