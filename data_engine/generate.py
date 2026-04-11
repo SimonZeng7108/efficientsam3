@@ -13,6 +13,9 @@ from PIL import Image
 try:
     from stage3.data_engine.annotations import (
         DEFAULT_MODEL_NAME,
+        MIN_SCREENING_AREA,
+        MIN_SCREENING_PREDICTED_IOU,
+        MIN_SCREENING_STABILITY_SCORE,
         PROMPT_VERSION,
         RAW_SCHEMA_VERSION,
         area_to_fraction,
@@ -37,6 +40,9 @@ except ModuleNotFoundError:
     spec.loader.exec_module(annotations_module)
 
     DEFAULT_MODEL_NAME = annotations_module.DEFAULT_MODEL_NAME
+    MIN_SCREENING_AREA = annotations_module.MIN_SCREENING_AREA
+    MIN_SCREENING_PREDICTED_IOU = annotations_module.MIN_SCREENING_PREDICTED_IOU
+    MIN_SCREENING_STABILITY_SCORE = annotations_module.MIN_SCREENING_STABILITY_SCORE
     PROMPT_VERSION = annotations_module.PROMPT_VERSION
     RAW_SCHEMA_VERSION = annotations_module.RAW_SCHEMA_VERSION
     area_to_fraction = annotations_module.area_to_fraction
@@ -94,9 +100,33 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--start-index", default=0, type=int)
     parser.add_argument("--limit-images", default=None, type=int)
     parser.add_argument("--max-masks-per-image", default=None, type=int)
-    parser.add_argument("--min-area", default=5000.0, type=float)
-    parser.add_argument("--min-stability-score", default=0.98, type=float)
-    parser.add_argument("--min-predicted-iou", default=0.95, type=float)
+    parser.add_argument(
+        "--min-area",
+        default=MIN_SCREENING_AREA,
+        type=float,
+        help=(
+            "Minimum mask area (px) for screening. "
+            f"Values below {MIN_SCREENING_AREA:.0f} are clamped."
+        ),
+    )
+    parser.add_argument(
+        "--min-stability-score",
+        default=MIN_SCREENING_STABILITY_SCORE,
+        type=float,
+        help=(
+            "Minimum stability_score for screening. "
+            f"Values below {MIN_SCREENING_STABILITY_SCORE:.2f} are clamped."
+        ),
+    )
+    parser.add_argument(
+        "--min-predicted-iou",
+        default=MIN_SCREENING_PREDICTED_IOU,
+        type=float,
+        help=(
+            "Minimum predicted_iou for screening. "
+            f"Values below {MIN_SCREENING_PREDICTED_IOU:.2f} are clamped."
+        ),
+    )
     parser.add_argument(
         "--crop-box-source",
         default="mask",
@@ -161,6 +191,18 @@ def _resolve_torch_dtype(dtype_name: str):
             return torch.float16
         return torch.float32
     return getattr(torch, dtype_name)
+
+
+def _effective_gate_thresholds(
+    min_area: float,
+    min_predicted_iou: float,
+    min_stability_score: float,
+) -> Tuple[float, float, float]:
+    return (
+        max(float(min_area), MIN_SCREENING_AREA),
+        max(float(min_predicted_iou), MIN_SCREENING_PREDICTED_IOU),
+        max(float(min_stability_score), MIN_SCREENING_STABILITY_SCORE),
+    )
 
 
 def _ensure_local_model(model_name: str, device_map: str, dtype_name: str):
@@ -752,6 +794,32 @@ def main() -> None:
     global args
 
     args = parse_args()
+    requested_min_area = float(args.min_area)
+    requested_min_predicted_iou = float(args.min_predicted_iou)
+    requested_min_stability_score = float(args.min_stability_score)
+    (
+        args.min_area,
+        args.min_predicted_iou,
+        args.min_stability_score,
+    ) = _effective_gate_thresholds(
+        min_area=requested_min_area,
+        min_predicted_iou=requested_min_predicted_iou,
+        min_stability_score=requested_min_stability_score,
+    )
+    if (
+        args.min_area != requested_min_area
+        or args.min_predicted_iou != requested_min_predicted_iou
+        or args.min_stability_score != requested_min_stability_score
+    ):
+        print(
+            (
+                "Clamped screening thresholds to hard minima: "
+                f"min_area={args.min_area:.0f}, "
+                f"min_predicted_iou={args.min_predicted_iou:.2f}, "
+                f"min_stability_score={args.min_stability_score:.2f}"
+            ),
+            file=sys.stderr,
+        )
 
     sa1b_root = Path(args.sa1b_root)
     output_root = Path(args.output_root)
@@ -990,6 +1058,11 @@ def main() -> None:
                 "enhanced_masks_kept": enhanced_masks_kept,
                 "enhanced_masks_from_existing": enhanced_masks_from_existing,
                 "min_area_threshold": args.min_area,
+                "min_predicted_iou_threshold": args.min_predicted_iou,
+                "min_stability_score_threshold": args.min_stability_score,
+                "hard_min_area": MIN_SCREENING_AREA,
+                "hard_min_predicted_iou": MIN_SCREENING_PREDICTED_IOU,
+                "hard_min_stability_score": MIN_SCREENING_STABILITY_SCORE,
                 "split": args.split,
                 "inference_backend": args.inference_backend,
             },

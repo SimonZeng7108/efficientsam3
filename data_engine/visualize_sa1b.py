@@ -10,7 +10,12 @@ from typing import Any, Dict, Iterable, List
 from pycocotools import mask as mask_utils
 
 try:
-    from stage3.data_engine.annotations import visualize_annotation_example
+    from stage3.data_engine.annotations import (
+        MIN_SCREENING_AREA,
+        MIN_SCREENING_PREDICTED_IOU,
+        MIN_SCREENING_STABILITY_SCORE,
+        visualize_annotation_example,
+    )
 except ModuleNotFoundError:
     # Allow running this script without importing the full stage3 package tree.
     annotations_path = Path(__file__).resolve().with_name("annotations.py")
@@ -23,6 +28,9 @@ except ModuleNotFoundError:
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
+    MIN_SCREENING_AREA = module.MIN_SCREENING_AREA
+    MIN_SCREENING_PREDICTED_IOU = module.MIN_SCREENING_PREDICTED_IOU
+    MIN_SCREENING_STABILITY_SCORE = module.MIN_SCREENING_STABILITY_SCORE
     visualize_annotation_example = module.visualize_annotation_example
 
 
@@ -50,29 +58,29 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--min-area",
-        default=5000.0,
+        default=MIN_SCREENING_AREA,
         type=float,
         help=(
             "Skip records whose area (px) is at or below this threshold. "
-            "Default matches generate.py quality gate."
+            f"Values below {MIN_SCREENING_AREA:.0f} are clamped."
         ),
     )
     parser.add_argument(
         "--min-predicted-iou",
-        default=0.95,
+        default=MIN_SCREENING_PREDICTED_IOU,
         type=float,
         help=(
             "Skip records whose predicted_iou is at or below this threshold. "
-            "Default matches generate.py quality gate."
+            f"Values below {MIN_SCREENING_PREDICTED_IOU:.2f} are clamped."
         ),
     )
     parser.add_argument(
         "--min-stability-score",
-        default=0.98,
+        default=MIN_SCREENING_STABILITY_SCORE,
         type=float,
         help=(
             "Skip records whose stability_score is at or below this threshold. "
-            "Default matches generate.py quality gate."
+            f"Values below {MIN_SCREENING_STABILITY_SCORE:.2f} are clamped."
         ),
     )
     parser.add_argument(
@@ -332,26 +340,25 @@ def _annotation_text(
 def _is_raw_record_visualizable(
     record: Dict[str, Any],
     include_rejected: bool,
-    min_area: float = 0.0,
-    min_predicted_iou: float = 0.0,
-    min_stability_score: float = 0.0,
 ) -> bool:
-    if not _passes_quality_gates(
-        area=record.get("area"),
-        predicted_iou=record.get("predicted_iou"),
-        stability_score=record.get("stability_score"),
-        min_area=min_area,
-        min_predicted_iou=min_predicted_iou,
-        min_stability_score=min_stability_score,
-    ):
-        return False
-
     if not include_rejected:
         if bool(record.get("rejected", False)):
             return False
         if bool(record.get("ambiguous", False)):
             return False
     return True
+
+
+def _effective_gate_thresholds(
+    min_area: float,
+    min_predicted_iou: float,
+    min_stability_score: float,
+) -> tuple[float, float, float]:
+    return (
+        max(float(min_area), MIN_SCREENING_AREA),
+        max(float(min_predicted_iou), MIN_SCREENING_PREDICTED_IOU),
+        max(float(min_stability_score), MIN_SCREENING_STABILITY_SCORE),
+    )
 
 
 def _passes_quality_gates(
@@ -551,9 +558,6 @@ def _render_from_raw_jsonl(
         if not _is_raw_record_visualizable(
             record,
             include_rejected=include_rejected,
-            min_area=min_area,
-            min_predicted_iou=min_predicted_iou,
-            min_stability_score=min_stability_score,
         ):
             continue
 
@@ -600,6 +604,15 @@ def _render_from_raw_jsonl(
             if base_ann.get("stability_score") is not None
             else record.get("stability_score")
         )
+        if not _passes_quality_gates(
+            area=area,
+            predicted_iou=predicted_iou,
+            stability_score=stability_score,
+            min_area=min_area,
+            min_predicted_iou=min_predicted_iou,
+            min_stability_score=min_stability_score,
+        ):
+            continue
         mask_bbox_xyxy = _annotation_mask_bbox_xyxy(
             annotation=base_ann,
             raw_record=record,
@@ -660,6 +673,32 @@ def _render_from_raw_jsonl(
 
 def main() -> None:
     args = parse_args()
+    requested_min_area = float(args.min_area)
+    requested_min_predicted_iou = float(args.min_predicted_iou)
+    requested_min_stability_score = float(args.min_stability_score)
+    (
+        args.min_area,
+        args.min_predicted_iou,
+        args.min_stability_score,
+    ) = _effective_gate_thresholds(
+        min_area=requested_min_area,
+        min_predicted_iou=requested_min_predicted_iou,
+        min_stability_score=requested_min_stability_score,
+    )
+    if (
+        args.min_area != requested_min_area
+        or args.min_predicted_iou != requested_min_predicted_iou
+        or args.min_stability_score != requested_min_stability_score
+    ):
+        print(
+            (
+                "Clamped screening thresholds to hard minima: "
+                f"min_area={args.min_area:.0f}, "
+                f"min_predicted_iou={args.min_predicted_iou:.2f}, "
+                f"min_stability_score={args.min_stability_score:.2f}"
+            ),
+            file=sys.stderr,
+        )
     sa1b_root = Path(args.sa1b_root)
     ann_dir = sa1b_root / "annotations" / args.split
     img_dir = sa1b_root / "images" / args.split
@@ -779,6 +818,9 @@ def main() -> None:
                     "split": args.split,
                     "source": "pre_processed_enhanced_json",
                     "annotation_files_considered": len(ann_files),
+                    "min_area_threshold": args.min_area,
+                    "min_predicted_iou_threshold": args.min_predicted_iou,
+                    "min_stability_score_threshold": args.min_stability_score,
                 },
                 indent=2,
             )
@@ -808,6 +850,9 @@ def main() -> None:
                         "split": args.split,
                         "source": str(raw_jsonl_path),
                         "include_rejected": args.include_rejected,
+                        "min_area_threshold": args.min_area,
+                        "min_predicted_iou_threshold": args.min_predicted_iou,
+                        "min_stability_score_threshold": args.min_stability_score,
                     },
                     indent=2,
                 )
@@ -917,6 +962,9 @@ def main() -> None:
                 "split": args.split,
                 "annotation_source": args.annotation_source,
                 "annotation_files_considered": len(ann_files),
+                "min_area_threshold": args.min_area,
+                "min_predicted_iou_threshold": args.min_predicted_iou,
+                "min_stability_score_threshold": args.min_stability_score,
             },
             indent=2,
         )

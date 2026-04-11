@@ -6,15 +6,27 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
-from stage3.data_engine.annotations import (
-    GROUPED_SCHEMA_VERSION,
-    area_to_fraction,
-    bbox_xywh_to_normalized_xywh,
-    bbox_xywh_to_xyxy,
-    disambiguate_duplicate_labels,
-    is_generic_label,
-    normalize_label,
-)
+try:
+    from data_engine.annotations import (
+        GROUPED_SCHEMA_VERSION,
+        area_to_fraction,
+        bbox_xywh_to_normalized_xywh,
+        bbox_xywh_to_xyxy,
+        disambiguate_duplicate_labels,
+        is_generic_label,
+        normalize_label,
+    )
+except ModuleNotFoundError:
+    # Backward compatibility when running from legacy stage3 namespace.
+    from stage3.data_engine.annotations import (
+        GROUPED_SCHEMA_VERSION,
+        area_to_fraction,
+        bbox_xywh_to_normalized_xywh,
+        bbox_xywh_to_xyxy,
+        disambiguate_duplicate_labels,
+        is_generic_label,
+        normalize_label,
+    )
 
 
 def parse_args() -> argparse.Namespace:

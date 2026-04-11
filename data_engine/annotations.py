@@ -19,6 +19,9 @@ GROUPED_SCHEMA_VERSION = "sa1b_stage3_grouped_v2"
 PROMPT_VERSION = "sa1b_qwen_crop_np_v2"
 DEFAULT_MODEL_NAME = "Qwen/Qwen3-VL-8B-Instruct"
 MAX_LABEL_WORDS = 10
+MIN_SCREENING_AREA = 4000.0
+MIN_SCREENING_PREDICTED_IOU = 0.93
+MIN_SCREENING_STABILITY_SCORE = 0.95
 
 GENERIC_LABELS = {
     "",
@@ -240,6 +243,139 @@ def _resolve_crop_box_xyxy(
     return x0, y0, x1, y1
 
 
+def _resolve_mask_bbox_xyxy(
+    annotation: Dict[str, Any],
+    image_size: Tuple[int, int],
+) -> Optional[Tuple[int, int, int, int]]:
+    width, height = image_size
+    values: Optional[List[float]] = None
+    if annotation.get("mask_bbox_xyxy"):
+        values = [float(v) for v in annotation["mask_bbox_xyxy"]]
+    elif annotation.get("mask_bbox_xywh"):
+        values = bbox_xywh_to_xyxy(annotation["mask_bbox_xywh"])
+    else:
+        mask = annotation.get("mask")
+        if mask is not None:
+            mask_array = np.asarray(mask).astype(bool)
+            if mask_array.shape == (height, width):
+                ys, xs = np.where(mask_array)
+                if ys.size > 0 and xs.size > 0:
+                    values = [
+                        float(xs.min()),
+                        float(ys.min()),
+                        float(xs.max() + 1),
+                        float(ys.max() + 1),
+                    ]
+    if not values or len(values) != 4:
+        return None
+
+    x0 = max(0, min(width, int(round(values[0]))))
+    y0 = max(0, min(height, int(round(values[1]))))
+    x1 = max(0, min(width, int(round(values[2]))))
+    y1 = max(0, min(height, int(round(values[3]))))
+    if x1 <= x0 or y1 <= y0:
+        return None
+    return x0, y0, x1, y1
+
+
+def _resolve_point_coords(annotation: Dict[str, Any]) -> List[Tuple[float, float]]:
+    raw_points = annotation.get("point_coords")
+    if raw_points is None:
+        return []
+
+    if (
+        isinstance(raw_points, (list, tuple))
+        and len(raw_points) == 2
+        and all(isinstance(value, (int, float)) for value in raw_points)
+    ):
+        return [(float(raw_points[0]), float(raw_points[1]))]
+
+    points: List[Tuple[float, float]] = []
+    if isinstance(raw_points, (list, tuple)):
+        for point in raw_points:
+            if (
+                isinstance(point, (list, tuple))
+                and len(point) >= 2
+                and isinstance(point[0], (int, float))
+                and isinstance(point[1], (int, float))
+            ):
+                points.append((float(point[0]), float(point[1])))
+    return points
+
+
+def _stable_seed_from_annotation(annotation: Dict[str, Any]) -> int:
+    token = f"{annotation.get('image_id', '')}|{annotation.get('mask_id', '')}"
+    seed = 2166136261
+    for byte in token.encode("utf-8"):
+        seed ^= byte
+        seed = (seed * 16777619) & 0xFFFFFFFF
+    return seed
+
+
+def _resolve_mask_center_xy(
+    annotation: Dict[str, Any],
+    image_size: Tuple[int, int],
+) -> Optional[Tuple[float, float]]:
+    center = annotation.get("mask_center_xy")
+    if (
+        isinstance(center, (list, tuple))
+        and len(center) >= 2
+        and isinstance(center[0], (int, float))
+        and isinstance(center[1], (int, float))
+    ):
+        return float(center[0]), float(center[1])
+
+    mask = annotation.get("mask")
+    if mask is None:
+        return None
+    mask_array = np.asarray(mask).astype(bool)
+    if mask_array.shape != (image_size[1], image_size[0]):
+        return None
+    ys, xs = np.where(mask_array)
+    if ys.size == 0:
+        return None
+    return float(xs.mean()), float(ys.mean())
+
+
+def _resolve_mask_sample_points(
+    annotation: Dict[str, Any],
+    image_size: Tuple[int, int],
+    default_count: int = 10,
+) -> List[Tuple[float, float]]:
+    raw_points = annotation.get("mask_sample_points_xy")
+    points: List[Tuple[float, float]] = []
+    if isinstance(raw_points, (list, tuple)):
+        for point in raw_points:
+            if (
+                isinstance(point, (list, tuple))
+                and len(point) >= 2
+                and isinstance(point[0], (int, float))
+                and isinstance(point[1], (int, float))
+            ):
+                points.append((float(point[0]), float(point[1])))
+    if points:
+        return points
+
+    mask = annotation.get("mask")
+    if mask is None:
+        return []
+    mask_array = np.asarray(mask).astype(bool)
+    if mask_array.shape != (image_size[1], image_size[0]):
+        return []
+
+    ys, xs = np.where(mask_array)
+    if ys.size == 0:
+        return []
+
+    sample_count = min(max(int(default_count), 0), int(ys.size))
+    if sample_count <= 0:
+        return []
+
+    rng = np.random.default_rng(_stable_seed_from_annotation(annotation))
+    indices = rng.choice(ys.size, size=sample_count, replace=False)
+    return [(float(xs[idx]), float(ys[idx])) for idx in indices.tolist()]
+
+
 def _build_crop_preview(
     source_image: Image.Image,
     annotation: Dict[str, Any],
@@ -249,18 +385,8 @@ def _build_crop_preview(
     if crop_box is None:
         return None
     x0, y0, x1, y1 = crop_box
+    # Keep the preview identical to the crop sent into Qwen (no mask overlay).
     preview = source_image.crop((x0, y0, x1, y1)).convert("RGBA")
-    mask = annotation.get("mask")
-    if mask is not None:
-        mask_array = np.asarray(mask).astype(bool)
-        if mask_array.shape == (source_image.size[1], source_image.size[0]):
-            mask_crop = mask_array[y0:y1, x0:x1]
-            overlay = Image.new("RGBA", preview.size, (0, 0, 0, 0))
-            overlay_pixels = overlay.load()
-            mask_y, mask_x = np.where(mask_crop)
-            for yy, xx in zip(mask_y.tolist(), mask_x.tolist()):
-                overlay_pixels[xx, yy] = (*color, 110)
-            preview = Image.alpha_composite(preview, overlay)
     preview_draw = ImageDraw.Draw(preview)
     preview_draw.rectangle(
         (0, 0, preview.size[0] - 1, preview.size[1] - 1),
@@ -270,7 +396,11 @@ def _build_crop_preview(
     return preview.convert("RGB")
 
 
-def _annotation_structure_text(index: int, annotation: Dict[str, Any]) -> str:
+def _annotation_structure_text(
+    index: int,
+    annotation: Dict[str, Any],
+    image_size: Tuple[int, int],
+) -> str:
     label = str(
         annotation.get("label")
         or annotation.get("query_text")
@@ -288,30 +418,60 @@ def _annotation_structure_text(index: int, annotation: Dict[str, Any]) -> str:
         annotation.get("object_id", annotation.get("mask_id", index)),
     )
     
-    # Prettier layout
     lines = [
         f"◆ {entry_kind.upper()} ID: {entry_id}",
-        f"  Text: \"{label}\""
+        f"  Text Label: \"{label}\"",
     ]
 
-    extra_props = []
     if annotation.get("object_ids_output") is not None:
-        extra_props.append(f"Targets: {_format_numeric_list(annotation['object_ids_output'])}")
+        lines.append(
+            f"  Targets: {_format_numeric_list(annotation['object_ids_output'])}"
+        )
     if annotation.get("mask_id") is not None:
-        extra_props.append(f"Mask: {annotation['mask_id']}")
+        lines.append(f"  Mask ID: {annotation['mask_id']}")
+    if annotation.get("predicted_iou") is not None:
+        lines.append(f"  Predicted IoU: {_format_numeric(annotation['predicted_iou'])}")
+    if annotation.get("stability_score") is not None:
+        lines.append(
+            f"  Stability Score: {_format_numeric(annotation['stability_score'])}"
+        )
     if annotation.get("area") is not None:
-        extra_props.append(f"Area: {_format_numeric(annotation['area'])} px")
-        
-    if extra_props:
-        lines.append(f"  Info: {' | '.join(extra_props)}")
+        lines.append(f"  Area: {_format_numeric(annotation['area'])} px")
 
     if annotation.get("bbox_xywh") is not None:
         lines.append(f"  BBox (xywh): {_format_numeric_list(annotation['bbox_xywh'])}")
+
+    mask_bbox = _resolve_mask_bbox_xyxy(annotation, image_size=image_size)
+    if mask_bbox is not None:
+        lines.append(f"  Mask BBox (xyxy): {_format_numeric_list(mask_bbox)}")
+
+    point_coords = _resolve_point_coords(annotation)
+    if point_coords:
+        points_text = "; ".join(
+            _format_numeric_list(point) for point in point_coords
+        )
+        lines.append(f"  Point Coords: {points_text}")
+
+    mask_center = _resolve_mask_center_xy(annotation, image_size=image_size)
+    if mask_center is not None:
+        lines.append(f"  Mask Center (xy): {_format_numeric_list(mask_center)}")
+
+    mask_sample_points = _resolve_mask_sample_points(
+        annotation,
+        image_size=image_size,
+    )
+    if mask_sample_points:
+        points_text = "; ".join(
+            _format_numeric_list(point) for point in mask_sample_points
+        )
+        lines.append(
+            f"  Mask Sample Points ({len(mask_sample_points)}): {points_text}"
+        )
     
-    crop_box = _resolve_crop_box_xyxy(annotation, image_size=(10**9, 10**9))
+    crop_box = _resolve_crop_box_xyxy(annotation, image_size=image_size)
     if crop_box is not None:
         lines.append(f"  Crop (xyxy): {_format_numeric_list(crop_box)}")
-        
+
     return "\n".join(lines)
 
 
@@ -346,6 +506,9 @@ def visualize_annotation_example(
     overview = Image.alpha_composite(overview, overlay)
     draw = ImageDraw.Draw(overview)
     badge_padding = max(8, int(getattr(badge_font, "size", 18) * 0.35))
+    point_radius = max(4, int(round(min(source_image.size) * 0.005)))
+    sample_point_radius = max(2, int(round(point_radius * 0.6)))
+    point_outline = max(2, int(round(box_width * 0.25)))
     for idx, ann in enumerate(items):
         color = colors[idx % len(colors)]
         x, y, w, h = [float(v) for v in ann["bbox_xywh"]]
@@ -367,6 +530,59 @@ def visualize_annotation_example(
             fill=(0, 0, 0),
             font=badge_font,
         )
+        for point_x, point_y in _resolve_point_coords(ann):
+            draw.ellipse(
+                (
+                    point_x - point_radius,
+                    point_y - point_radius,
+                    point_x + point_radius,
+                    point_y + point_radius,
+                ),
+                fill=(255, 48, 48),
+                outline=(255, 255, 255),
+                width=point_outline,
+            )
+
+        mask_center = _resolve_mask_center_xy(ann, image_size=source_image.size)
+        if mask_center is not None:
+            center_x, center_y = mask_center
+            cross_half = max(point_radius + 2, int(round(point_radius * 1.6)))
+            draw.line(
+                (
+                    center_x - cross_half,
+                    center_y,
+                    center_x + cross_half,
+                    center_y,
+                ),
+                fill=(80, 255, 255),
+                width=max(2, point_outline),
+            )
+            draw.line(
+                (
+                    center_x,
+                    center_y - cross_half,
+                    center_x,
+                    center_y + cross_half,
+                ),
+                fill=(80, 255, 255),
+                width=max(2, point_outline),
+            )
+
+        for sample_x, sample_y in _resolve_mask_sample_points(
+            ann,
+            image_size=source_image.size,
+        ):
+            draw.ellipse(
+                (
+                    sample_x - sample_point_radius,
+                    sample_y - sample_point_radius,
+                    sample_x + sample_point_radius,
+                    sample_y + sample_point_radius,
+                ),
+                fill=(255, 230, 80),
+                outline=(15, 18, 24),
+                width=max(1, point_outline - 1),
+            )
 
     overview_rgb = overview.convert("RGB")
     preview_image = (
@@ -437,7 +653,11 @@ def visualize_annotation_example(
     for idx, ann in enumerate(items):
         wrapped_lines = _wrap_text_lines(
             measure_draw,
-            _annotation_structure_text(idx, ann),
+            _annotation_structure_text(
+                idx,
+                ann,
+                image_size=source_image.size,
+            ),
             body_font,
             card_text_width,
         )
@@ -626,11 +846,18 @@ def disambiguate_duplicate_labels(
 
 
 def parse_model_json_response(raw_text: str) -> Tuple[str, float, bool, str]:
-    parsed = extract_json_object(raw_text)
-    label = normalize_label(parsed.get("label"))
-    confidence = float(parsed.get("confidence", 1.0))
-    ambiguous = bool(parsed.get("ambiguous", False))
-    reject_reason = str(parsed.get("reject_reason", "") or "").strip()
+    try:
+        parsed = extract_json_object(raw_text)
+        label = normalize_label(parsed.get("label"))
+        confidence = float(parsed.get("confidence", 1.0))
+        ambiguous = bool(parsed.get("ambiguous", False))
+        reject_reason = str(parsed.get("reject_reason", "") or "").strip()
+    except Exception as error:
+        label = normalize_label(raw_text)
+        confidence = 0.5
+        ambiguous = False
+        reject_reason = f"parse_error_fallback:{error}"
+    
     try:
         confidence = float(confidence)
     except (TypeError, ValueError):
