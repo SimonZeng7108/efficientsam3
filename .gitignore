@@ -154,6 +154,7 @@ data/*
 !images
 personal-site/*
 sam3_checkpoints/*
+sam3_1_checkpoints/*
 !sam3
 personal-site
 sam3_checkpoints

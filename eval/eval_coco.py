@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+from contextlib import nullcontext
 import torch
 import numpy as np
 from PIL import Image
@@ -15,7 +16,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 # Assuming running from root where 'sam3' package is located
 from sam3 import build_efficientsam3_image_model
 from sam3.model.sam3_image_processor import Sam3Processor
-from sam3.device import get_device
+from sam3.device import get_autocast_device_type, get_autocast_dtype, get_device
 
 def calculate_iou(pred_mask, gt_mask):
     intersection = np.logical_and(pred_mask, gt_mask).sum()
@@ -24,16 +25,44 @@ def calculate_iou(pred_mask, gt_mask):
         return 0.0
     return intersection / union
 
+def box_iou_xyxy(box_a, box_b):
+    """Compute IoU between two boxes in xyxy format (numpy arrays)."""
+    x1 = max(box_a[0], box_b[0])
+    y1 = max(box_a[1], box_b[1])
+    x2 = min(box_a[2], box_b[2])
+    y2 = min(box_a[3], box_b[3])
+    inter = max(0, x2 - x1) * max(0, y2 - y1)
+    area_a = (box_a[2] - box_a[0]) * (box_a[3] - box_a[1])
+    area_b = (box_b[2] - box_b[0]) * (box_b[3] - box_b[1])
+    union = area_a + area_b - inter
+    return inter / union if union > 0 else 0.0
+
 import time
 
-def evaluate_model(model_path, backbone, model_name, coco_root, split='val2017', num_samples=-1, device=None):
-    print(f"Evaluating model: {model_path}")
+
+def inference_autocast(device):
+    torch_device = torch.device(device)
+    if torch_device.type not in ("cuda", "mps"):
+        return nullcontext()
+    return torch.autocast(
+        device_type=get_autocast_device_type(torch_device),
+        dtype=get_autocast_dtype(torch_device),
+    )
+
+def evaluate_model(model_path, backbone, model_name, coco_root, split='val2017',
+                    num_samples=-1, device=None, prompt_mode='interactive',
+                    use_trineck=False):
+    print(f"Evaluating model: {model_path}  (prompt_mode={prompt_mode}, use_trineck={use_trineck})")
     start_time = time.time()
 
     if device is None:
         device = get_device()
-    
-    # Load Model
+
+    if prompt_mode not in {"interactive", "processor"}:
+        raise ValueError(f"Unsupported prompt_mode={prompt_mode!r}. Use 'interactive' or 'processor'.")
+    use_interactive = (prompt_mode == "interactive")
+
+    # Load Model — always enable inst_interactivity so both modes work
     try:
         model = build_efficientsam3_image_model(
             bpe_path="sam3/assets/bpe_simple_vocab_16e6.txt.gz", 
@@ -42,6 +71,7 @@ def evaluate_model(model_path, backbone, model_name, coco_root, split='val2017',
             load_from_HF=False,
             backbone_type=backbone,
             model_name=model_name,
+            use_trineck=use_trineck,
         )
         model.to(device)
         model.eval()
@@ -49,7 +79,7 @@ def evaluate_model(model_path, backbone, model_name, coco_root, split='val2017',
         print(f"Failed to load model {model_path}: {e}")
         return None
 
-    processor = Sam3Processor(model)
+    processor = Sam3Processor(model, device=device)
 
     # Load COCO
     ann_file = os.path.join(coco_root, f'annotations/instances_{split}.json')
@@ -75,7 +105,6 @@ def evaluate_model(model_path, backbone, model_name, coco_root, split='val2017',
                 # Try without split folder
                 img_path = os.path.join(coco_root, 'images', img_info['file_name'])
                 if not os.path.exists(img_path):
-                    # print(f"Image not found: {img_path}")
                     continue
 
         try:
@@ -93,7 +122,8 @@ def evaluate_model(model_path, backbone, model_name, coco_root, split='val2017',
 
         # Process image
         try:
-            inference_state = processor.set_image(image)
+            with torch.no_grad(), inference_autocast(device):
+                inference_state = processor.set_image(image)
         except Exception as e:
             print(f"Error processing image {img_path}: {e}")
             continue
@@ -103,23 +133,71 @@ def evaluate_model(model_path, backbone, model_name, coco_root, split='val2017',
                 continue
             
             bbox = ann['bbox'] # x, y, w, h
-            # Convert to x1, y1, x2, y2
-            box = np.array([bbox[0], bbox[1], bbox[0] + bbox[2], bbox[1] + bbox[3]])
-            
-            # Run inference
-            with torch.no_grad():
-                masks, scores, _ = model.predict_inst(
-                    inference_state,
-                    point_coords=None,
-                    point_labels=None,
-                    box=box[None, :],
-                    multimask_output=False,
-                )
-            
-            if isinstance(masks, torch.Tensor):
-                pred_mask = masks[0].cpu().numpy() > 0
+            x, y, w, h = bbox
+
+            if use_interactive:
+                # SAM1-style interactive prediction with absolute-pixel xyxy box
+                try:
+                    box = np.array(
+                        [x, y, x + w, y + h], dtype=np.float32
+                    )
+                    with torch.no_grad(), inference_autocast(device):
+                        masks, scores, _ = model.predict_inst(
+                            inference_state,
+                            point_coords=None,
+                            point_labels=None,
+                            box=box[None, :],
+                            multimask_output=False,
+                        )
+                    if masks is None or len(scores) == 0:
+                        continue
+                    if isinstance(masks, torch.Tensor):
+                        pred_mask = masks[0].cpu().numpy() > 0
+                    else:
+                        pred_mask = np.asarray(masks[0]) > 0
+                except Exception as e:
+                    continue
             else:
-                pred_mask = masks[0] > 0
+                # SAM3 detection-style geometric prompt (normalized cxcywh)
+                cx = (x + w / 2.0) / image.width
+                cy = (y + h / 2.0) / image.height
+                nw = w / image.width
+                nh = h / image.height
+
+                with torch.no_grad(), inference_autocast(device):
+                    inference_state = processor.add_geometric_prompt(
+                        [cx, cy, nw, nh],
+                        True,
+                        inference_state,
+                    )
+
+                masks = inference_state.get("masks")
+                scores = inference_state.get("scores")
+                boxes_pred = inference_state.get("boxes")
+                if masks is None or scores is None or len(scores) == 0:
+                    processor.reset_all_prompts(inference_state)
+                    continue
+
+                # Match predicted detection to GT box by IoU
+                gt_box_xyxy = np.array([x, y, x + w, y + h])
+                if boxes_pred is not None and len(boxes_pred) > 0:
+                    best_iou = -1
+                    best_idx = 0
+                    for i, pred_box in enumerate(boxes_pred):
+                        pred_box_np = pred_box.cpu().numpy()
+                        biou = box_iou_xyxy(gt_box_xyxy, pred_box_np)
+                        if biou > best_iou:
+                            best_iou = biou
+                            best_idx = i
+                else:
+                    best_idx = 0
+
+                if isinstance(masks, torch.Tensor):
+                    pred_mask = masks[best_idx, 0].cpu().numpy() > 0
+                else:
+                    pred_mask = masks[best_idx][0] > 0
+
+                processor.reset_all_prompts(inference_state)
             
             # Get GT mask
             gt_mask = coco.annToMask(ann)
@@ -143,6 +221,10 @@ def main():
     parser.add_argument('--coco_root', type=str, default='data/coco', help='Path to COCO dataset')
     parser.add_argument('--output_dir', type=str, default='output', help='Directory containing models')
     parser.add_argument('--num_samples', type=int, default=-1, help='Number of samples to evaluate')
+    parser.add_argument('--prompt_mode', type=str, default='interactive', choices=['interactive', 'processor'],
+                        help='Prompting mode: interactive (SAM-style box prompt) or processor (detection mode).')
+    parser.add_argument('--use_trineck', action='store_true',
+                        help='Use SAM3.1 TriNeck vision backbone when building the model.')
     from sam3.device import get_device
     parser.add_argument('--device', type=str, default=str(get_device()))
     args = parser.parse_args()
@@ -180,7 +262,16 @@ def main():
         model_name = size_mapping[backbone][size]
         model_path = os.path.join(models_dir, model_file)
         
-        result = evaluate_model(model_path, backbone, model_name, args.coco_root, num_samples=args.num_samples, device=args.device)
+        result = evaluate_model(
+            model_path,
+            backbone,
+            model_name,
+            args.coco_root,
+            num_samples=args.num_samples,
+            device=args.device,
+            prompt_mode=args.prompt_mode,
+            use_trineck=args.use_trineck,
+        )
         if result is not None:
             miou, elapsed_time = result
             results[model_file] = {'miou': miou, 'time': elapsed_time}

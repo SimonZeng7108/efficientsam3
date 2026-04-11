@@ -178,8 +178,24 @@ def main():
         "--backbone-type",
         required=False,
         default=None,
-        choices=["MobileCLIP-S0", "MobileCLIP-S1", "MobileCLIP2-L", "SAM3", None],
-        help="Student text encoder type. Use 'SAM3' or omit for the original SAM3 text encoder.",
+        choices=["MobileCLIP-S0", "MobileCLIP-S1", "MobileCLIP2-L", "SAM3", "SAM3.1", None],
+        help=(
+            "Student text encoder type. Use 'SAM3.1', 'SAM3', or omit to use the "
+            "original text encoder from the loaded checkpoint."
+        ),
+    )
+    parser.add_argument(
+        "--image-backbone-type",
+        required=False,
+        default="SAM3",
+        choices=["SAM3", "repvit", "tinyvit", "efficientvit"],
+        help="Vision backbone family for image encoder loading. Use 'SAM3' for original ViT, or efficient student families.",
+    )
+    parser.add_argument(
+        "--image-model-name",
+        required=False,
+        default=None,
+        help="Vision model size alias for efficient backbones (e.g. repvit: s/m/l, tinyvit: s/m/l, efficientvit: s/m/l).",
     )
     parser.add_argument(
         "--data-root", required=True, help="Path to sa-co-gold/all directory"
@@ -228,13 +244,23 @@ def main():
 
     if rank == 0:
         print(f"Checkpoint: {args.checkpoint}")
-        print(f"Text encoder: {args.backbone_type} (resolved: {'SAM3/MetaCLIP (original)' if args.backbone_type in (None, 'SAM3') else args.backbone_type})")
+        print(
+            f"Text encoder: {args.backbone_type} "
+            f"(resolved: {'original checkpoint text encoder (SAM3/SAM3.1)'
+            if args.backbone_type in (None, 'SAM3', 'SAM3.1') else args.backbone_type})"
+        )
+        print(f"Image backbone: {args.image_backbone_type}")
+        print(f"Image model name: {args.image_model_name}")
         print(f"Context length: {args.context_length}")
         print(f"Pos-embed table size: {args.pos_embed_table_size if args.pos_embed_table_size is not None else args.context_length}")
         print(f"Interpolate pos-embed: {args.interpolate_pos_embed}")
         print(f"World size: {world_size}")
         print(f"Data root: {args.data_root}")
         print(f"Output dir: {args.output_dir}")
+
+    image_backbone_type = None if args.image_backbone_type == "SAM3" else args.image_backbone_type
+    if image_backbone_type is not None and args.image_model_name is None:
+        raise ValueError("--image-model-name is required when --image-backbone-type is not SAM3")
 
     # BPE path (relative to sam3 package)
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -247,12 +273,14 @@ def main():
         print(f"BPE path: {bpe_path}")
         print("Loading model...")
 
-    # "SAM3" or None both mean: use the original SAM3 text encoder (MetaCLIP)
-    text_encoder_type = args.backbone_type if args.backbone_type not in (None, "SAM3") else None
+    # "SAM3.1", "SAM3", or None all mean: use the original checkpoint text encoder.
+    text_encoder_type = args.backbone_type if args.backbone_type not in (None, "SAM3", "SAM3.1") else None
 
     model = build_sam3_image_model(
         bpe_path=bpe_path,
         checkpoint_path=args.checkpoint,
+        backbone_type=image_backbone_type,
+        model_name=args.image_model_name,
         text_encoder_type=text_encoder_type,
         text_encoder_context_length=args.context_length,
         text_encoder_pos_embed_table_size=args.pos_embed_table_size,

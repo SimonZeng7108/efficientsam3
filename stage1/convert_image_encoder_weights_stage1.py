@@ -87,6 +87,17 @@ def parse_args():
         default=[],
         help="Additional teacher prefixes to skip when copying the SAM3 weights.",
     )
+    parser.add_argument(
+        "--remap-interactive-convs",
+        action="store_true",
+        default=False,
+        help=(
+            "Legacy: remap SAM3.1 TriNeck interactive_convs -> DualNeck "
+            "sam2_convs.  Disabled by default since the model now uses "
+            "Sam3TriViTDetNeck natively.  Use --remap-interactive-convs "
+            "only when targeting the old DualNeck architecture."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -139,6 +150,23 @@ def main():
             continue
         merged[key] = value
         appended += 1
+
+    # Remap SAM3.1 TriNeck interactive_convs -> DualNeck sam2_convs so
+    # the merged checkpoint supports enable_inst_interactivity=True.
+    interactive_prefix = "detector.backbone.vision_backbone.interactive_convs."
+    sam2_prefix = "detector.backbone.vision_backbone.sam2_convs."
+    remapped_convs = 0
+    if args.remap_interactive_convs:
+        extra = {}
+        for key, value in merged.items():
+            if key.startswith(interactive_prefix):
+                new_key = sam2_prefix + key[len(interactive_prefix):]
+                if new_key not in merged:
+                    extra[new_key] = value
+                    remapped_convs += 1
+        merged.update(extra)
+    if remapped_convs:
+        print(f"Remapped {remapped_convs} interactive_convs -> sam2_convs keys")
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
     torch.save({"model": merged}, args.output)

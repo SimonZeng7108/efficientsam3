@@ -120,6 +120,8 @@ def _create_vit_neck(position_encoding, vit_backbone, enable_inst_interactivity=
 
 def _create_vl_backbone(vit_neck, text_encoder):
     """Create visual-language backbone."""
+    if isinstance(vit_neck, Sam3TriViTDetNeck):
+        return SAM3VLBackboneTri(visual=vit_neck, text=text_encoder, scalp=0)
     return SAM3VLBackbone(visual=vit_neck, text=text_encoder, scalp=1)
 
 
@@ -527,6 +529,20 @@ def _create_vision_backbone(
     return vit_neck
 
 
+def _create_vision_backbone_trineck(
+    compile_mode=None,
+) -> Sam3TriViTDetNeck:
+    """Create SAM3.1-style TriNeck visual backbone with ViT and neck."""
+    position_encoding = _create_position_encoding(precompute_resolution=1008)
+    vit_backbone: ViT = _create_vit_backbone(compile_mode=compile_mode)
+    return Sam3TriViTDetNeck(
+        trunk=vit_backbone,
+        position_encoding=position_encoding,
+        d_model=256,
+        scale_factors=[4.0, 2.0, 1.0],
+    )
+
+
 def _create_sam3_transformer(
     has_presence_token: bool = True, use_fa3: bool = False
 ) -> TransformerWrapper:
@@ -537,35 +553,197 @@ def _create_sam3_transformer(
     return TransformerWrapper(encoder=encoder, decoder=decoder, d_model=256)
 
 
+def _remap_trineck_to_dualneck(state_dict: dict) -> dict:
+    """Remap SAM3.1 TriViTDetNeck keys to Sam3DualViTDetNeck keys.
+
+    SAM3.1 multiplex checkpoints use ``interactive_convs`` / ``propagation_convs``
+    (3-scale TriNeck), while the EfficientSAM3 image model uses
+    ``sam2_convs`` (4-scale DualNeck).  This helper copies
+    ``interactive_convs.{0,1,2}.*`` → ``sam2_convs.{0,1,2}.*`` so the
+    SAM2-style interactive predictor gets proper FPN weights instead of
+    random initialization.  ``sam2_convs.3`` (the 0.5× maxpool branch) has
+    no counterpart in TriNeck and is left uninitialised; it is discarded by
+    ``scalp=1`` downstream.
+    """
+    has_interactive = any(
+        "backbone.vision_backbone.interactive_convs." in k for k in state_dict
+    )
+    if not has_interactive:
+        return state_dict
+
+    remapped = {}
+    for k, v in state_dict.items():
+        remapped[k] = v
+        if "backbone.vision_backbone.interactive_convs." in k:
+            new_key = k.replace(
+                "backbone.vision_backbone.interactive_convs.",
+                "backbone.vision_backbone.sam2_convs.",
+            )
+            if new_key not in remapped:
+                remapped[new_key] = v
+    return remapped
+
+
 def _load_checkpoint(model, checkpoint_path):
     """Load model checkpoint from file."""
     with g_pathmgr.open(checkpoint_path, "rb") as f:
-        ckpt = torch.load(f, map_location="cpu", weights_only=True)
+        # Keep compatibility with older torch versions that do not accept
+        # the weights_only argument.
+        try:
+            ckpt = torch.load(f, map_location="cpu", weights_only=True)
+        except TypeError:
+            ckpt = torch.load(f, map_location="cpu")
     if "model" in ckpt and isinstance(ckpt["model"], dict):
         ckpt = ckpt["model"]
+
+    # Standardize checkpoint keys first so both SAM3 checkpoints and
+    # EfficientSAM3 conversion outputs can be loaded consistently.
+    cleaned_ckpt = {}
+    for k, v in ckpt.items():
+        new_k = k
+        if new_k.startswith("detector."):
+            new_k = new_k.replace("detector.", "")
+        if "student_trunk." in new_k:
+            new_k = new_k.replace("student_trunk.", "")
+        cleaned_ckpt[new_k] = v
+
+    model_state_dict = model.state_dict()
+    model_keys = set(model_state_dict.keys())
     sam3_image_ckpt = {
-        k.replace("detector.", ""): v for k, v in ckpt.items() if "detector" in k
+        k: v
+        for k, v in cleaned_ckpt.items()
+        if (k in model_keys or "backbone" in k) and not k.startswith("tracker.")
     }
+    # Only remap TriNeck→DualNeck if the model still uses DualNeck.
+    # When using Sam3TriViTDetNeck the checkpoint keys already match.
+    uses_trineck = isinstance(
+        getattr(getattr(model, "backbone", None), "vision_backbone", None),
+        Sam3TriViTDetNeck,
+    )
+    if not uses_trineck:
+        sam3_image_ckpt = _remap_trineck_to_dualneck(sam3_image_ckpt)
     if model.inst_interactive_predictor is not None:
-        sam3_image_ckpt.update(
-            {
-                k.replace("tracker.", "inst_interactive_predictor.model."): v
-                for k, v in ckpt.items()
-                if "tracker" in k
-            }
+        tracker_keys = {k: v for k, v in ckpt.items() if "tracker" in k}
+        mapped_tracker = {}
+        for k, v in tracker_keys.items():
+            # SAM3.1 multiplex: keys are tracker.model.X
+            # SAM3:             keys are tracker.X
+            if k.startswith("tracker.model."):
+                new_k = "inst_interactive_predictor.model." + k[len("tracker.model."):]
+            else:
+                new_k = "inst_interactive_predictor.model." + k[len("tracker."):]
+            mapped_tracker[new_k] = v
+        # SAM3.1 multiplex has interactive_*/interactivity_* variants for
+        # SAM1-style modules alongside propagation-only versions.  Prefer
+        # the interactive variants and map them to the base module names
+        # that Sam3TrackerPredictor expects.
+        prefix = "inst_interactive_predictor.model."
+        interactive_remapped = {}
+        for k, v in list(mapped_tracker.items()):
+            rel = k[len(prefix):]
+            if rel.startswith("interactive_"):
+                base_rel = rel[len("interactive_"):]
+                interactive_remapped[prefix + base_rel] = v
+            elif rel.startswith("interactivity_"):
+                base_rel = rel[len("interactivity_"):]
+                interactive_remapped[prefix + base_rel] = v
+        # interactive variants override propagation-only keys
+        mapped_tracker.update(interactive_remapped)
+
+        # SAM3.1 tracker checkpoints use several naming variants that differ
+        # from Sam3TrackerPredictor state_dict keys. Normalize them here.
+        tracker_normalized = {}
+        for k, v in list(mapped_tracker.items()):
+            nk = k
+
+            # Projection naming used by SAM3.1 tracker transformer.
+            nk = nk.replace(".self_attn_q_proj.", ".self_attn.q_proj.")
+            nk = nk.replace(".self_attn_k_proj.", ".self_attn.k_proj.")
+            nk = nk.replace(".self_attn_v_proj.", ".self_attn.v_proj.")
+            nk = nk.replace(".self_attn_out_proj.", ".self_attn.out_proj.")
+            nk = nk.replace(".image_cross_attn_q_proj.", ".cross_attn_image.q_proj.")
+            nk = nk.replace(".image_cross_attn_k_proj.", ".cross_attn_image.k_proj.")
+            nk = nk.replace(".image_cross_attn_v_proj.", ".cross_attn_image.v_proj.")
+            nk = nk.replace(".image_cross_attn_out_proj.", ".cross_attn_image.out_proj.")
+
+            # SAM3.1 aliases.
+            if nk == prefix + "interactivity_no_mem_embed":
+                nk = prefix + "no_mem_pos_enc"
+            if nk.startswith(prefix + "image_pe_layer."):
+                nk = nk.replace(
+                    prefix + "image_pe_layer.",
+                    prefix + "sam_prompt_encoder.pe_layer.",
+                )
+
+            tracker_normalized[nk] = v
+
+            # In SAM3.1 tracker, cross_attn_out_proj is provided separately
+            # from image_cross_attn_* and aligns with cross_attn_image.out_proj.
+            if ".cross_attn_out_proj." in k:
+                tracker_normalized[
+                    k.replace(".cross_attn_out_proj.", ".cross_attn_image.out_proj.")
+                ] = v
+
+            # cross_attn_v_proj.weight is channel-mismatched for this runtime,
+            # but the bias is still shape-compatible and useful to initialize.
+            if k.endswith(".cross_attn_v_proj.bias"):
+                tracker_normalized[
+                    k.replace(".cross_attn_v_proj.bias", ".cross_attn_image.v_proj.bias")
+                ] = v
+
+        mapped_tracker.update(tracker_normalized)
+        sam3_image_ckpt.update(mapped_tracker)
+
+    # Strict=False still raises on tensor shape mismatches. Filter load keys to
+    # model-present entries with matching shapes so checkpoints from different
+    # tracker variants (e.g. SAM3.1 multiplex) can still load for image eval.
+    loadable_state_dict = {}
+    skipped_missing_model_key = []
+    skipped_shape_mismatch = []
+    for k, v in sam3_image_ckpt.items():
+        if k not in model_state_dict:
+            skipped_missing_model_key.append(k)
+            continue
+        model_v = model_state_dict[k]
+        if (
+            isinstance(v, torch.Tensor)
+            and isinstance(model_v, torch.Tensor)
+            and tuple(v.shape) != tuple(model_v.shape)
+        ):
+            skipped_shape_mismatch.append((k, tuple(v.shape), tuple(model_v.shape)))
+            continue
+        loadable_state_dict[k] = v
+
+    missing_keys, unexpected_keys = model.load_state_dict(loadable_state_dict, strict=False)
+    if len(skipped_shape_mismatch) > 0:
+        print(
+            f"loaded {checkpoint_path} and skipped "
+            f"{len(skipped_shape_mismatch)} shape-mismatched keys"
         )
-    missing_keys, _ = model.load_state_dict(sam3_image_ckpt, strict=False)
+        for key, ck_shape, model_shape in skipped_shape_mismatch[:20]:
+            print(f"  {key}: checkpoint={ck_shape}, model={model_shape}")
+        if len(skipped_shape_mismatch) > 20:
+            print(f"  ... and {len(skipped_shape_mismatch) - 20} more")
+    if len(skipped_missing_model_key) > 0:
+        print(
+            f"loaded {checkpoint_path} and skipped "
+            f"{len(skipped_missing_model_key)} keys not present in model"
+        )
     if len(missing_keys) > 0:
         print(
             f"loaded {checkpoint_path} and found "
-            f"missing and/or unexpected keys:\n{missing_keys=}"
+            f"missing keys:\n{missing_keys=}"
+        )
+    if len(unexpected_keys) > 0:
+        print(
+            f"loaded {checkpoint_path} and found "
+            f"unexpected keys:\n{unexpected_keys=}"
         )
 
 
 def _setup_device_and_mode(model, device, eval_mode):
     """Setup model device and evaluation mode."""
-    if device == "cuda":
-        model = model.cuda()
+    model = model.to(device)
     if eval_mode:
         model.eval()
     return model
@@ -630,7 +808,7 @@ class _EfficientSAM3ImageStudentEncoder(nn.Module):
     structure expected by converted EfficientSAM3 checkpoints.
     """
 
-    def __init__(self, backbone, in_channels, embed_dim=1024, embed_size=64):
+    def __init__(self, backbone, in_channels, embed_dim=1024, embed_size=72):
         super().__init__()
         self.backbone = backbone
         self.embed_dim = embed_dim
@@ -783,8 +961,9 @@ def _create_vision_backbone_efficient(
     enable_inst_interactivity: bool,
     img_size: int = 1008,
     embed_dim: int = 1024,
-    embed_size: int = 64,
-) -> Sam3DualViTDetNeck:
+    embed_size: int = 72,
+) -> Sam3TriViTDetNeck:
+    # Keep the efficient student trunk aligned with the 1008px SAM3 feature grid.
     image_backbone, out_channels = _build_efficient_image_backbone(
         backbone_type=backbone_type,
         model_name=model_name,
@@ -798,12 +977,11 @@ def _create_vision_backbone_efficient(
     )
     trunk = _EfficientSAM3VisionTrunk(model=student_encoder, channel_dim=embed_dim)
     position_encoding = _create_position_encoding()
-    return Sam3DualViTDetNeck(
+    return Sam3TriViTDetNeck(
+        trunk=trunk,
         position_encoding=position_encoding,
         d_model=256,
-        scale_factors=[4.0, 2.0, 1.0, 0.5],
-        trunk=trunk,
-        add_sam2_neck=enable_inst_interactivity,
+        scale_factors=[4.0, 2.0, 1.0],
     )
 
 
@@ -924,6 +1102,7 @@ def build_sam3_image_model(
     text_encoder_context_length: int = 16,
     text_encoder_pos_embed_table_size: Optional[int] = None,
     interpolate_pos_embed: bool = False,
+    use_trineck: bool = False,
 ):
     """
     Build SAM3 image model
@@ -936,6 +1115,7 @@ def build_sam3_image_model(
         enable_segmentation: Whether to enable segmentation head
         enable_inst_interactivity: Whether to enable instance interactivity (SAM 1 task)
         compile_mode: To enable compilation, set to "default"
+        use_trineck: Whether to use SAM3.1-style TriNeck (3-scale) instead of DualNeck (4-scale)
 
     Returns:
         A SAM3 image model
@@ -949,10 +1129,15 @@ def build_sam3_image_model(
     compile_mode = "default" if compile else None
     selected_backbone_type = _normalize_backbone_type(backbone_type or "sam3")
     if selected_backbone_type == "sam3":
-        vision_encoder = _create_vision_backbone(
-            compile_mode=compile_mode,
-            enable_inst_interactivity=enable_inst_interactivity,
-        )
+        if use_trineck:
+            vision_encoder = _create_vision_backbone_trineck(
+                compile_mode=compile_mode,
+            )
+        else:
+            vision_encoder = _create_vision_backbone(
+                compile_mode=compile_mode,
+                enable_inst_interactivity=enable_inst_interactivity,
+            )
     else:
         selected_model_name = model_name or efficientvit_model
         if selected_model_name is None:
@@ -965,7 +1150,7 @@ def build_sam3_image_model(
             enable_inst_interactivity=enable_inst_interactivity,
             img_size=1008,
             embed_dim=1024,
-            embed_size=64,
+            embed_size=72,
         )
 
     # Create text components
@@ -1097,7 +1282,7 @@ def build_sam3_video_model(
             enable_inst_interactivity=False,
             img_size=1008,
             embed_dim=1024,
-            embed_size=64,
+            embed_size=72,
         )
 
     selected_text_encoder = _normalize_text_encoder_type(text_encoder_type)
@@ -1243,6 +1428,7 @@ def build_efficientsam3_image_model(
     enable_inst_interactivity=True,
     compile=False,
     efficientvit_model: Optional[str] = None,
+    use_trineck: bool = False,
 ):
     """Backward-compatible EfficientSAM3 image builder on top of SAM3.1 runtime."""
     _ = strict_state_dict_loading
@@ -1262,6 +1448,7 @@ def build_efficientsam3_image_model(
         text_encoder_context_length=text_encoder_context_length,
         text_encoder_pos_embed_table_size=text_encoder_pos_embed_table_size,
         interpolate_pos_embed=interpolate_pos_embed,
+        use_trineck=use_trineck,
     )
 
 

@@ -8,6 +8,6 @@ TAG: text_ctx16
 
 DISTILL:
   NUM_EMBED: 16
-  TEACHER_EMBED_PATH: 'output/stage1_text_teacher/embeddings_ctx16/'
+  TEACHER_EMBED_PATH: 'output/stage1_text_teacher_5dataset_ctx16/embeddings_ctx16/'
   CONTEXT_LENGTH: 16
   POS_EMBED_TABLE_SIZE: 16

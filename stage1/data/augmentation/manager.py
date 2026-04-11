@@ -25,7 +25,7 @@ class _Writer:
         rank_name = f'rank{rank}'
         # logits_top100_epoch0_rank0
         basename = os.path.basename(path) + f'_{rank_name}'
-        tmp_handle = tempfile.TemporaryDirectory(prefix='edgesam_' + basename, dir=os.path.dirname(path))
+        tmp_handle = tempfile.TemporaryDirectory(prefix='embedding_writer_' + basename, dir=os.path.dirname(path))
 
         # tmp_dir/tinyvit_logits_top100_epoch0_rank0
         temp_dirname = tmp_handle.name

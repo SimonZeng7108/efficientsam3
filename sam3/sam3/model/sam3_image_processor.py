@@ -14,7 +14,11 @@ from torchvision.transforms import v2
 class Sam3Processor:
     """ """
 
-    def __init__(self, model, resolution=1008, device="cuda", confidence_threshold=0.5):
+    def __init__(self, model, resolution=1008, device=None, confidence_threshold=0.5):
+        if device is None:
+            from sam3.device import get_device
+
+            device = get_device()
         self.model = model
         self.resolution = resolution
         self.device = device
@@ -57,19 +61,7 @@ class Sam3Processor:
         state["original_height"] = height
         state["original_width"] = width
         state["backbone_out"] = self.model.backbone.forward_image(image)
-        inst_interactivity_en = self.model.inst_interactive_predictor is not None
-        if inst_interactivity_en and "sam2_backbone_out" in state["backbone_out"]:
-            sam2_backbone_out = state["backbone_out"]["sam2_backbone_out"]
-            sam2_backbone_out["backbone_fpn"][0] = (
-                self.model.inst_interactive_predictor.model.sam_mask_decoder.conv_s0(
-                    sam2_backbone_out["backbone_fpn"][0]
-                )
-            )
-            sam2_backbone_out["backbone_fpn"][1] = (
-                self.model.inst_interactive_predictor.model.sam_mask_decoder.conv_s1(
-                    sam2_backbone_out["backbone_fpn"][1]
-                )
-            )
+        self._prepare_interactive_features(state)
         return state
 
     @torch.inference_mode()
@@ -94,20 +86,40 @@ class Sam3Processor:
         ]
         images = torch.stack(images, dim=0)
         state["backbone_out"] = self.model.backbone.forward_image(images)
-        inst_interactivity_en = self.model.inst_interactive_predictor is not None
-        if inst_interactivity_en and "sam2_backbone_out" in state["backbone_out"]:
-            sam2_backbone_out = state["backbone_out"]["sam2_backbone_out"]
-            sam2_backbone_out["backbone_fpn"][0] = (
-                self.model.inst_interactive_predictor.model.sam_mask_decoder.conv_s0(
-                    sam2_backbone_out["backbone_fpn"][0]
-                )
-            )
-            sam2_backbone_out["backbone_fpn"][1] = (
-                self.model.inst_interactive_predictor.model.sam_mask_decoder.conv_s1(
-                    sam2_backbone_out["backbone_fpn"][1]
-                )
-            )
+        self._prepare_interactive_features(state)
         return state
+
+    def _prepare_interactive_features(self, state):
+        """Prepare backbone features for the interactive predictor.
+
+        For TriNeck (SAM3.1) uses ``interactive`` features; for DualNeck
+        (SAM3) uses ``sam2_backbone_out``.  Unwraps any NestedTensor
+        wrappers and applies conv_s0 / conv_s1.
+        """
+        if self.model.inst_interactive_predictor is None:
+            return
+        backbone_out = state["backbone_out"]
+        # TriNeck provides separate interactive features; prefer them
+        if "interactive" in backbone_out:
+            feats = backbone_out["interactive"]
+        elif "sam2_backbone_out" in backbone_out:
+            feats = backbone_out["sam2_backbone_out"]
+        else:
+            return
+        fpn = feats["backbone_fpn"]
+        # Unwrap NestedTensor → plain tensor
+        for i in range(len(fpn)):
+            if hasattr(fpn[i], "tensors"):
+                fpn[i] = fpn[i].tensors
+        # Apply conv_s0 / conv_s1 to first two FPN levels
+        fpn[0] = self.model.inst_interactive_predictor.model.sam_mask_decoder.conv_s0(
+            fpn[0]
+        )
+        fpn[1] = self.model.inst_interactive_predictor.model.sam_mask_decoder.conv_s1(
+            fpn[1]
+        )
+        # Store as sam2_backbone_out so predict_inst can find it
+        backbone_out["sam2_backbone_out"] = feats
 
     @torch.inference_mode()
     def set_text_prompt(self, prompt: str, state: Dict):

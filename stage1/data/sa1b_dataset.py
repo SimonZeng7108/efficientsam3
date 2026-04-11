@@ -6,7 +6,7 @@ from torchvision.transforms.functional import pil_to_tensor
 import numpy as np
 import glob
 from pathlib import Path
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 import json
 from pycocotools import mask as mask_utils
 from .transforms import ResizeLongestSide, xywh2xyxy, xyxy2xywh
@@ -65,15 +65,23 @@ class SA1BDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         img_path, anno_path = copy.deepcopy(self.data[idx])
-        img = Image.open(img_path).convert('RGB')
-        img = pil_to_tensor(img)
-        original_size = img.shape[1:]
 
         with open(anno_path, 'r') as f:
             anno_json = json.load(f)
             anno_raw = anno_json['annotations']
 
         height, width = anno_json['image']['height'], anno_json['image']['width']
+
+        try:
+            img = Image.open(img_path).convert('RGB')
+        except (UnidentifiedImageError, OSError) as exc:
+            # Keep key/index alignment stable for teacher embedding export and student training.
+            print(f"[SA1BDataset] Warning: failed to read image {img_path}: {exc}. Using blank fallback image.")
+            img = Image.new('RGB', (width, height), color=(0, 0, 0))
+
+        img = pil_to_tensor(img)
+        original_size = img.shape[1:]
+
         prompt_box_list = []
         prompt_point_list = []
         mask_area = []
