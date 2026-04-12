@@ -71,6 +71,55 @@ def parse_args():
         help="Full SAM3 checkpoint that provides prompt encoder, decoder, etc.",
     )
     parser.add_argument(
+        "--image-target-prefix",
+        type=str,
+        default="detector.backbone.vision_backbone.trunk.model.",
+        help="Prefix to prepend to every image-student weight before merging.",
+    )
+    parser.add_argument(
+        "--text-target-prefix",
+        type=str,
+        default="detector.backbone.language_backbone.",
+        help="Prefix to prepend to every text-student weight before merging.",
+    )
+    parser.add_argument(
+        "--image-replace-prefix",
+        type=str,
+        default=None,
+        help=(
+            "Teacher image weights sharing this prefix are dropped so the image "
+            "student fully replaces them. Defaults to "
+            "detector.backbone.vision_backbone.trunk"
+        ),
+    )
+    parser.add_argument(
+        "--text-replace-prefix",
+        type=str,
+        default=None,
+        help=(
+            "Teacher text weights sharing this prefix are dropped so the text "
+            "student fully replaces them. Defaults to "
+            "detector.backbone.language_backbone"
+        ),
+    )
+    parser.add_argument(
+        "--skip-teacher-prefix",
+        type=str,
+        action="append",
+        default=[],
+        help="Additional teacher prefixes to skip when copying SAM3 weights.",
+    )
+    parser.add_argument(
+        "--remap-interactive-convs",
+        action="store_true",
+        default=False,
+        help=(
+            "Legacy: remap SAM3.1 TriNeck interactive_convs -> DualNeck "
+            "sam2_convs. Disabled by default since this repo uses TriNeck "
+            "natively."
+        ),
+    )
+    parser.add_argument(
         "--output",
         type=str,
         default=None,
@@ -119,26 +168,41 @@ def main():
 
     merged = {}
     
-    # Prefixes
-    image_target_prefix = "detector.backbone.vision_backbone.trunk.model."
-    text_target_prefix = "detector.backbone.language_backbone."
+    image_target_prefix = args.image_target_prefix.strip(".")
+    image_target_prefix = f"{image_target_prefix}." if image_target_prefix else ""
+    text_target_prefix = args.text_target_prefix.strip(".")
+    text_target_prefix = f"{text_target_prefix}." if text_target_prefix else ""
 
-    # Teacher keys to replace completely
-    image_replace_prefix = "detector.backbone.vision_backbone.trunk."
-    text_replace_prefix = "detector.backbone.language_backbone."
+    image_replace_prefix = (
+        args.image_replace_prefix.strip(".")
+        if args.image_replace_prefix is not None
+        else "detector.backbone.vision_backbone.trunk"
+    )
+    image_replace_prefix = f"{image_replace_prefix}." if image_replace_prefix else ""
+
+    text_replace_prefix = (
+        args.text_replace_prefix.strip(".")
+        if args.text_replace_prefix is not None
+        else "detector.backbone.language_backbone"
+    )
+    text_replace_prefix = f"{text_replace_prefix}." if text_replace_prefix else ""
+
+    skip_prefixes = [
+        p.strip(".") + "." for p in args.skip_teacher_prefix if p is not None
+    ]
     
     # 1. Add Image Student Weights
     print(f"Merging Image Student weights (target prefix: {image_target_prefix})...")
     for key, value in image_sd.items():
         key = _normalize_image_student_key(key)
-        merged_key = f"{image_target_prefix}{key}"
+        merged_key = f"{image_target_prefix}{key}" if image_target_prefix else key
         merged[merged_key] = value
 
     # 2. Add Text Student Weights
     print(f"Merging Text Student weights (target prefix: {text_target_prefix})...")
     for key, value in text_sd.items():
         key = _normalize_text_student_key(key)
-        merged_key = f"{text_target_prefix}{key}"
+        merged_key = f"{text_target_prefix}{key}" if text_target_prefix else key
         merged[merged_key] = value
 
     # 3. Add Teacher Weights (skipping those replaced)
@@ -148,17 +212,38 @@ def main():
     appended = 0
     
     for key, value in teacher_sd.items():
-        # Check if this key belongs to image or text backbone
+        # Keep SAM3 key-space as-is; only replace configured image/text backbones.
         if key.startswith(image_replace_prefix):
             replaced += 1
             continue
         if key.startswith(text_replace_prefix):
             replaced += 1
             continue
-            
+        if any(key.startswith(p) for p in skip_prefixes):
+            skipped += 1
+            continue
+        if key in merged:
+            skipped += 1
+            continue
+
         # If not replaced, keep it
         merged[key] = value
         appended += 1
+
+    interactive_prefix = "detector.backbone.vision_backbone.interactive_convs."
+    sam2_prefix = "detector.backbone.vision_backbone.sam2_convs."
+    remapped_convs = 0
+    if args.remap_interactive_convs:
+        extra = {}
+        for key, value in merged.items():
+            if key.startswith(interactive_prefix):
+                new_key = sam2_prefix + key[len(interactive_prefix):]
+                if new_key not in merged:
+                    extra[new_key] = value
+                    remapped_convs += 1
+        merged.update(extra)
+    if remapped_convs:
+        print(f"Remapped {remapped_convs} interactive_convs -> sam2_convs keys")
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
     payload = {"model": merged}
