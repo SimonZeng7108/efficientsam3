@@ -89,7 +89,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", default=DEFAULT_MODEL_NAME, type=str)
     parser.add_argument(
         "--text-rewrite-model",
-        default="Qwen/Qwen3.5-2B",
+        default="Qwen/Qwen2.5-1.5B-Instruct",
         type=str,
         help="Text-only model used to rewrite accepted labels into shorter prompt variants.",
     )
@@ -106,6 +106,14 @@ def parse_args() -> argparse.Namespace:
         help="Skip the text-only label rewrite pass.",
     )
     parser.add_argument(
+        "--disable-prompt-renders",
+        action="store_true",
+        help=(
+            "Do not save per-mask crop images under prompt_renders. "
+            "This reduces disk I/O and improves throughput."
+        ),
+    )
+    parser.add_argument(
         "--device-map",
         default="auto",
         type=str,
@@ -120,6 +128,30 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--start-index", default=0, type=int)
     parser.add_argument("--limit-images", default=None, type=int)
     parser.add_argument("--max-masks-per-image", default=None, type=int)
+    parser.add_argument(
+        "--vl-batch-size",
+        default=8,
+        type=int,
+        help="Batch size for Qwen3-VL crop labeling requests.",
+    )
+    parser.add_argument(
+        "--rewrite-batch-size",
+        default=32,
+        type=int,
+        help="Batch size for text-only label rewrite requests.",
+    )
+    parser.add_argument(
+        "--worker-rank",
+        default=0,
+        type=int,
+        help="Worker rank used for deterministic data sharding.",
+    )
+    parser.add_argument(
+        "--num-workers",
+        default=1,
+        type=int,
+        help="Total number of workers used for deterministic data sharding.",
+    )
     parser.add_argument(
         "--min-area",
         default=MIN_SCREENING_AREA,
@@ -380,30 +412,63 @@ def _run_local_text_rewrite_request(
     max_words: int,
     exact_words: Optional[int] = None,
 ) -> Optional[str]:
+    outputs = _run_local_text_rewrite_batch_requests(
+        labels=[label],
+        model_name=model_name,
+        max_tokens=max_tokens,
+        device_map=device_map,
+        dtype_name=dtype_name,
+        max_words=max_words,
+        exact_words=exact_words,
+    )
+    if not outputs:
+        return None
+    return outputs[0]
+
+
+def _run_local_text_rewrite_batch_requests(
+    labels: List[str],
+    model_name: str,
+    max_tokens: int,
+    device_map: str,
+    dtype_name: str,
+    max_words: int,
+    exact_words: Optional[int] = None,
+) -> List[Optional[str]]:
+    if not labels:
+        return []
+
     model, tokenizer = _ensure_local_text_rewrite_model(
         model_name=model_name,
         device_map=device_map,
         dtype_name=dtype_name,
     )
-    messages = _build_text_rewrite_messages(
-        label=label,
-        max_words=max_words,
-        exact_words=exact_words,
-    )
+
     try:
-        if hasattr(tokenizer, "apply_chat_template"):
-            prompt_text = tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True,
+        prompt_texts: List[str] = []
+        for label in labels:
+            messages = _build_text_rewrite_messages(
+                label=label,
+                max_words=max_words,
+                exact_words=exact_words,
             )
-        else:
-            prompt_text = (
-                f"System: {messages[0]['content']}\n"
-                f"User: {messages[1]['content']}\n"
-                "Assistant:"
-            )
-        inputs = tokenizer([str(prompt_text)], return_tensors="pt", padding=True)
+            if hasattr(tokenizer, "apply_chat_template"):
+                prompt_text = tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+            else:
+                prompt_text = (
+                    f"System: {messages[0]['content']}\n"
+                    f"User: {messages[1]['content']}\n"
+                    "Assistant:"
+                )
+            if isinstance(prompt_text, list):
+                prompt_text = prompt_text[0]
+            prompt_texts.append(str(prompt_text))
+
+        inputs = tokenizer(prompt_texts, return_tensors="pt", padding=True)
         inputs = inputs.to(model.device)
         generated_ids = model.generate(
             **inputs,
@@ -412,7 +477,7 @@ def _run_local_text_rewrite_request(
         )
         input_ids = inputs.get("input_ids")
         if input_ids is None:
-            return None
+            return [None] * len(labels)
         generated_ids_trimmed = [
             out_ids[len(in_ids) :]
             for in_ids, out_ids in zip(input_ids, generated_ids)
@@ -423,11 +488,13 @@ def _run_local_text_rewrite_request(
             clean_up_tokenization_spaces=False,
         )
         if not output_text:
-            return None
-        return output_text[0]
+            return [None] * len(labels)
+        if len(output_text) < len(labels):
+            output_text.extend([""] * (len(labels) - len(output_text)))
+        return [str(value) for value in output_text[: len(labels)]]
     except Exception as error:
         print(f"Local text rewrite request failed: {error}")
-        return None
+        return [None] * len(labels)
 
 
 def _parse_text_rewrite_phrase(
@@ -449,14 +516,7 @@ def _parse_text_rewrite_phrase(
     return phrase
 
 
-def _run_local_transformers_request(
-    messages: List[Dict[str, Any]],
-    model_name: str,
-    max_tokens: int,
-    device_map: str,
-    dtype_name: str,
-) -> Optional[str]:
-    # Normalize chat messages to the multimodal format expected by Qwen processors.
+def _normalize_chat_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     normalized_messages: List[Dict[str, Any]] = []
     for message in messages:
         content = message.get("content", "")
@@ -470,12 +530,55 @@ def _run_local_transformers_request(
                 "content": normalized_content,
             }
         )
+    return normalized_messages
+
+
+def _extract_first_image_input(
+    normalized_messages: List[Dict[str, Any]],
+) -> Optional[Image.Image]:
+    for message in normalized_messages:
+        content = message.get("content", [])
+        if not isinstance(content, list):
+            continue
+        for item in content:
+            if not isinstance(item, dict) or item.get("type") != "image":
+                continue
+            image_input = item.get("image")
+            if image_input is None:
+                continue
+            if isinstance(image_input, Image.Image):
+                return image_input.convert("RGB")
+            try:
+                with Image.open(str(image_input)) as loaded_image:
+                    return loaded_image.convert("RGB")
+            except Exception as error:
+                print(f"Failed to load crop image for local transformers: {error}")
+                return None
+    return None
+
+
+def _run_local_transformers_batch_requests(
+    messages_batch: List[List[Dict[str, Any]]],
+    model_name: str,
+    max_tokens: int,
+    device_map: str,
+    dtype_name: str,
+) -> List[Optional[str]]:
+    if not messages_batch:
+        return []
+
     model, processor = _ensure_local_model(
         model_name=model_name,
         device_map=device_map,
         dtype_name=dtype_name,
     )
-    try:
+
+    prompt_texts: List[str] = []
+    image_inputs: List[Optional[Image.Image]] = []
+    has_any_images = False
+
+    for messages in messages_batch:
+        normalized_messages = _normalize_chat_messages(messages)
         prompt_text = processor.apply_chat_template(
             normalized_messages,
             add_generation_prompt=True,
@@ -483,37 +586,36 @@ def _run_local_transformers_request(
         )
         if isinstance(prompt_text, list):
             prompt_text = prompt_text[0]
+        prompt_texts.append(str(prompt_text))
 
-        image_inputs: List[Image.Image] = []
-        for message in normalized_messages:
-            content = message.get("content", [])
-            if not isinstance(content, list):
-                continue
-            for item in content:
-                if not isinstance(item, dict) or item.get("type") != "image":
-                    continue
-                image_path = item.get("image")
-                if image_path is None:
-                    continue
-                try:
-                    image_inputs.append(Image.open(str(image_path)).convert("RGB"))
-                except Exception as error:
-                    print(f"Failed to load crop image for local transformers: {error}")
+        image_input = _extract_first_image_input(normalized_messages)
+        image_inputs.append(image_input)
+        if image_input is not None:
+            has_any_images = True
 
+    try:
         processor_kwargs: Dict[str, Any] = {
-            "text": [str(prompt_text)],
+            "text": prompt_texts,
             "return_tensors": "pt",
             "padding": True,
         }
-        if image_inputs:
-            processor_kwargs["images"] = image_inputs
+        if has_any_images:
+            if any(image is None for image in image_inputs):
+                return [None] * len(messages_batch)
+            processor_kwargs["images"] = [
+                image for image in image_inputs if image is not None
+            ]
 
         inputs = processor(**processor_kwargs)
         inputs = inputs.to(model.device)
-        generated_ids = model.generate(**inputs, max_new_tokens=max_tokens)
+        generated_ids = model.generate(
+            **inputs,
+            max_new_tokens=max_tokens,
+            do_sample=False,
+        )
         input_ids = inputs.get("input_ids")
         if input_ids is None:
-            return None
+            return [None] * len(messages_batch)
         generated_ids_trimmed = [
             out_ids[len(in_ids) :]
             for in_ids, out_ids in zip(input_ids, generated_ids)
@@ -524,11 +626,38 @@ def _run_local_transformers_request(
             clean_up_tokenization_spaces=False,
         )
         if not output_text:
-            return None
-        return output_text[0]
+            return [None] * len(messages_batch)
+        if len(output_text) < len(messages_batch):
+            output_text.extend([""] * (len(messages_batch) - len(output_text)))
+        return [str(value) for value in output_text[: len(messages_batch)]]
     except Exception as error:
         print(f"Local transformers request failed: {error}")
+        return [None] * len(messages_batch)
+
+
+def _chunked(items: List[Any], chunk_size: int) -> Iterable[List[Any]]:
+    effective_chunk_size = max(int(chunk_size), 1)
+    for offset in range(0, len(items), effective_chunk_size):
+        yield items[offset : offset + effective_chunk_size]
+
+
+def _run_local_transformers_request(
+    messages: List[Dict[str, Any]],
+    model_name: str,
+    max_tokens: int,
+    device_map: str,
+    dtype_name: str,
+) -> Optional[str]:
+    outputs = _run_local_transformers_batch_requests(
+        messages_batch=[messages],
+        model_name=model_name,
+        max_tokens=max_tokens,
+        device_map=device_map,
+        dtype_name=dtype_name,
+    )
+    if not outputs:
         return None
+    return outputs[0]
 
 
 def _annotation_files(root: Path, split: str) -> List[Path]:
@@ -1042,7 +1171,8 @@ def main() -> None:
     raw_dir = output_root / "raw"
     prompt_dir = output_root / "prompt_renders" / args.split
     raw_dir.mkdir(parents=True, exist_ok=True)
-    prompt_dir.mkdir(parents=True, exist_ok=True)
+    if not args.disable_prompt_renders:
+        prompt_dir.mkdir(parents=True, exist_ok=True)
     raw_jsonl = raw_dir / f"{args.split}.jsonl"
 
     if args.inference_backend == "stub":
@@ -1063,10 +1193,24 @@ def main() -> None:
         if (not args.overwrite and args.write_enhanced_annotations)
         else {}
     )
+    if args.num_workers <= 0:
+        raise ValueError("--num-workers must be >= 1")
+    if args.worker_rank < 0 or args.worker_rank >= args.num_workers:
+        raise ValueError(
+            f"--worker-rank must be in [0, {args.num_workers - 1}]"
+        )
+
     ann_files = _annotation_files(sa1b_root, args.split)
     ann_files = ann_files[args.start_index :]
     if args.limit_images is not None:
         ann_files = ann_files[: args.limit_images]
+    ann_files_before_worker_shard = len(ann_files)
+    if args.num_workers > 1:
+        ann_files = [
+            path
+            for index, path in enumerate(ann_files)
+            if (index % args.num_workers) == args.worker_rank
+        ]
 
     processed = 0
     skipped = 0
@@ -1078,6 +1222,7 @@ def main() -> None:
     enhanced_json_files_skipped_empty = 0
     enhanced_masks_kept = 0
     enhanced_masks_from_existing = 0
+    prompt_renders_written = 0
     label_rewrite_requests = 0
     label_rewrite_failures = 0
     with raw_jsonl.open("a") as fout:
@@ -1093,7 +1238,8 @@ def main() -> None:
                 print(f"Missing image for annotation: {ann_path}", file=sys.stderr)
                 continue
 
-            image = Image.open(image_path).convert("RGB")
+            with Image.open(image_path) as image_file:
+                image = image_file.convert("RGB")
             annotations = ann_data.get("annotations", [])
             valid_annotations = [
                 ann for ann in annotations
@@ -1105,6 +1251,9 @@ def main() -> None:
                 annotations_to_process = valid_annotations[: args.max_masks_per_image]
             else:
                 annotations_to_process = annotations
+
+            records_to_write: List[Tuple[int, str, Dict[str, Any]]] = []
+            vlm_candidates: List[Dict[str, Any]] = []
 
             for mask_index, ann in enumerate(annotations_to_process):
                 mask_id = str(ann["id"])
@@ -1130,9 +1279,11 @@ def main() -> None:
                             accepted_records_for_ann[mask_id] = existing_record
                             enhanced_masks_from_existing += 1
                     continue
+
                 if float(ann.get("area", 0.0)) <= args.min_area:
                     filtered_min_area += 1
                     continue
+
                 width = int(image_info["width"])
                 height = int(image_info["height"])
                 crop_source = "bbox"
@@ -1161,74 +1312,166 @@ def main() -> None:
                         height=height,
                     )
                     crop_from_bbox += 1
+
                 if float(ann.get("stability_score", 0.0)) <= args.min_stability_score:
-                    label, confidence, ambiguous, reject_reason, rejected = _reject_record("min_stability_score")
-                    raw_response = ""
+                    label, confidence, ambiguous, reject_reason, rejected = _reject_record(
+                        "min_stability_score"
+                    )
+                    record = _build_record(
+                        image_info=image_info,
+                        image_path=image_path,
+                        ann_path=ann_path,
+                        ann=ann,
+                        crop_box_xyxy=crop_xyxy,
+                        crop_source=crop_source,
+                        mask_index=mask_index,
+                        raw_response="",
+                        label=label,
+                        confidence=confidence,
+                        ambiguous=ambiguous,
+                        reject_reason=reject_reason,
+                        rejected=rejected,
+                        label_5="",
+                        label_2="",
+                        num_mask_sample_points=args.num_mask_sample_points,
+                        inference_backend=args.inference_backend,
+                    )
+                    records_to_write.append((mask_index, mask_id, record))
+                    continue
                 elif float(ann.get("predicted_iou", 0.0)) <= args.min_predicted_iou:
-                    label, confidence, ambiguous, reject_reason, rejected = _reject_record("min_predicted_iou")
-                    raw_response = ""
+                    label, confidence, ambiguous, reject_reason, rejected = _reject_record(
+                        "min_predicted_iou"
+                    )
+                    record = _build_record(
+                        image_info=image_info,
+                        image_path=image_path,
+                        ann_path=ann_path,
+                        ann=ann,
+                        crop_box_xyxy=crop_xyxy,
+                        crop_source=crop_source,
+                        mask_index=mask_index,
+                        raw_response="",
+                        label=label,
+                        confidence=confidence,
+                        ambiguous=ambiguous,
+                        reject_reason=reject_reason,
+                        rejected=rejected,
+                        label_5="",
+                        label_2="",
+                        num_mask_sample_points=args.num_mask_sample_points,
+                        inference_backend=args.inference_backend,
+                    )
+                    records_to_write.append((mask_index, mask_id, record))
+                    continue
+
+                crop = _crop_image(image, crop_xyxy=crop_xyxy)
+                if args.disable_prompt_renders:
+                    crop_input: Any = crop
                 else:
-                    crop = _crop_image(image, crop_xyxy=crop_xyxy)
                     crop_path = _save_prompt_bundle(
                         prompt_root=prompt_dir,
                         image_id=str(image_info["image_id"]),
                         mask_id=mask_id,
                         crop=crop,
                     )
-                    messages = build_qwen_labeling_messages(
-                        crop_image_path=str(crop_path),
-                    )
-                    if args.inference_backend == "stub":
-                        raw_response = _run_stub_vlm_response(
+                    crop_input = str(crop_path)
+                    prompt_renders_written += 1
+                messages = build_qwen_labeling_messages(
+                    crop_image_path=crop_input,
+                )
+
+                vlm_candidates.append(
+                    {
+                        "mask_index": mask_index,
+                        "mask_id": mask_id,
+                        "ann": ann,
+                        "crop_xyxy": crop_xyxy,
+                        "crop_source": crop_source,
+                        "messages": messages,
+                    }
+                )
+
+            if vlm_candidates:
+                if args.inference_backend == "stub":
+                    for item in vlm_candidates:
+                        item["raw_response"] = _run_stub_vlm_response(
                             image_id=str(image_info["image_id"]),
-                            mask_id=mask_id,
+                            mask_id=str(item["mask_id"]),
                         )
-                    else:
-                        raw_response = _run_local_transformers_request(
-                            messages=messages,
+                else:
+                    for batch_items in _chunked(vlm_candidates, args.vl_batch_size):
+                        raw_batch = _run_local_transformers_batch_requests(
+                            messages_batch=[item["messages"] for item in batch_items],
                             model_name=args.model,
                             max_tokens=args.max_tokens,
                             device_map=args.device_map,
                             dtype_name=args.torch_dtype,
                         )
-                    if raw_response is None:
-                        label, confidence, ambiguous, reject_reason, rejected = _reject_record(
-                            "empty_response"
-                        )
-                        raw_response = ""
-                    else:
-                        label, confidence, ambiguous, reject_reason, rejected = _parse_vl_label_response(
-                            raw_response
-                        )
+                        for item, raw_response in zip(batch_items, raw_batch):
+                            item["raw_response"] = raw_response
 
-                label_5 = ""
-                label_2 = ""
-                if label and not rejected:
-                    if args.disable_label_rewrite:
-                         raise ValueError("disable_label_rewrite is set, but fallback is disabled. Cannot proceed without text rewrite model.")
+            rewrite_candidates: List[Dict[str, Any]] = []
+            for item in vlm_candidates:
+                raw_response = item.get("raw_response")
+                if raw_response is None:
+                    label, confidence, ambiguous, reject_reason, rejected = _reject_record(
+                        "empty_response"
+                    )
+                    item["raw_response"] = ""
+                else:
+                    label, confidence, ambiguous, reject_reason, rejected = _parse_vl_label_response(
+                        raw_response
+                    )
+                    item["raw_response"] = str(raw_response)
 
-                    if args.inference_backend != "local_transformers":
-                         raise ValueError("inference_backend must be local_transformers for text rewrite.")
+                item["label"] = label
+                item["confidence"] = confidence
+                item["ambiguous"] = ambiguous
+                item["reject_reason"] = reject_reason
+                item["rejected"] = rejected
+                item["label_5"] = ""
+                item["label_2"] = ""
+                if label and not rejected and not args.disable_label_rewrite:
+                    rewrite_candidates.append(item)
 
-                    label_rewrite_requests += 1
-                    rewrite_5_raw_response = _run_local_text_rewrite_request(
-                        label=label,
+            if rewrite_candidates and args.inference_backend != "local_transformers":
+                raise ValueError(
+                    "inference_backend must be local_transformers for text rewrite."
+                )
+
+            if rewrite_candidates and not args.disable_label_rewrite:
+                for batch_items in _chunked(
+                    rewrite_candidates,
+                    args.rewrite_batch_size,
+                ):
+                    label_rewrite_requests += len(batch_items)
+                    rewrite_5_outputs = _run_local_text_rewrite_batch_requests(
+                        labels=[str(item["label"]) for item in batch_items],
                         model_name=args.text_rewrite_model,
                         max_tokens=args.rewrite_max_tokens,
                         device_map=args.device_map,
                         dtype_name=args.torch_dtype,
                         max_words=5,
                     )
-                    if rewrite_5_raw_response is None:
-                        raise RuntimeError("rewrite_5_raw_response is None")
-                    label_5 = _parse_text_rewrite_phrase(
-                        raw_text=rewrite_5_raw_response,
-                        max_words=5,
-                    )
+                    for item, rewrite_raw in zip(batch_items, rewrite_5_outputs):
+                        if rewrite_raw is None:
+                            label_rewrite_failures += 1
+                            continue
+                        try:
+                            item["label_5"] = _parse_text_rewrite_phrase(
+                                raw_text=rewrite_raw,
+                                max_words=5,
+                            )
+                        except Exception:
+                            label_rewrite_failures += 1
 
-                    label_rewrite_requests += 1
-                    rewrite_2_raw_response = _run_local_text_rewrite_request(
-                        label=label,
+                for batch_items in _chunked(
+                    rewrite_candidates,
+                    args.rewrite_batch_size,
+                ):
+                    label_rewrite_requests += len(batch_items)
+                    rewrite_2_outputs = _run_local_text_rewrite_batch_requests(
+                        labels=[str(item["label"]) for item in batch_items],
                         model_name=args.text_rewrite_model,
                         max_tokens=args.rewrite_max_tokens,
                         device_map=args.device_map,
@@ -1236,35 +1479,43 @@ def main() -> None:
                         max_words=2,
                         exact_words=2,
                     )
-                    if rewrite_2_raw_response is None:
-                        raise RuntimeError("rewrite_2_raw_response is None")
-                    label_2 = _parse_text_rewrite_phrase(
-                        raw_text=rewrite_2_raw_response,
-                        max_words=2,
-                        exact_words=2,
-                    )
+                    for item, rewrite_raw in zip(batch_items, rewrite_2_outputs):
+                        if rewrite_raw is None:
+                            label_rewrite_failures += 1
+                            continue
+                        try:
+                            item["label_2"] = _parse_text_rewrite_phrase(
+                                raw_text=rewrite_raw,
+                                max_words=2,
+                                exact_words=2,
+                            )
+                        except Exception:
+                            label_rewrite_failures += 1
 
+            for item in vlm_candidates:
                 record = _build_record(
                     image_info=image_info,
                     image_path=image_path,
                     ann_path=ann_path,
-                    ann=ann,
-                    crop_box_xyxy=crop_xyxy,
-                    crop_source=crop_source,
-                    mask_index=mask_index,
-                    raw_response=raw_response,
-                    label=label,
-                    confidence=confidence,
-                    ambiguous=ambiguous,
-                    reject_reason=reject_reason,
-                    rejected=rejected,
-                    label_5=label_5,
-                    label_2=label_2,
+                    ann=item["ann"],
+                    crop_box_xyxy=item["crop_xyxy"],
+                    crop_source=str(item["crop_source"]),
+                    mask_index=int(item["mask_index"]),
+                    raw_response=str(item["raw_response"]),
+                    label=str(item["label"]),
+                    confidence=float(item["confidence"]),
+                    ambiguous=bool(item["ambiguous"]),
+                    reject_reason=str(item["reject_reason"]),
+                    rejected=bool(item["rejected"]),
+                    label_5=str(item["label_5"]),
+                    label_2=str(item["label_2"]),
                     num_mask_sample_points=args.num_mask_sample_points,
                     inference_backend=args.inference_backend,
                 )
+                records_to_write.append((int(item["mask_index"]), str(item["mask_id"]), record))
+
+            for _, mask_id, record in sorted(records_to_write, key=lambda item: item[0]):
                 fout.write(json.dumps(record) + "\n")
-                fout.flush()
                 if args.write_enhanced_annotations and _is_record_accepted_for_text_export(
                     record,
                     min_area=args.min_area,
@@ -1311,6 +1562,8 @@ def main() -> None:
                 "enhanced_json_files_skipped_empty": enhanced_json_files_skipped_empty,
                 "enhanced_masks_kept": enhanced_masks_kept,
                 "enhanced_masks_from_existing": enhanced_masks_from_existing,
+                "disable_prompt_renders": args.disable_prompt_renders,
+                "prompt_renders_written": prompt_renders_written,
                 "text_rewrite_model": None
                 if args.disable_label_rewrite
                 else args.text_rewrite_model,
@@ -1324,6 +1577,12 @@ def main() -> None:
                 "hard_min_stability_score": MIN_SCREENING_STABILITY_SCORE,
                 "split": args.split,
                 "inference_backend": args.inference_backend,
+                "vl_batch_size": args.vl_batch_size,
+                "rewrite_batch_size": args.rewrite_batch_size,
+                "worker_rank": args.worker_rank,
+                "num_workers": args.num_workers,
+                "annotation_files_before_worker_shard": ann_files_before_worker_shard,
+                "annotation_files_assigned": len(ann_files),
             },
             indent=2,
         )
