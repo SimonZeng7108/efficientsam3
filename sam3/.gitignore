@@ -151,8 +151,3 @@ Thumbs.db
 # BPE vocabulary files
 *.bpe
 *.vocab
-
-
-!sam3
-!assets/
-!assets/**

@@ -3,6 +3,7 @@
 # pyre-unsafe
 
 import os
+from importlib.util import find_spec
 from typing import Optional
 
 import pkg_resources
@@ -64,6 +65,18 @@ def _setup_tf32() -> None:
 _setup_tf32()
 
 
+def _resolve_use_fa3(use_fa3: bool) -> bool:
+    """Disable FA3 automatically when the optional runtime is unavailable."""
+    if not use_fa3:
+        return False
+    if find_spec("flash_attn_interface") is None:
+        print(
+            "flash_attn_interface is not installed; falling back to use_fa3=False."
+        )
+        return False
+    return True
+
+
 def _create_position_encoding(precompute_resolution=None):
     """Create position encoding for visual backbone."""
     return PositionEmbeddingSine(
@@ -120,7 +133,7 @@ def _create_vit_neck(position_encoding, vit_backbone, enable_inst_interactivity=
 
 def _create_vl_backbone(vit_neck, text_encoder):
     """Create visual-language backbone."""
-    if isinstance(vit_neck, Sam3TriViTDetNeck):
+    if isinstance(vit_neck, Sam3TriViTDetNeck) or type(vit_neck).__name__ == "Sam3TriViTDetNeck":
         return SAM3VLBackboneTri(visual=vit_neck, text=text_encoder, scalp=0)
     return SAM3VLBackbone(visual=vit_neck, text=text_encoder, scalp=1)
 
@@ -741,6 +754,71 @@ def _load_checkpoint(model, checkpoint_path):
         )
 
 
+def _normalize_video_checkpoint_state_dict(state_dict: dict) -> dict:
+    """Normalize SAM3.1 checkpoint keys for the OSS video-model runtime.
+
+    SAM3.1 multiplex checkpoints store tracker weights under ``tracker.model.*`` and
+    also include ``interactive_*`` aliases for the SAM-style interactive modules.
+    The video runtime built here expects these weights under ``tracker.*`` with the
+    older projection naming used by ``Sam3TrackerPredictor``.
+    """
+    normalized = {}
+    for key, value in state_dict.items():
+        new_key = key
+        if new_key.startswith("tracker.model."):
+            new_key = "tracker." + new_key[len("tracker.model.") :]
+        normalized[new_key] = value
+
+    prefix = "tracker."
+    interactive_overrides = {}
+    for key, value in list(normalized.items()):
+        if not key.startswith(prefix):
+            continue
+        rel = key[len(prefix) :]
+        if rel == "interactivity_no_mem_embed":
+            interactive_overrides[prefix + "no_mem_pos_enc"] = value
+        elif rel.startswith("interactive_"):
+            interactive_overrides[prefix + rel[len("interactive_") :]] = value
+        elif rel.startswith("interactivity_"):
+            interactive_overrides[prefix + rel[len("interactivity_") :]] = value
+    normalized.update(interactive_overrides)
+
+    tracker_normalized = {}
+    for key, value in list(normalized.items()):
+        new_key = key
+        if new_key.startswith(prefix):
+            new_key = new_key.replace(".self_attn_q_proj.", ".self_attn.q_proj.")
+            new_key = new_key.replace(".self_attn_k_proj.", ".self_attn.k_proj.")
+            new_key = new_key.replace(".self_attn_v_proj.", ".self_attn.v_proj.")
+            new_key = new_key.replace(".self_attn_out_proj.", ".self_attn.out_proj.")
+            new_key = new_key.replace(".image_cross_attn_q_proj.", ".cross_attn_image.q_proj.")
+            new_key = new_key.replace(".image_cross_attn_k_proj.", ".cross_attn_image.k_proj.")
+            new_key = new_key.replace(".image_cross_attn_v_proj.", ".cross_attn_image.v_proj.")
+            new_key = new_key.replace(".image_cross_attn_out_proj.", ".cross_attn_image.out_proj.")
+            if new_key.startswith(prefix + "image_pe_layer."):
+                new_key = new_key.replace(
+                    prefix + "image_pe_layer.",
+                    prefix + "sam_prompt_encoder.pe_layer.",
+                )
+        tracker_normalized[new_key] = value
+
+        if key.startswith(prefix) and ".cross_attn_out_proj." in key:
+            tracker_normalized[
+                key.replace(".cross_attn_out_proj.", ".cross_attn_image.out_proj.")
+            ] = value
+
+        if key.startswith(prefix) and key.endswith(".cross_attn_v_proj.bias"):
+            tracker_normalized[
+                key.replace(
+                    ".cross_attn_v_proj.bias",
+                    ".cross_attn_image.v_proj.bias",
+                )
+            ] = value
+
+    normalized.update(tracker_normalized)
+    return normalized
+
+
 def _setup_device_and_mode(model, device, eval_mode):
     """Setup model device and evaluation mode."""
     model = model.to(device)
@@ -1296,7 +1374,7 @@ def build_sam3_video_model(
             pos_embed_table_size=text_encoder_pos_embed_table_size,
             interpolate_pos_embed=interpolate_pos_embed,
         )
-    backbone = SAM3VLBackbone(scalp=1, visual=visual_neck, text=text_encoder)
+    backbone = _create_vl_backbone(vit_neck=visual_neck, text_encoder=text_encoder)
     transformer = _create_sam3_transformer(has_presence_token=has_presence_token)
     segmentation_head: UniversalSegmentationHead = _create_segmentation_head()
     input_geometry_encoder = _create_geometry_encoder()
@@ -1392,14 +1470,55 @@ def build_sam3_video_model(
             ckpt = torch.load(f, map_location="cpu", weights_only=True)
         if "model" in ckpt and isinstance(ckpt["model"], dict):
             ckpt = ckpt["model"]
+        ckpt = _normalize_video_checkpoint_state_dict(ckpt)
 
-        missing_keys, unexpected_keys = model.load_state_dict(
-            ckpt, strict=strict_state_dict_loading
-        )
+        if strict_state_dict_loading:
+            missing_keys, unexpected_keys = model.load_state_dict(ckpt, strict=True)
+        else:
+            model_state_dict = model.state_dict()
+            loadable_state_dict = {}
+            skipped_missing_model_key = []
+            skipped_shape_mismatch = []
+            for key, value in ckpt.items():
+                if key not in model_state_dict:
+                    skipped_missing_model_key.append(key)
+                    continue
+                model_value = model_state_dict[key]
+                if (
+                    isinstance(value, torch.Tensor)
+                    and isinstance(model_value, torch.Tensor)
+                    and tuple(value.shape) != tuple(model_value.shape)
+                ):
+                    skipped_shape_mismatch.append(
+                        (key, tuple(value.shape), tuple(model_value.shape))
+                    )
+                    continue
+                loadable_state_dict[key] = value
+
+            missing_keys, unexpected_keys = model.load_state_dict(
+                loadable_state_dict, strict=False
+            )
+
+            if skipped_shape_mismatch:
+                print(
+                    f"loaded {checkpoint_path} and skipped "
+                    f"{len(skipped_shape_mismatch)} shape-mismatched keys"
+                )
+                for key, ck_shape, model_shape in skipped_shape_mismatch[:10]:
+                    print(f"  {key}: checkpoint={ck_shape}, model={model_shape}")
+                if len(skipped_shape_mismatch) > 10:
+                    print(f"  ... and {len(skipped_shape_mismatch) - 10} more")
+
+            if skipped_missing_model_key:
+                print(
+                    f"loaded {checkpoint_path} and skipped "
+                    f"{len(skipped_missing_model_key)} keys not present in model"
+                )
+
         if missing_keys:
-            print(f"Missing keys: {missing_keys}")
+            print(f"Missing keys ({len(missing_keys)}): {missing_keys[:10]}...")
         if unexpected_keys:
-            print(f"Unexpected keys: {unexpected_keys}")
+            print(f"Unexpected keys ({len(unexpected_keys)}): {unexpected_keys[:10]}...")
 
     model.to(device=device)
     return model
@@ -1671,6 +1790,8 @@ def build_sam3_multiplex_video_model(
     Returns:
         VideoTrackingDynamicMultiplex: The instantiated multiplex tracking model
     """
+    use_fa3 = _resolve_use_fa3(use_fa3)
+
     # Build multiplex-specific components
     maskmem_backbone = _create_multiplex_maskmem_backbone(
         multiplex_count=multiplex_count
@@ -1816,6 +1937,8 @@ def build_sam3_multiplex_video_predictor(
     Returns:
         Sam3MultiplexVideoPredictor: The fully-initialized predictor
     """
+    use_fa3 = _resolve_use_fa3(use_fa3)
+
     if bpe_path is None:
         bpe_path = pkg_resources.resource_filename(
             "sam3", "assets/bpe_simple_vocab_16e6.txt.gz"
@@ -1952,6 +2075,425 @@ def build_sam3_multiplex_video_predictor(
         warm_up=warm_up,
     )
     return predictor
+
+
+class _NotebookSam31VideoAdapter:
+    """Expose SAM2-style notebook methods on top of the SAM3.1 multiplex model."""
+
+    def __init__(self, model):
+        self._model = model
+
+    def __getattr__(self, name):
+        return getattr(self._model, name)
+
+    def init_state(self, video_path=None, resource_path=None, **kwargs):
+        if resource_path is None:
+            resource_path = video_path
+        if resource_path is None:
+            raise ValueError("video_path or resource_path must be provided")
+        return self._model.init_state(resource_path=resource_path, **kwargs)
+
+    def _legacy_mask_outputs_from_cache(self, inference_state, frame_idx):
+        obj_id_to_mask = inference_state.get("_notebook_prompt_outputs", {}).get(
+            frame_idx, {}
+        )
+        if not obj_id_to_mask:
+            obj_id_to_mask = inference_state.get("cached_frame_outputs", {}).get(
+                frame_idx, {}
+            )
+        if not obj_id_to_mask:
+            height = inference_state["orig_height"]
+            width = inference_state["orig_width"]
+            empty_ids = torch.zeros(0, dtype=torch.int64)
+            empty_masks = torch.zeros(0, height, width, dtype=torch.float32)
+            empty_probs = torch.zeros(0, dtype=torch.float32)
+            return empty_ids, empty_masks, empty_masks.clone(), empty_probs
+
+        curr_obj_ids = sorted(obj_id_to_mask.keys())
+        out_obj_ids = torch.tensor(curr_obj_ids, dtype=torch.int64)
+        out_binary_masks = torch.cat(
+            [torch.as_tensor(obj_id_to_mask[obj_id], dtype=torch.float32) for obj_id in curr_obj_ids],
+            dim=0,
+        )
+        obj_scores = inference_state.get("tracker_metadata", {}).get("obj_id_to_score", {})
+        out_probs = torch.tensor(
+            [obj_scores.get(obj_id, 1.0) for obj_id in curr_obj_ids],
+            dtype=torch.float32,
+        )
+        return out_obj_ids, out_binary_masks, out_binary_masks.clone(), out_probs
+
+    def _store_prompt_outputs(
+        self, inference_state, frame_idx, out_obj_ids, video_res_masks
+    ):
+        prompt_outputs = inference_state.setdefault("_notebook_prompt_outputs", {})
+        prompt_outputs[frame_idx] = {
+            int(obj_id): video_res_masks[idx : idx + 1].clone()
+            for idx, obj_id in enumerate(out_obj_ids.tolist())
+        }
+
+    def _legacy_mask_outputs(self, out, inference_state=None, frame_idx=None):
+        out_obj_ids = torch.as_tensor(out["out_obj_ids"])
+        out_probs = out.get("out_probs")
+        if out_probs is not None:
+            out_probs = torch.as_tensor(out_probs, dtype=torch.float32)
+        out_binary_masks = torch.as_tensor(out["out_binary_masks"], dtype=torch.float32)
+        should_use_cache = out_binary_masks.numel() == 0
+        if out_binary_masks.numel() > 0:
+            should_use_cache = not torch.any(out_binary_masks > 0)
+        if (
+            inference_state is not None
+            and frame_idx is not None
+            and should_use_cache
+        ):
+            return self._legacy_mask_outputs_from_cache(inference_state, frame_idx)
+        return out_obj_ids, out_binary_masks, out_binary_masks.clone(), out_probs
+
+    def add_new_points(self, *args, **kwargs):
+        frame_idx, out = self._model.add_sam2_new_points(*args, **kwargs)
+        inference_state = kwargs.get("inference_state")
+        out_obj_ids, low_res_masks, video_res_masks, _ = self._legacy_mask_outputs(
+            out,
+            inference_state=inference_state,
+            frame_idx=frame_idx,
+        )
+        self._store_prompt_outputs(
+            inference_state, frame_idx, out_obj_ids, video_res_masks
+        )
+        return frame_idx, out_obj_ids, low_res_masks, video_res_masks
+
+    def add_new_points_or_box(
+        self,
+        inference_state,
+        frame_idx,
+        obj_id,
+        points=None,
+        labels=None,
+        clear_old_points=True,
+        rel_coordinates=True,
+        normalize_coords=True,
+        box=None,
+        **kwargs,
+    ):
+        if (points is not None) != (labels is not None):
+            raise ValueError("points and labels must be provided together")
+        if points is None and box is None:
+            raise ValueError("at least one of points or box must be provided as input")
+
+        if points is None:
+            points = torch.zeros(0, 2, dtype=torch.float32)
+        elif not isinstance(points, torch.Tensor):
+            points = torch.tensor(points, dtype=torch.float32)
+        if labels is None:
+            labels = torch.zeros(0, dtype=torch.int32)
+        elif not isinstance(labels, torch.Tensor):
+            labels = torch.tensor(labels, dtype=torch.int32)
+
+        if points.dim() == 2:
+            points = points.unsqueeze(0)
+        if labels.dim() == 1:
+            labels = labels.unsqueeze(0)
+
+        if box is not None:
+            if not clear_old_points:
+                raise ValueError(
+                    "cannot add box without clearing old points, since box prompt must be provided before any point prompt"
+                )
+            if not isinstance(box, torch.Tensor):
+                box = torch.tensor(box, dtype=torch.float32)
+            if box.dim() == 1:
+                box = box.unsqueeze(0)
+            box_coords = box.reshape(box.shape[0], 2, 2)
+            box_labels = torch.tensor([2, 3], dtype=torch.int32, device=labels.device)
+            box_labels = box_labels.reshape(1, 2).expand(box_coords.shape[0], -1)
+            points = torch.cat([box_coords, points], dim=1)
+            labels = torch.cat([box_labels, labels], dim=1)
+
+        frame_idx, out = self._model.add_sam2_new_points(
+            inference_state=inference_state,
+            frame_idx=frame_idx,
+            obj_id=obj_id,
+            points=points,
+            labels=labels,
+            clear_old_points=clear_old_points,
+            rel_coordinates=rel_coordinates,
+            **kwargs,
+        )
+        out_obj_ids, low_res_masks, video_res_masks, _ = self._legacy_mask_outputs(
+            out,
+            inference_state=inference_state,
+            frame_idx=frame_idx,
+        )
+        self._store_prompt_outputs(
+            inference_state, frame_idx, out_obj_ids, video_res_masks
+        )
+        return frame_idx, out_obj_ids, low_res_masks, video_res_masks
+
+    def propagate_in_video(self, inference_state, *args, **kwargs):
+        kwargs.pop("propagate_preflight", None)
+        for frame_idx, out in self._model.propagate_in_video(inference_state, *args, **kwargs):
+            out_obj_ids, low_res_masks, video_res_masks, out_probs = self._legacy_mask_outputs(
+                out,
+                inference_state=inference_state,
+                frame_idx=frame_idx,
+            )
+            yield frame_idx, out_obj_ids, low_res_masks, video_res_masks, out_probs
+
+    def clear_all_points_in_video(self, inference_state):
+        inference_state.pop("_notebook_prompt_outputs", None)
+        with torch.inference_mode():
+            self._model.reset_state(inference_state)
+
+
+class _SAM3VLBackboneTriNested(SAM3VLBackboneTri):
+    """Tri-head VL backbone variant that preserves NestedTensor outputs.
+
+    The SAM3.1 multiplex detector expects interactive / propagation FPN entries to
+    retain their ``.tensors`` and ``.mask`` attributes for multi-GPU gathering.
+    """
+
+    def _forward_image_tri_no_act_ckpt(
+        self,
+        samples,
+        need_sam3_out=True,
+        need_interactive_out=True,
+        need_propagation_out=True,
+    ):
+        (
+            sam3_features,
+            sam3_pos,
+            interactive_features,
+            interactive_pos,
+            propagation_features,
+            propagation_pos,
+        ) = self.vision_backbone.forward(
+            samples,
+            need_sam3_out=need_sam3_out,
+            need_interactive_out=need_interactive_out,
+            need_propagation_out=need_propagation_out,
+        )
+        if self.scalp > 0:
+            sam3_features, sam3_pos = (
+                sam3_features[: -self.scalp],
+                sam3_pos[: -self.scalp],
+            )
+            interactive_features, interactive_pos = (
+                interactive_features[: -self.scalp],
+                interactive_pos[: -self.scalp],
+            )
+            propagation_features, propagation_pos = (
+                propagation_features[: -self.scalp],
+                propagation_pos[: -self.scalp],
+            )
+
+        output = {}
+        if need_sam3_out:
+            sam3_last = sam3_features[-1]
+            output.update(
+                {
+                    "vision_features": sam3_last.tensors,
+                    "vision_mask": sam3_last.mask,
+                    "vision_pos_enc": sam3_pos,
+                    "backbone_fpn": sam3_features,
+                }
+            )
+        if need_interactive_out:
+            inte_last = interactive_features[-1]
+            output["interactive"] = {
+                "vision_features": inte_last.tensors,
+                "vision_mask": inte_last.mask,
+                "vision_pos_enc": interactive_pos,
+                "backbone_fpn": interactive_features,
+            }
+        if need_propagation_out:
+            prop_last = propagation_features[-1]
+            output["sam2_backbone_out"] = {
+                "vision_features": prop_last.tensors,
+                "vision_mask": prop_last.mask,
+                "vision_pos_enc": propagation_pos,
+                "backbone_fpn": propagation_features,
+            }
+        return output
+
+
+def build_efficientsam3_multiplex_video_model(
+    checkpoint_path: Optional[str] = None,
+    load_from_HF=False,
+    bpe_path: Optional[str] = None,
+    backbone_type: str = "efficientvit",
+    model_name: str = "b0",
+    text_encoder_type: Optional[str] = None,
+    text_encoder_context_length: int = 16,
+    text_encoder_pos_embed_table_size: Optional[int] = None,
+    interpolate_pos_embed: bool = False,
+    strict_state_dict_loading: bool = False,
+    max_num_objects: int = 16,
+    multiplex_count: int = 16,
+    use_fa3: bool = True,
+    use_rope_real: bool = True,
+    device="cuda" if torch.cuda.is_available() else "cpu",
+    compile: bool = False,
+):
+    """Build an EfficientSAM3 SAM3.1 multiplex demo model.
+
+    This returns the user-facing demo model directly, which exposes the same
+    stateful methods used in the notebooks: ``init_state``, ``add_new_points``,
+    ``clear_all_points_in_video``, and ``propagate_in_video``.
+    """
+    use_fa3 = _resolve_use_fa3(use_fa3)
+
+    if bpe_path is None:
+        bpe_path = pkg_resources.resource_filename(
+            "sam3", "assets/bpe_simple_vocab_16e6.txt.gz"
+        )
+
+    from sam3.model.sam3_multiplex_base import Sam3MultiplexPredictorWrapper
+    from sam3.model.sam3_multiplex_detector import Sam3MultiplexDetector
+    from sam3.model.sam3_multiplex_tracking import (
+        Sam3MultiplexTrackingWithInteractivity,
+    )
+
+    tracker_model = build_sam3_multiplex_video_model(
+        checkpoint_path=None,
+        load_from_HF=False,
+        multiplex_count=multiplex_count,
+        use_fa3=use_fa3,
+        use_rope_real=use_rope_real,
+        compile=False,
+        strict_state_dict_loading=False,
+    )
+    del tracker_model.backbone
+    tracker_model.backbone = None
+
+    sam2_predictor = Sam3MultiplexPredictorWrapper(
+        model=tracker_model,
+        per_obj_inference=False,
+        fill_hole_area=0,
+        is_multiplex=True,
+        is_multiplex_dynamic=True,
+    )
+
+    selected_backbone_type = _normalize_backbone_type(backbone_type or "sam3")
+    if selected_backbone_type == "sam3":
+        tri_neck = _create_multiplex_tri_backbone(
+            compile_mode=None,
+            use_fa3=use_fa3,
+            use_rope_real=use_rope_real,
+        )
+    else:
+        selected_model_name = model_name
+        if selected_model_name is None:
+            raise ValueError(
+                "model_name must be provided when selecting an EfficientSAM3 backbone"
+            )
+        tri_neck = _create_vision_backbone_efficient(
+            backbone_type=selected_backbone_type,
+            model_name=selected_model_name,
+            enable_inst_interactivity=False,
+            img_size=1008,
+            embed_dim=1024,
+            embed_size=72,
+        )
+
+    selected_text_encoder = _normalize_text_encoder_type(text_encoder_type)
+    if selected_text_encoder in (None, "sam3"):
+        text_encoder = _create_text_encoder(bpe_path)
+    else:
+        text_encoder = _create_text_encoder_student(
+            bpe_path=bpe_path,
+            text_encoder_type=selected_text_encoder,
+            context_length=text_encoder_context_length,
+            pos_embed_table_size=text_encoder_pos_embed_table_size,
+            interpolate_pos_embed=interpolate_pos_embed,
+        )
+
+    backbone = _SAM3VLBackboneTriNested(scalp=0, visual=tri_neck, text=text_encoder)
+    transformer = _create_sam3_transformer(use_fa3=use_fa3)
+    segmentation_head = _create_segmentation_head(use_fa3=use_fa3)
+    geometry_encoder = _create_geometry_encoder()
+    dot_prod_scoring = _create_dot_product_scoring()
+
+    detector = Sam3MultiplexDetector(
+        num_feature_levels=1,
+        backbone=backbone,
+        transformer=transformer,
+        segmentation_head=segmentation_head,
+        semantic_segmentation_head=None,
+        input_geometry_encoder=geometry_encoder,
+        use_early_fusion=True,
+        use_dot_prod_scoring=True,
+        dot_prod_scoring=dot_prod_scoring,
+        supervise_joint_box_scores=True,
+        is_multiplex=True,
+    )
+
+    demo_model = Sam3MultiplexTrackingWithInteractivity(
+        tracker=sam2_predictor,
+        detector=detector,
+        score_threshold_detection=0.4,
+        det_nms_thresh=0.1,
+        det_nms_use_iom=True,
+        assoc_iou_thresh=0.1,
+        new_det_thresh=0.65,
+        hotstart_delay=15,
+        hotstart_unmatch_thresh=8,
+        hotstart_dup_thresh=8,
+        suppress_unmatched_only_within_hotstart=False,
+        suppress_overlapping_based_on_recent_occlusion_threshold=0.7,
+        suppress_det_close_to_boundary=True,
+        fill_hole_area=0,
+        recondition_every_nth_frame=16,
+        use_iom_recondition=True,
+        iom_thresh_recondition=0.5,
+        masklet_confirmation_enable=True,
+        reconstruction_bbox_iou_thresh=-1,
+        reconstruction_bbox_det_score=0.8,
+        max_num_objects=max_num_objects,
+        postprocess_batch_size=16,
+        use_batched_grounding=True,
+        batched_grounding_batch_size=16,
+        max_num_kboxes=0,
+        sprinkle_removal_area=0,
+        is_multiplex=True,
+        image_size=1008,
+        image_mean=(0.5, 0.5, 0.5),
+        image_std=(0.5, 0.5, 0.5),
+        compile_model=compile,
+    )
+
+    if load_from_HF and checkpoint_path is None:
+        checkpoint_path = download_ckpt_from_hf(version="sam3.1")
+    if checkpoint_path is not None:
+        ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+        if "model" in ckpt and isinstance(ckpt["model"], dict):
+            ckpt = ckpt["model"]
+        needs_remap = any(
+            k.startswith("sam3_model.") or k.startswith("sam2_predictor.") for k in ckpt
+        )
+        if needs_remap:
+            remapped_ckpt = {}
+            for key, value in ckpt.items():
+                new_key = key
+                if key.startswith("sam3_model."):
+                    new_key = "detector." + key[len("sam3_model.") :]
+                elif key.startswith("sam2_predictor."):
+                    new_key = "tracker." + key[len("sam2_predictor.") :]
+                remapped_ckpt[new_key] = value
+            ckpt = remapped_ckpt
+
+        if strict_state_dict_loading:
+            missing_keys, unexpected_keys = demo_model.load_state_dict(ckpt, strict=True)
+        else:
+            missing_keys, unexpected_keys = demo_model.load_state_dict(ckpt, strict=False)
+        if missing_keys:
+            print(f"Missing keys ({len(missing_keys)}): {missing_keys[:10]}...")
+        if unexpected_keys:
+            print(
+                f"Unexpected keys ({len(unexpected_keys)}): {unexpected_keys[:10]}..."
+            )
+
+    demo_model.to(device=device)
+    demo_model.eval()
+    return _NotebookSam31VideoAdapter(demo_model)
 
 
 def build_sam3_predictor(

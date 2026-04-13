@@ -103,11 +103,14 @@ class SAM3VLBackbone(nn.Module):
         sam2_output = None
 
         if sam2_features is not None and sam2_pos is not None:
-            sam2_src = sam2_features[-1]
+            # Unwrap NestedTensor for sam2_features if present
+            sam2_features_unwrapped = [feat.tensors if hasattr(feat, "tensors") else feat for feat in sam2_features]
+            sam2_pos_unwrapped = [pos.tensors if hasattr(pos, "tensors") else pos for pos in sam2_pos]
+            sam2_src = sam2_features_unwrapped[-1]
             sam2_output = {
                 "vision_features": sam2_src,
-                "vision_pos_enc": sam2_pos,
-                "backbone_fpn": sam2_features,
+                "vision_pos_enc": sam2_pos_unwrapped,
+                "backbone_fpn": sam2_features_unwrapped,
             }
 
         sam3_src = sam3_features[-1]
@@ -244,27 +247,27 @@ class SAM3VLBackboneTri(SAM3VLBackbone):
             sam3_last = sam3_features[-1]
             output.update(
                 {
-                    "vision_features": sam3_last.tensors,
-                    "vision_mask": sam3_last.mask,
-                    "vision_pos_enc": sam3_pos,
-                    "backbone_fpn": sam3_features,
+                    "vision_features": getattr(sam3_last, "tensors", sam3_last),
+                    "vision_mask": getattr(sam3_last, "mask", None),
+                    "vision_pos_enc": [getattr(pos, "tensors", pos) for pos in sam3_pos],
+                    "backbone_fpn": [getattr(feat, "tensors", feat) for feat in sam3_features],
                 }
             )
         if need_interactive_out:
             inte_last = interactive_features[-1]
             output["interactive"] = {
-                "vision_features": inte_last.tensors,
-                "vision_mask": inte_last.mask,
-                "vision_pos_enc": interactive_pos,
-                "backbone_fpn": interactive_features,
+                "vision_features": getattr(inte_last, "tensors", inte_last),
+                "vision_mask": getattr(inte_last, "mask", None),
+                "vision_pos_enc": [getattr(pos, "tensors", pos) for pos in interactive_pos],
+                "backbone_fpn": [getattr(feat, "tensors", feat) for feat in interactive_features],
             }
         if need_propagation_out:
             prop_last = propagation_features[-1]
             output["sam2_backbone_out"] = {
-                "vision_features": prop_last.tensors,
-                "vision_mask": prop_last.mask,
-                "vision_pos_enc": propagation_pos,
-                "backbone_fpn": propagation_features,
+                "vision_features": getattr(prop_last, "tensors", prop_last),
+                "vision_mask": getattr(prop_last, "mask", None),
+                "vision_pos_enc": [getattr(pos, "tensors", pos) for pos in propagation_pos],
+                "backbone_fpn": [getattr(feat, "tensors", feat) for feat in propagation_features],
             }
         return output
 
@@ -404,27 +407,27 @@ class TriHeadVisionOnly(VisionOnly):
             sam3_last = sam3_features[-1]
             output.update(
                 {
-                    "vision_features": sam3_last.tensors,
-                    "vision_mask": sam3_last.mask,
-                    "vision_pos_enc": sam3_pos,
-                    "backbone_fpn": sam3_features,
+                    "vision_features": getattr(sam3_last, "tensors", sam3_last),
+                    "vision_mask": getattr(sam3_last, "mask", None),
+                    "vision_pos_enc": [getattr(pos, "tensors", pos) for pos in sam3_pos],
+                    "backbone_fpn": [getattr(feat, "tensors", feat) for feat in sam3_features],
                 }
             )
         if need_interactive_out:
             inte_last = interactive_features[-1]
             output["interactive"] = {
-                "vision_features": inte_last.tensors,
-                "vision_mask": inte_last.mask,
-                "vision_pos_enc": interactive_pos,
-                "backbone_fpn": interactive_features,
+                "vision_features": getattr(inte_last, "tensors", inte_last),
+                "vision_mask": getattr(inte_last, "mask", None),
+                "vision_pos_enc": [getattr(pos, "tensors", pos) for pos in interactive_pos],
+                "backbone_fpn": [getattr(feat, "tensors", feat) for feat in interactive_features],
             }
         if need_propagation_out:
             prop_last = propagation_features[-1]
             output["sam2_backbone_out"] = {
-                "vision_features": prop_last.tensors,
-                "vision_mask": prop_last.mask,
-                "vision_pos_enc": propagation_pos,
-                "backbone_fpn": propagation_features,
+                "vision_features": getattr(prop_last, "tensors", prop_last),
+                "vision_mask": getattr(prop_last, "mask", None),
+                "vision_pos_enc": [getattr(pos, "tensors", pos) for pos in propagation_pos],
+                "backbone_fpn": [getattr(feat, "tensors", feat) for feat in propagation_features],
             }
 
         return output
