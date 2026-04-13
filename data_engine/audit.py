@@ -12,8 +12,7 @@ import numpy as np
 try:
     from data_engine.annotations import visualize_annotation_example
 except ModuleNotFoundError:
-    # Backward compatibility when running from legacy stage3 namespace.
-    from stage3.data_engine.annotations import visualize_annotation_example
+    from annotations import visualize_annotation_example
 
 
 def parse_args() -> argparse.Namespace:

@@ -1,37 +1,26 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
-import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
 from pycocotools import mask as mask_utils
 
 try:
-    from stage3.data_engine.annotations import (
+    from data_engine.annotations import (
         MIN_SCREENING_AREA,
         MIN_SCREENING_PREDICTED_IOU,
         MIN_SCREENING_STABILITY_SCORE,
         visualize_annotation_example,
     )
 except ModuleNotFoundError:
-    # Allow running this script without importing the full stage3 package tree.
-    annotations_path = Path(__file__).resolve().with_name("annotations.py")
-    spec = importlib.util.spec_from_file_location(
-        "stage3_data_engine_annotations",
-        annotations_path,
+    from annotations import (
+        MIN_SCREENING_AREA,
+        MIN_SCREENING_PREDICTED_IOU,
+        MIN_SCREENING_STABILITY_SCORE,
+        visualize_annotation_example,
     )
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Unable to load annotations module from {annotations_path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    MIN_SCREENING_AREA = module.MIN_SCREENING_AREA
-    MIN_SCREENING_PREDICTED_IOU = module.MIN_SCREENING_PREDICTED_IOU
-    MIN_SCREENING_STABILITY_SCORE = module.MIN_SCREENING_STABILITY_SCORE
-    visualize_annotation_example = module.visualize_annotation_example
 
 
 def parse_args() -> argparse.Namespace:
@@ -85,7 +74,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output-dir",
-        default="output/stage3/data_engine_sa1b_examples",
+        default="output/data_engine_sa1b_examples",
         type=str,
     )
     parser.add_argument(

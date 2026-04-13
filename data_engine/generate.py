@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
-import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -11,7 +9,7 @@ import numpy as np
 from PIL import Image
 
 try:
-    from stage3.data_engine.annotations import (
+    from data_engine.annotations import (
         DEFAULT_MODEL_NAME,
         MIN_SCREENING_AREA,
         MIN_SCREENING_PREDICTED_IOU,
@@ -27,31 +25,21 @@ try:
         phrase_word_count,
     )
 except ModuleNotFoundError:
-    # Allow running data_engine scripts without importing the full stage3 package tree.
-    annotations_path = Path(__file__).resolve().with_name("annotations.py")
-    spec = importlib.util.spec_from_file_location(
-        "stage3_data_engine_annotations",
-        annotations_path,
+    from annotations import (
+        DEFAULT_MODEL_NAME,
+        MIN_SCREENING_AREA,
+        MIN_SCREENING_PREDICTED_IOU,
+        MIN_SCREENING_STABILITY_SCORE,
+        PROMPT_VERSION,
+        RAW_SCHEMA_VERSION,
+        area_to_fraction,
+        bbox_xywh_to_normalized_xywh,
+        bbox_xywh_to_xyxy,
+        build_qwen_labeling_messages,
+        is_generic_label,
+        normalize_label,
+        phrase_word_count,
     )
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Unable to load annotations module from {annotations_path}")
-    annotations_module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = annotations_module
-    spec.loader.exec_module(annotations_module)
-
-    DEFAULT_MODEL_NAME = annotations_module.DEFAULT_MODEL_NAME
-    MIN_SCREENING_AREA = annotations_module.MIN_SCREENING_AREA
-    MIN_SCREENING_PREDICTED_IOU = annotations_module.MIN_SCREENING_PREDICTED_IOU
-    MIN_SCREENING_STABILITY_SCORE = annotations_module.MIN_SCREENING_STABILITY_SCORE
-    PROMPT_VERSION = annotations_module.PROMPT_VERSION
-    RAW_SCHEMA_VERSION = annotations_module.RAW_SCHEMA_VERSION
-    area_to_fraction = annotations_module.area_to_fraction
-    bbox_xywh_to_normalized_xywh = annotations_module.bbox_xywh_to_normalized_xywh
-    bbox_xywh_to_xyxy = annotations_module.bbox_xywh_to_xyxy
-    build_qwen_labeling_messages = annotations_module.build_qwen_labeling_messages
-    is_generic_label = annotations_module.is_generic_label
-    normalize_label = annotations_module.normalize_label
-    phrase_word_count = annotations_module.phrase_word_count
 
 _LOCAL_MODEL = None
 _LOCAL_PROCESSOR = None
@@ -1066,11 +1054,13 @@ def _build_enhanced_annotation(
     ).strip()
     label_5 = str(record.get("label_5") or "").strip()
     label_2 = str(record.get("label_2") or "").strip()
+    if not label_5:
+        label_5 = normalize_label(label_10, max_words=5)
+    if not label_2:
+        label_2 = normalize_label(label_5 or label_10, max_words=2)
     output_annotation["label_10"] = label_10
-    if label_5:
-        output_annotation["label_5"] = label_5
-    if label_2:
-        output_annotation["label_2"] = label_2
+    output_annotation["label_5"] = label_5
+    output_annotation["label_2"] = label_2
     output_annotation["mask_sample_points_xy"] = [
         [float(point[0]), float(point[1])]
         for point in record.get("mask_sample_points_xy", [])

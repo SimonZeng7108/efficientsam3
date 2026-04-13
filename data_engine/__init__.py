@@ -24,8 +24,7 @@ try:
         visualize_annotation_example,
     )
 except ModuleNotFoundError:
-    # Backward compatibility when this package is imported via stage3 namespace.
-    from stage3.data_engine.annotations import (
+    from annotations import (
         DEFAULT_MODEL_NAME,
         GROUPED_SCHEMA_VERSION,
         MAX_LABEL_WORDS,

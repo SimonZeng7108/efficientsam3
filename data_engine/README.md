@@ -149,7 +149,7 @@ python data_engine/visualize_sa1b.py \
   --split train \
   --pre_processed \
   --num-examples 10 \
-  --output-dir output/stage3/data_engine_sa1b_examples_pre_processed
+  --output-dir output/data_engine_sa1b_examples_pre_processed
 ~~~
 
 This mode reads only:
@@ -170,7 +170,7 @@ python data_engine/visualize_sa1b.py \
 -  --min-predicted-iou 0.93 \
 -  --min-stability-score 0.95 \
   --require-label \
-  --output-dir output/stage3/data_engine_sa1b_examples
+  --output-dir output/data_engine_sa1b_examples
 ~~~
 
 Useful options in raw-jsonl mode:
@@ -185,7 +185,7 @@ python data_engine/visualize_sa1b.py \
   --split train \
   --annotation-source auto \
   --num-examples 10 \
-  --output-dir output/stage3/data_engine_sa1b_examples
+  --output-dir output/data_engine_sa1b_examples
 ~~~
 
 annotation-source behavior:
@@ -197,19 +197,4 @@ annotation-source behavior:
 ### Visualizer outputs
 
 The visualizer writes one JPG per rendered mask into --output-dir.
-
-## 5) Typical Workflow
-
-1. Prepare data into data/sa-1b-1p_reorg.
-2. Run generate.py on train or val split.
-3. Inspect generated *_enhanced.json files.
-4. Run visualize_sa1b.py with --pre_processed for quick QA.
-
-## 6) Troubleshooting
-
-- Error mentioning pycocotools
-  - Install pycocotools in your environment.
-
-- No visualizations produced in pre_processed mode
-  - Confirm *_enhanced.json exists under data/sa-1b-1p_reorg/annotations/<split>.
-  - Confirm related images exist under data/sa-1b-1p_reorg/images/<split>.
+ 

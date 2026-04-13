@@ -17,8 +17,7 @@ try:
         normalize_label,
     )
 except ModuleNotFoundError:
-    # Backward compatibility when running from legacy stage3 namespace.
-    from stage3.data_engine.annotations import (
+    from annotations import (
         GROUPED_SCHEMA_VERSION,
         area_to_fraction,
         bbox_xywh_to_normalized_xywh,
