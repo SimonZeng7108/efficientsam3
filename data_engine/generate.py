@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -115,6 +116,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--start-index", default=0, type=int)
     parser.add_argument("--limit-images", default=None, type=int)
+    parser.add_argument(
+        "--annotation-list",
+        default=None,
+        type=str,
+        help=(
+            "Optional text file with one annotation JSON path per line. "
+            "When set, only these annotation files are processed."
+        ),
+    )
     parser.add_argument("--max-masks-per-image", default=None, type=int)
     parser.add_argument(
         "--vl-batch-size",
@@ -658,6 +668,45 @@ def _annotation_files(root: Path, split: str) -> List[Path]:
     )
 
 
+def _annotation_files_from_list(list_path: Path) -> List[Path]:
+    if not list_path.exists():
+        raise FileNotFoundError(f"--annotation-list file not found: {list_path}")
+
+    ann_files: List[Path] = []
+    seen: set[Path] = set()
+    with list_path.open("r") as f:
+        for line in f:
+            raw = line.strip()
+            if not raw:
+                continue
+
+            ann_path = Path(raw)
+            if not ann_path.is_absolute():
+                ann_path = (Path.cwd() / ann_path).resolve()
+            else:
+                ann_path = ann_path.resolve()
+
+            if (
+                ann_path.suffix != ".json"
+                or ann_path.name.endswith("_text.json")
+                or ann_path.name.endswith("_enhanced.json")
+            ):
+                continue
+
+            if not ann_path.exists():
+                print(
+                    f"WARNING: annotation file in list does not exist: {ann_path}",
+                    file=sys.stderr,
+                )
+                continue
+
+            if ann_path in seen:
+                continue
+            seen.add(ann_path)
+            ann_files.append(ann_path)
+    return ann_files
+
+
 def _image_path(root: Path, split: str, image_info: Dict[str, Any]) -> Path:
     return root / "images" / split / image_info["file_name"]
 
@@ -1190,7 +1239,10 @@ def main() -> None:
             f"--worker-rank must be in [0, {args.num_workers - 1}]"
         )
 
-    ann_files = _annotation_files(sa1b_root, args.split)
+    if args.annotation_list:
+        ann_files = _annotation_files_from_list(Path(args.annotation_list))
+    else:
+        ann_files = _annotation_files(sa1b_root, args.split)
     ann_files = ann_files[args.start_index :]
     if args.limit_images is not None:
         ann_files = ann_files[: args.limit_images]
