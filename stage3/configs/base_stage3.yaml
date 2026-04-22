@@ -1,0 +1,85 @@
+# Base configuration for Stage 3 End-to-End Fine-Tuning
+# Hybrid supervision: GT mask BCE/Dice + teacher embedding MSE
+
+MODEL:
+  TYPE: "efficient_sam3"
+  NAME: "EfficientSAM3-Stage3"
+  # Stage 1 merged checkpoint (student trunk + student MobileCLIP-S0 text encoder
+  # fused into the SAM3 architecture). Loaded end-to-end.
+  PRETRAINED: ""
+  RESUME: ""
+  # SAM3_CHECKPOINT is kept only so existing ablation scripts don't error out.
+  # Stage 3 does not need the SAM3 teacher at training time anymore: the student
+  # text encoder is already in PRETRAINED, and teacher trunk features are
+  # pre-extracted once (see stage3/scripts/extract_teacher_embeddings.py).
+  SAM3_CHECKPOINT: ""
+  TRAINABLE_SCOPE: "trunk_only"
+
+TRAIN:
+  START_EPOCH: 0
+  EPOCHS: 30
+  WARMUP_EPOCHS: 2
+  WEIGHT_DECAY: 0.01
+  BASE_LR: 5e-5
+  WARMUP_LR: 1e-7
+  MIN_LR: 1e-6
+  CLIP_GRAD: 1.0
+  AUTO_RESUME: True
+  ACCUMULATION_STEPS: 8
+  USE_CHECKPOINT: False
+  FIND_UNUSED_PARAMETERS: True
+
+  LR_SCHEDULER:
+    NAME: 'cosine'
+    DECAY_EPOCHS: 20
+    DECAY_RATE: 0.1
+
+  OPTIMIZER:
+    NAME: 'adamw'
+    EPS: 1e-8
+    BETAS: (0.9, 0.999)
+    MOMENTUM: 0.9
+
+DATA:
+  IMG_SIZE: 1008
+  DATASET: "sa1b_enhanced"
+  DATA_PATH: "data/sa-1b-1p_reorg"
+  BATCH_SIZE: 2
+  NUM_WORKERS: 4
+  NUM_SAMPLES: -1
+  SORT_BY_AREA: true
+  BOX_JITTER: true
+  MASK_NMS: 0.8
+  MAX_PROMPTS_PER_IMAGE: 8
+  NUM_SAMPLE_POINTS: 3
+  TEXT_LABEL_MODE: "random"
+
+DISTILL:
+  ENABLED: true
+  EMBED_DIM: 1024
+  EMBED_SIZE: 72
+
+  TEACHER_EMBED_DIR: "output/stage3_teacher_embeddings"
+  USE_SAVED_EMBEDDINGS: true
+  TEACHER_EMBED_DTYPE: "float32"
+
+  EMBEDDING_LOSS_WEIGHT: 0.0015
+  MASK_BCE_WEIGHT: 1.0
+  MASK_DICE_WEIGHT: 1.0
+  MASK_FOCAL_WEIGHT: 0.0
+  CLASSIFICATION_WEIGHT: 0.1
+
+  USE_BOX_PROMPTS: true
+  USE_POINT_PROMPTS: true
+  MAX_PROMPTS: 8
+  NO_RAND: false
+
+AMP_ENABLE: True
+OUTPUT: "output_stage3"
+TAG: "default"
+SAVE_FREQ: 5
+PRINT_FREQ: 10
+SEED: 0
+EVAL_MODE: False
+THROUGHPUT_MODE: False
+LOCAL_RANK: 0

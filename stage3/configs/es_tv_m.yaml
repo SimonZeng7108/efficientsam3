@@ -1,0 +1,10 @@
+# TinyViT-11M (Medium) - Stage 3 Fine-Tuning
+BASE: ['base_stage3.yaml']
+
+MODEL:
+  NAME: ES-TV-M-Stage3
+  BACKBONE: tiny_vit_11m
+  PRETRAINED: checkpoints/efficient_sam3_tv_m_mobileclip_s0_5p.pt
+
+OUTPUT: output_stage3/es_tv_m
+TAG: default

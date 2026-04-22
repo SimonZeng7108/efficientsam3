@@ -1,0 +1,10 @@
+# RepViT-M1.1 (Medium) - Stage 3 Fine-Tuning
+BASE: ['base_stage3.yaml']
+
+MODEL:
+  NAME: ES-RV-M-Stage3
+  BACKBONE: repvit_m1_1
+  PRETRAINED: checkpoints/efficient_sam3_rv_m_mobileclip_s0_5p.pt
+
+OUTPUT: output_stage3/es_rv_m
+TAG: default
