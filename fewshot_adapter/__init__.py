@@ -91,6 +91,7 @@ from .native import (
     tensor_box_to_hbb,
 )
 from .utils import require_torch
+from .visualization import RoundVisualizationOutputs, render_round_visualizations
 
 __all__ = [
     "Annotation",
@@ -123,6 +124,7 @@ __all__ = [
     "NativeSam3Batch",
     "OBB",
     "Prediction",
+    "RoundVisualizationOutputs",
     "Sam3BatchBuilder",
     "TrainSetUpdater",
     "add_selected_errors_to_train_set",
@@ -165,6 +167,7 @@ __all__ = [
     "polygon_to_obb",
     "record_to_prediction",
     "require_torch",
+    "render_round_visualizations",
     "run_native_fewshot_loop",
     "save_annotations",
     "save_error_queue",

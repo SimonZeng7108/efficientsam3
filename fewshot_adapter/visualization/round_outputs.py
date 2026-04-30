@@ -212,7 +212,8 @@ def _prediction_hbb(prediction: Prediction) -> HBB | None:
 def _open_rgb(image_map: Mapping[str, str], image_id: str) -> Image.Image:
     if image_id not in image_map:
         raise KeyError(f"image_id not found in image_map: {image_id}")
-    return Image.open(image_map[image_id]).convert("RGB")
+    with Image.open(image_map[image_id]) as image:
+        return image.convert("RGB")
 
 
 def _save_jpeg(image: Image.Image, path: Path) -> None:

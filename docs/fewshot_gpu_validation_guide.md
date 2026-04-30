@@ -252,7 +252,7 @@ round_00/
 - `errors.json`：根据全量真值自动筛出的错误队列。
 - `next_train.json`：下一轮训练集。
 - `summary.json`：本轮统计信息。
-- `train_inputs/`：本轮实际输入训练的图片；有真值时画绿色真值框或 polygon，背景图则保存原图。
+- `train_inputs/`：本轮实际输入训练的正样本图片；有真值时画绿色真值框或 polygon。当前训练集还没有 no-object 负样本结构，所以纯背景误检图会出现在 `errors_vis/` 和 `predictions_vis/`，但不会作为背景训练图进入 `train_inputs/`。
 - `errors_vis/`：本轮错误队列涉及的图片；绿色是真值，红色是预测，左上角写错误类型和风险分数。
 - `predictions_vis/`：全量图片检测结果；每张 `image_map.json` 里的图片都会输出一张，没检测到目标时就是原图。
 
@@ -282,7 +282,7 @@ python -c "import json; s=json.load(open('runs/native_fewshot_baseline/summary.j
 
 - 如果 `prediction_count` 长期为 0，优先降低 `--score-threshold` 到 `0.1` 或检查模型输出后处理。
 - 如果 `error_count` 不下降，但预测框位置大致对，尝试 `--train-bbox-embed`。
-- 如果全是误检，先提高 `--score-threshold`，再检查 label 是否一致。
+- 如果全是误检，先提高 `--score-threshold`，再检查 label 是否一致；纯背景误检目前只会被统计和可视化，真正把 no-object 背景图加入训练仍是下一阶段 hard negative 功能。
 - 如果全是漏检，先降低 `--score-threshold`，并确认初始训练图片确实有该 label。
 
 ## 6. HBB、Polygon、OBB 当前验证策略
