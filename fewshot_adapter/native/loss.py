@@ -23,6 +23,11 @@ class NativeLossConfig:
     alpha: float = 0.25
     gamma: float = 2.0
     use_presence: bool = True
+    o2m_weight: float = 2.0
+    o2m_matcher_alpha: float = 0.3
+    o2m_matcher_threshold: float = 0.4
+    o2m_matcher_topk: int = 4
+    use_o2m_matcher_on_o2m_aux: bool = False
     use_masks: bool = False
     loss_mask: float = 200.0
     loss_dice: float = 10.0
@@ -40,12 +45,18 @@ def build_native_loss(config: NativeLossConfig | None = None) -> Any:
 
     这里采用 local normalization，避免单卡少样本验证时触发分布式 all_reduce。
     """
-    require_torch()
-    from sam3.train.loss.loss_fns import Boxes, IABCEMdetr, Masks
-    from sam3.train.loss.sam3_loss import Sam3LossWrapper
-    from sam3.train.matcher import BinaryHungarianMatcherV2
-
     cfg = config or NativeLossConfig()
+    if cfg.use_masks:
+        raise ValueError(
+            "LOSS.USE_MASKS is not supported yet because the current DataTrain "
+            "pipeline does not build SAM3 mask targets. Keep USE_MASKS=false "
+            "until mask target generation is implemented."
+        )
+    require_torch()
+    from sam3.train.loss.loss_fns import Boxes, IABCEMdetr
+    from sam3.train.loss.sam3_loss import Sam3LossWrapper
+    from sam3.train.matcher import BinaryHungarianMatcherV2, BinaryOneToManyMatcher
+
     matcher = BinaryHungarianMatcherV2(
         cost_class=cfg.cost_class,
         cost_bbox=cfg.cost_bbox,
@@ -53,6 +64,13 @@ def build_native_loss(config: NativeLossConfig | None = None) -> Any:
         focal=True,
         alpha=cfg.alpha,
         gamma=cfg.gamma,
+    )
+    # EfficientSAM3 训练态 DAC decoder 会产生 one-to-many 分支；官方配置使用
+    # BinaryOneToManyMatcher，否则 Sam3LossWrapper 遇到 pred_logits_o2m 会报错。
+    o2m_matcher = BinaryOneToManyMatcher(
+        alpha=cfg.o2m_matcher_alpha,
+        threshold=cfg.o2m_matcher_threshold,
+        topk=cfg.o2m_matcher_topk,
     )
     loss_fns: list[Any] = [
         Boxes(weight_dict={"loss_bbox": cfg.loss_bbox, "loss_giou": cfg.loss_giou}),
@@ -68,19 +86,11 @@ def build_native_loss(config: NativeLossConfig | None = None) -> Any:
             use_presence=cfg.use_presence,
         ),
     ]
-    if cfg.use_masks:
-        loss_fns.append(
-            Masks(
-                focal_alpha=cfg.alpha,
-                focal_gamma=cfg.gamma,
-                weight_dict={
-                    "loss_mask": cfg.loss_mask,
-                    "loss_dice": cfg.loss_dice,
-                },
-            )
-        )
     return Sam3LossWrapper(
         loss_fns_find=loss_fns,
         matcher=matcher,
+        o2m_matcher=o2m_matcher,
+        o2m_weight=cfg.o2m_weight,
+        use_o2m_matcher_on_o2m_aux=cfg.use_o2m_matcher_on_o2m_aux,
         normalization="local",
     )

@@ -20,7 +20,7 @@ MODEL:
   MODEL_NAME: b0
   DEVICE: cuda
 
-  # 目标检测阶段默认只走 box/class/presence；需要 mask loss 或 mask 后处理时再打开。
+  # 目标检测阶段默认只走 box/class/presence；当前 DataTrain 管线尚未生成 mask target。
   ENABLE_SEGMENTATION: false
 
 ADAPTER:
@@ -61,6 +61,12 @@ LOSS:
   ALPHA: 0.25
   GAMMA: 2.0
   USE_PRESENCE: true
+  O2M_WEIGHT: 2.0
+  O2M_MATCHER_ALPHA: 0.3
+  O2M_MATCHER_THRESHOLD: 0.4
+  O2M_MATCHER_TOPK: 4
+  USE_O2M_MATCHER_ON_O2M_AUX: false
+  # 当前必须保持 false；开启前需要先实现 SAM3 mask target 构造。
   USE_MASKS: false
   LOSS_MASK: 200.0
   LOSS_DICE: 10.0

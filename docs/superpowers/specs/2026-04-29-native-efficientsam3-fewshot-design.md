@@ -44,7 +44,7 @@
 {图片名称} 4 P/R x1 y1 x2 y2 ... "label" ; P/R ...
 ```
 
-`DataTrain.txt` 解析后得到统一 `Annotation`。HBB、Polygon、未来扩展 OBB 都会补齐 HBB / polygon 派生字段。训练送给 SAM3 的目标框统一转为归一化 `cxcywh`，用于 matcher 和 bbox loss。Polygon 会尽量栅格化成 mask，用于 mask loss；如果只有 HBB，则 mask loss 可关闭或用框生成粗 mask。
+`DataTrain.txt` 解析后得到统一 `Annotation`。HBB、Polygon、未来扩展 OBB 都会补齐 HBB / polygon 派生字段。训练送给 SAM3 的目标框统一转为归一化 `cxcywh`，用于 matcher 和 bbox loss。当前 MVP 不生成 SAM3 mask target，`LOSS.USE_MASKS` 必须保持 `false`；后续如果要训练 mask loss，再补 polygon/HBB 到 mask 的栅格化目标。
 
 每轮训练集是 annotation 列表，不是候选框列表。每轮推理会对全量图片直接跑 EfficientSAM3 原生输出，再经阈值、NMS、mask resize、box/mask/polygon/OBB 后处理生成 `predictions.json`。
 
@@ -98,14 +98,14 @@ build_efficientsam3_image_model(
 
 ## 文件边界
 
-新增主线模块：
+当前主线模块：
 
-- `fewshot_adapter/sam3_batch.py`：把图片和 `Annotation` 转成 SAM3 训练 batch / target dict。
-- `fewshot_adapter/sam3_native_adapter.py`：任务 prompt、prompt adapter、冻结/解冻策略和 SAM3 原生 wrapper。
-- `fewshot_adapter/sam3_native_loss.py`：轻量封装 SAM3 matcher/loss。
-- `fewshot_adapter/sam3_native_predictor.py`：原生推理与预测后处理。
-- `fewshot_adapter/sam3_native_loop.py`：多轮自动训练、推理、筛错闭环。
-- `fewshot_adapter/train_native_efficientsam3_fewshot.py`：新的默认 CLI 入口。
+- `fewshot_adapter/data/sam3_batch.py`：把图片和 `TrainingSample` 转成 SAM3 训练 batch / target；支持正样本和 no-object 负样本。
+- `fewshot_adapter/native/adapter.py`：任务 prompt、prompt adapter、冻结/解冻策略和 SAM3 原生 wrapper。
+- `fewshot_adapter/native/loss.py`：轻量封装 SAM3 matcher/loss，同时配置 o2o / o2m matcher。
+- `fewshot_adapter/native/predictor.py`：原生推理与预测后处理。
+- `fewshot_adapter/native/trainer.py`：多轮自动训练、推理、筛错、补样本闭环。
+- `fewshot_adapter/train_native_efficientsam3_fewshot.py`：兼容 CLI 入口，实际转发到 `fewshot_adapter/cli/train_native.py`。
 
 已删除旧路线文件：
 

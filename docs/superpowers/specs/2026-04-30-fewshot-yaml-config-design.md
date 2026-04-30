@@ -69,6 +69,11 @@ LOSS:
   ALPHA: 0.25
   GAMMA: 2.0
   USE_PRESENCE: true
+  O2M_WEIGHT: 2.0
+  O2M_MATCHER_ALPHA: 0.3
+  O2M_MATCHER_THRESHOLD: 0.4
+  O2M_MATCHER_TOPK: 4
+  USE_O2M_MATCHER_ON_O2M_AUX: false
   USE_MASKS: false
 ```
 
@@ -76,6 +81,8 @@ LOSS:
 
 - `convert_datatrain` 支持 `--config`，从 `DATA.DATATRAIN`、`DATA.IMAGE_DIR`、`DATA.OUTPUT_DIR` 读取路径。
 - `train_native_efficientsam3_fewshot` 支持 `--config`，把 YAML 映射到 `NativeFewShotLoopConfig`、`NativeAdapterConfig`、`NativeLossConfig`。
+- `O2M_*` 参数必须传给原生 `Sam3LossWrapper`，因为 EfficientSAM3 训练态 DAC decoder 会输出 one-to-many 分支。
+- 当前 DataTrain 管线不生成 SAM3 mask target，所以 `LOSS.USE_MASKS=true` 应清晰报错，避免在 SAM3 `Masks` loss 深处崩溃。
 - 命令行参数优先级高于 YAML，适合临时覆盖 `--seed`、`--score-threshold`、`--steps-per-round` 等实验参数。
 - 训练启动后保存最终生效配置到 `OUTPUT_ROOT/resolved_config.yaml`，用于复现实验。
 - 配置加载模块必须是轻量纯 Python，不能要求 GPU 或 torch；没有 PyYAML 时给出清晰错误。

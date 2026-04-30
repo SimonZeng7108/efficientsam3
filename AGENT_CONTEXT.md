@@ -421,7 +421,7 @@ SAM 风格 prompt encoder 和 mask decoder 组件：
 - `evaluation/matching.py`：`DetectionMatcher` 和 `ErrorSelector`，负责匹配、筛错、选择下一轮样本。
 - `evaluation/metrics.py`：`DetectionMetrics` 和 `compute_detection_metrics`，负责把匹配结果汇总为 TP/FP/FN、precision、recall、F1、mIoU，并写入每轮 `summary.json` 的 `metrics` 字段。
 - `native/adapter.py`：task prompt、prompt adapter、冻结/解冻策略和 EfficientSAM3 原生 wrapper。
-- `native/loss.py`：`NativeLossFactory`，封装 SAM3 原生 matcher/loss。
+- `native/loss.py`：`NativeLossFactory`，封装 SAM3 原生 matcher/loss；注意 EfficientSAM3 训练态 DAC decoder 会输出 one-to-many 分支，因此这里同时配置 o2o `BinaryHungarianMatcherV2` 和 o2m `BinaryOneToManyMatcher`。当前 DataTrain 管线还不生成 mask target，所以 `LOSS.USE_MASKS=true` 会被清晰拒绝。
 - `native/predictor.py`：`NativePredictor`，把 SAM3 原生输出转成项目 `Prediction`。
 - `native/trainer.py`：`NativeFewShotTrainer`，完整多轮自动训练、推理、筛错、补样本闭环。
 - `config/fewshot.py`：`FewShotExperimentConfig`，读取少样本 YAML，映射为 `NativeFewShotLoopConfig` / `NativeAdapterConfig` / `NativeLossConfig`，并保存 `resolved_config.yaml`。

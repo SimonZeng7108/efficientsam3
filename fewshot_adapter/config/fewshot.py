@@ -78,6 +78,11 @@ class FewShotLossSection:
     alpha: float = 0.25
     gamma: float = 2.0
     use_presence: bool = True
+    o2m_weight: float = 2.0
+    o2m_matcher_alpha: float = 0.3
+    o2m_matcher_threshold: float = 0.4
+    o2m_matcher_topk: int = 4
+    use_o2m_matcher_on_o2m_aux: bool = False
     use_masks: bool = False
     loss_mask: float = 200.0
     loss_dice: float = 10.0
@@ -204,6 +209,11 @@ def build_loss_config(config: FewShotExperimentConfig) -> NativeLossConfig:
         alpha=config.loss.alpha,
         gamma=config.loss.gamma,
         use_presence=config.loss.use_presence,
+        o2m_weight=config.loss.o2m_weight,
+        o2m_matcher_alpha=config.loss.o2m_matcher_alpha,
+        o2m_matcher_threshold=config.loss.o2m_matcher_threshold,
+        o2m_matcher_topk=config.loss.o2m_matcher_topk,
+        use_o2m_matcher_on_o2m_aux=config.loss.use_o2m_matcher_on_o2m_aux,
         use_masks=config.loss.use_masks,
         loss_mask=config.loss.loss_mask,
         loss_dice=config.loss.loss_dice,

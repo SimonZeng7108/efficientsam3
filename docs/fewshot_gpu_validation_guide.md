@@ -136,10 +136,10 @@ dataset_json/
 
 - `DATA.IMG_SIZE=1008`：对齐 SAM3 / EfficientSAM3 官方输入分辨率。
 - `MODEL.BACKBONE_TYPE=efficientvit`、`MODEL.MODEL_NAME=b0`：对应 `efficient_sam3_efficientvit_s.pt`。
-- `MODEL.ENABLE_SEGMENTATION=false`、`LOSS.USE_MASKS=false`：先按官方 detection fine-tune 路线只训 box / class / presence，后续需要 mask/OBB 后处理时再打开。
+- `MODEL.ENABLE_SEGMENTATION=false`、`LOSS.USE_MASKS=false`：先按官方 detection fine-tune 路线只训 box / class / presence。当前 DataTrain 管线尚未生成 SAM3 mask target，因此不要把 `LOSS.USE_MASKS` 改成 `true`；后续补齐 mask target 后再打开。
 - `TRAIN.LEARNING_RATE=0.00008`、`TRAIN.WEIGHT_DECAY=0.1`：学习率和 weight decay 贴近官方 detection 配置的 transformer 参数组。
 - `EVAL.SCORE_THRESHOLD=0.3`：贴近官方 thresholded postprocessor。
-- `LOSS.*` 的 matcher / loss 权重来自官方 detection fine-tune 配置。
+- `LOSS.*` 的 matcher / loss 权重来自官方 detection fine-tune 配置；其中 `O2M_*` 对应 EfficientSAM3 训练态 DAC decoder 的 one-to-many 分支，不能随意删掉。
 
 ## 3. 先跑 1 步 Smoke Test
 

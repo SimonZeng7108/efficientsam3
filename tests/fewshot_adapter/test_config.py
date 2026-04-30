@@ -47,6 +47,11 @@ def test_load_fewshot_config_uses_official_detection_defaults(tmp_path):
     assert config.loss.loss_giou == approx(2.0)
     assert config.loss.presence_loss == approx(20.0)
     assert config.loss.pos_weight == approx(10.0)
+    assert config.loss.o2m_weight == approx(2.0)
+    assert config.loss.o2m_matcher_alpha == approx(0.3)
+    assert config.loss.o2m_matcher_threshold == approx(0.4)
+    assert config.loss.o2m_matcher_topk == 4
+    assert config.loss.use_o2m_matcher_on_o2m_aux is False
     assert config.loss.use_masks is False
 
 
@@ -78,6 +83,8 @@ def test_config_builds_runtime_dataclasses(tmp_path):
                 "  NUM_PROMPT_TOKENS: 4",
                 "LOSS:",
                 "  USE_MASKS: true",
+                "  O2M_WEIGHT: 1.5",
+                "  O2M_MATCHER_TOPK: 2",
                 "EVAL:",
                 "  LABEL: obj",
                 "  SCORE_THRESHOLD: 0.2",
@@ -102,3 +109,5 @@ def test_config_builds_runtime_dataclasses(tmp_path):
     assert loop_config.enable_segmentation is False
     assert adapter_config.num_prompt_tokens == 4
     assert loss_config.use_masks is True
+    assert loss_config.o2m_weight == approx(1.5)
+    assert loss_config.o2m_matcher_topk == 2
