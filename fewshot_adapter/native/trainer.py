@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Sequence
 
 from ..data.json_io import load_annotations, save_error_queue, save_predictions, save_training_samples
 from ..data.models import Annotation, Prediction, TrainingSample
@@ -26,6 +26,16 @@ from ..visualization.round_outputs import render_round_visualizations
 from .adapter import NativeAdapterConfig, build_native_fewshot_model, save_native_adapter
 from .loss import NativeLossConfig, build_native_loss
 from .predictor import native_outputs_to_predictions
+
+LogFn = Callable[[str], None]
+_DEFAULT_LOG_EVERY = 10
+_LOSS_LOG_KEYS = (
+    "core_loss",
+    "loss_ce",
+    "loss_bbox",
+    "loss_giou",
+    "presence_loss",
+)
 
 
 @dataclass(frozen=True)
@@ -82,6 +92,7 @@ def run_native_fewshot_loop(
     config: NativeFewShotLoopConfig,
     adapter_config: NativeAdapterConfig | None = None,
     loss_config: NativeLossConfig | None = None,
+    log_fn: LogFn | None = print,
 ) -> dict[str, Any]:
     """执行完整 EfficientSAM3 原生少样本闭环。"""
     torch = require_torch()
@@ -115,11 +126,21 @@ def run_native_fewshot_loop(
         lr=config.learning_rate,
         weight_decay=config.weight_decay,
     )
+    _emit_logs(log_fn, _format_trainable_module_logs(wrapper))
 
     round_summaries = []
     for round_index in range(config.max_rounds):
         round_dir = output_root / f"round_{round_index:02d}"
         round_dir.mkdir(parents=True, exist_ok=True)
+        _emit_log(
+            log_fn,
+            _format_round_start_log(
+                round_index=round_index,
+                max_rounds=config.max_rounds,
+                samples=current_train,
+                learning_rates=_optimizer_learning_rates(optimizer),
+            ),
+        )
 
         train_history = train_native_adapter_one_round(
             wrapper=wrapper,
@@ -131,7 +152,19 @@ def run_native_fewshot_loop(
             resolution=config.resolution,
             device=config.device,
             sam3_output_cls=SAM3Output,
+            round_index=round_index,
+            log_every=_DEFAULT_LOG_EVERY,
+            log_fn=log_fn,
         )
+        if train_history:
+            _emit_log(
+                log_fn,
+                _format_round_loss_log(
+                    round_index=round_index,
+                    learning_rates=_optimizer_learning_rates(optimizer),
+                    losses=train_history[-1],
+                ),
+            )
         adapter_path = round_dir / "adapter.pt"
         save_native_adapter(adapter_path, wrapper)
 
@@ -162,6 +195,15 @@ def run_native_fewshot_loop(
             iou_threshold=config.iou_threshold,
             iou_mode=config.iou_mode,
         )
+        _emit_log(
+            log_fn,
+            _format_eval_log(
+                round_index=round_index,
+                prediction_count=len(predictions),
+                error_count=len(errors),
+                metrics=metrics,
+            ),
+        )
         selected = select_next_training_sample(errors)
         if selected is not None:
             errors = [_mark_selected(error, selected) for error in errors]
@@ -175,6 +217,14 @@ def run_native_fewshot_loop(
             )
         else:
             next_train = list(current_train)
+        _emit_log(
+            log_fn,
+            _format_selected_sample_log(
+                selected=selected,
+                next_train=next_train,
+                label=target_label,
+            ),
+        )
         save_training_samples(next_train_path, next_train)
         visual_outputs = _render_round_visual_outputs(
             round_dir=round_dir,
@@ -230,6 +280,9 @@ def train_native_adapter_one_round(
     resolution: int,
     device: str,
     sam3_output_cls: Any,
+    round_index: int | None = None,
+    log_every: int | None = None,
+    log_fn: LogFn | None = None,
 ) -> list[dict[str, float]]:
     """训练当前 round 的 task prompt / adapter。"""
     if steps <= 0:
@@ -266,7 +319,19 @@ def train_native_adapter_one_round(
             raise ValueError(f"non-finite training loss at step {step}: {float(loss.detach().cpu())}")
         loss.backward()
         optimizer.step()
-        history.append({key: float(value.detach().cpu()) for key, value in loss_dict.items()})
+        step_losses = {key: float(value.detach().cpu()) for key, value in loss_dict.items()}
+        history.append(step_losses)
+        if round_index is not None and _should_log_step(step, steps, log_every):
+            _emit_log(
+                log_fn,
+                _format_loss_log(
+                    round_index=round_index,
+                    step=step,
+                    steps=steps,
+                    learning_rates=_optimizer_learning_rates(optimizer),
+                    losses=step_losses,
+                ),
+            )
     return history
 
 
@@ -402,12 +467,197 @@ def _render_round_visual_outputs(
     return outputs.to_summary_dict()
 
 
+def _format_trainable_module_logs(wrapper: Any) -> list[str]:
+    """生成可微调模块清单日志。"""
+    groups: dict[str, dict[str, Any]] = {}
+    total_tensors = 0
+    total_params = 0
+    for name, parameter in wrapper.named_parameters():
+        if not getattr(parameter, "requires_grad", False):
+            continue
+        module_name = _trainable_module_group(name)
+        count = int(parameter.numel()) if hasattr(parameter, "numel") else 0
+        group = groups.setdefault(module_name, {"tensors": 0, "params": 0, "names": []})
+        group["tensors"] += 1
+        group["params"] += count
+        group["names"].append(name)
+        total_tensors += 1
+        total_params += count
+
+    lines = [f"[fewshot] 本次可微调模块：{total_tensors} 个参数张量，共 {total_params} 个参数"]
+    for module_name, group in groups.items():
+        sample_names = ", ".join(group["names"][:3])
+        if len(group["names"]) > 3:
+            sample_names += ", ..."
+        lines.append(
+            f"[fewshot]   - {module_name}: {group['tensors']} 个张量，"
+            f"{group['params']} 个参数 ({sample_names})"
+        )
+    if not groups:
+        lines.append("[fewshot]   - 未发现 requires_grad=True 的参数，请检查冻结策略。")
+    return lines
+
+
+def _format_round_start_log(
+    *,
+    round_index: int,
+    max_rounds: int,
+    samples: Sequence[TrainingSample],
+    learning_rates: Sequence[float],
+) -> str:
+    """生成每轮开始日志。"""
+    return (
+        f"[fewshot] 开始 round={round_index + 1}/{max_rounds} | "
+        f"train_images={len(samples)} | "
+        f"positive_targets={_count_positive_annotations(list(samples))} | "
+        f"negative_images={_count_negative_samples(list(samples))} | "
+        f"lr={_format_learning_rates(learning_rates)}"
+    )
+
+
+def _format_loss_log(
+    *,
+    round_index: int,
+    step: int,
+    steps: int,
+    learning_rates: Sequence[float],
+    losses: dict[str, float],
+) -> str:
+    """生成训练 step loss 日志。"""
+    return (
+        f"[fewshot] train round={round_index + 1} "
+        f"step={step + 1}/{steps} | "
+        f"lr={_format_learning_rates(learning_rates)} | "
+        f"{_format_loss_items(losses)}"
+    )
+
+
+def _format_round_loss_log(
+    *,
+    round_index: int,
+    learning_rates: Sequence[float],
+    losses: dict[str, float],
+) -> str:
+    """生成每轮训练结束 loss 汇总日志。"""
+    return (
+        f"[fewshot] round={round_index + 1} 训练完成 | "
+        f"lr={_format_learning_rates(learning_rates)} | "
+        f"{_format_loss_items(losses)}"
+    )
+
+
+def _format_eval_log(
+    *,
+    round_index: int,
+    prediction_count: int,
+    error_count: int,
+    metrics: dict[str, Any],
+) -> str:
+    """生成每轮推理评估日志。"""
+    return (
+        f"[fewshot] eval round={round_index + 1} | "
+        f"pred={prediction_count} | err={error_count} | "
+        f"P={_format_metric(metrics.get('precision', 0.0))} | "
+        f"R={_format_metric(metrics.get('recall', 0.0))} | "
+        f"F1={_format_metric(metrics.get('f1', 0.0))} | "
+        f"mIoU={_format_metric(metrics.get('miou', 0.0))}"
+    )
+
+
+def _format_selected_sample_log(
+    *,
+    selected: Any | None,
+    next_train: Sequence[TrainingSample],
+    label: str,
+) -> str:
+    """生成下一轮自动选样日志。"""
+    if selected is None:
+        return "[fewshot] 下一轮选样：无新错误样本。"
+    selected_samples = [
+        sample
+        for sample in next_train
+        if sample.image_id == selected.image_id and sample.label == label
+    ]
+    if any(sample.sample_type == "negative" for sample in selected_samples):
+        sample_kind = "no-object 负样本"
+    elif selected_samples:
+        sample_kind = "正样本"
+    else:
+        sample_kind = "未加入训练集"
+    return (
+        f"[fewshot] 下一轮选样：{sample_kind} | image={selected.image_id} | "
+        f"type={selected.error_type} | risk={_format_metric(selected.risk_score)} | "
+        f"reason={selected.reason}"
+    )
+
+
 def _count_positive_annotations(samples: list[TrainingSample]) -> int:
     return sum(len(sample.annotations) for sample in samples)
 
 
 def _count_negative_samples(samples: list[TrainingSample]) -> int:
     return sum(1 for sample in samples if sample.sample_type == "negative")
+
+
+def _trainable_module_group(parameter_name: str) -> str:
+    normalized = parameter_name.removeprefix("module.")
+    if normalized.startswith("task_prompt_tokens"):
+        return "task_prompt_tokens"
+    if normalized.startswith("prompt_adapter"):
+        return "prompt_adapter"
+    if ".dot_prod_scoring." in f".{normalized}":
+        return "dot_prod_scoring"
+    if ".bbox_embed" in normalized:
+        return "transformer.decoder.bbox_embed"
+    if ".cross_attn." in normalized or ".ca_text." in normalized:
+        return "transformer.decoder.cross_attention"
+    return normalized.rsplit(".", 1)[0]
+
+
+def _format_loss_items(losses: dict[str, float]) -> str:
+    ordered_keys = [key for key in _LOSS_LOG_KEYS if key in losses]
+    ordered_keys.extend(sorted(key for key in losses if key not in set(ordered_keys)))
+    return " | ".join(f"{key}={_format_loss_value(losses[key])}" for key in ordered_keys)
+
+
+def _format_loss_value(value: Any) -> str:
+    return f"{float(value):.4f}"
+
+
+def _format_metric(value: Any) -> str:
+    return f"{float(value):.4f}"
+
+
+def _format_learning_rates(learning_rates: Sequence[float]) -> str:
+    if not learning_rates:
+        return "unknown"
+    return ",".join(f"{float(lr):.6g}" for lr in learning_rates)
+
+
+def _optimizer_learning_rates(optimizer: Any) -> list[float]:
+    rates: list[float] = []
+    for group in getattr(optimizer, "param_groups", []):
+        if "lr" not in group:
+            continue
+        lr = float(group["lr"])
+        if lr not in rates:
+            rates.append(lr)
+    return rates
+
+
+def _should_log_step(step: int, steps: int, log_every: int | None) -> bool:
+    interval = max(1, int(log_every or _DEFAULT_LOG_EVERY))
+    return step == 0 or step + 1 == steps or (step + 1) % interval == 0
+
+
+def _emit_logs(log_fn: LogFn | None, messages: Sequence[str]) -> None:
+    for message in messages:
+        _emit_log(log_fn, message)
+
+
+def _emit_log(log_fn: LogFn | None, message: str) -> None:
+    if log_fn is not None:
+        log_fn(message)
 
 
 def _training_sample_signature(samples: list[TrainingSample]) -> tuple[tuple[str, ...], tuple[str, ...]]:

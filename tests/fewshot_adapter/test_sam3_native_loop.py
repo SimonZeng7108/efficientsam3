@@ -6,6 +6,10 @@ from fewshot_adapter.data.models import Annotation, HBB, TrainingSample
 from fewshot_adapter.evaluation.matching import ErrorItem
 from fewshot_adapter.native.trainer import (
     _compute_round_metrics,
+    _format_eval_log,
+    _format_loss_log,
+    _format_selected_sample_log,
+    _format_trainable_module_logs,
     _render_round_visual_outputs,
     _resolve_label,
     add_selected_image_truth,
@@ -123,3 +127,95 @@ def test_add_selected_training_sample_adds_background_false_positive_as_negative
 
     assert next_samples[-1].sample_type == "negative"
     assert next_samples[-1].image_id == "background.jpg"
+
+
+def test_format_trainable_module_logs_groups_parameter_names():
+    """训练启动日志要列出实际微调模块和参数量，方便 GPU 验证时确认冻结策略。"""
+
+    class FakeParameter:
+        requires_grad = True
+
+        def __init__(self, count):
+            self.count = count
+
+        def numel(self):
+            return self.count
+
+    class FakeWrapper:
+        def named_parameters(self):
+            return iter(
+                [
+                    ("task_prompt_tokens", FakeParameter(8)),
+                    ("prompt_adapter.down.weight", FakeParameter(16)),
+                    ("model.dot_prod_scoring.prompt_mlp.weight", FakeParameter(32)),
+                    ("model.backbone.frozen.weight", type("Frozen", (), {"requires_grad": False})()),
+                ]
+            )
+
+    lines = _format_trainable_module_logs(FakeWrapper())
+
+    assert lines[0] == "[fewshot] 本次可微调模块：3 个参数张量，共 56 个参数"
+    assert any("task_prompt_tokens" in line for line in lines)
+    assert any("prompt_adapter" in line for line in lines)
+    assert any("dot_prod_scoring" in line for line in lines)
+    assert all("frozen" not in line for line in lines)
+
+
+def test_format_loss_log_includes_learning_rate_and_key_losses():
+    """训练 step 日志要包含学习率和关键 loss 字段。"""
+    line = _format_loss_log(
+        round_index=0,
+        step=9,
+        steps=80,
+        learning_rates=[8e-5],
+        losses={
+            "core_loss": 1.23456,
+            "loss_ce": 0.5,
+            "loss_bbox": 0.25,
+            "loss_giou": 0.125,
+            "presence_loss": 0.0625,
+        },
+    )
+
+    assert "round=1" in line
+    assert "step=10/80" in line
+    assert "lr=8e-05" in line
+    assert "core_loss=1.2346" in line
+    assert "presence_loss=0.0625" in line
+
+
+def test_format_eval_and_selected_sample_logs_are_readable():
+    """每轮结束日志要清楚展示指标和下一轮选样类型。"""
+    eval_line = _format_eval_log(
+        round_index=1,
+        prediction_count=12,
+        error_count=3,
+        metrics={"precision": 0.5, "recall": 0.25, "f1": 0.3333, "miou": 0.7},
+    )
+    selected_line = _format_selected_sample_log(
+        selected=ErrorItem(
+            image_id="background.jpg",
+            error_type="false_positive",
+            risk_score=0.9,
+            reason="prediction has no matching ground truth",
+            ground_truth_ids=[],
+            prediction_ids=["background.jpg:0000"],
+            selected_for_next_round=True,
+        ),
+        next_train=[
+            TrainingSample(
+                image_id="background.jpg",
+                label="target",
+                annotations=[],
+                sample_type="negative",
+            )
+        ],
+        label="target",
+    )
+
+    assert "round=2" in eval_line
+    assert "pred=12" in eval_line
+    assert "P=0.5000" in eval_line
+    assert "mIoU=0.7000" in eval_line
+    assert "no-object 负样本" in selected_line
+    assert "background.jpg" in selected_line

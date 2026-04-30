@@ -74,6 +74,11 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _print_training_log(message: str) -> None:
+    """训练日志走 stderr，避免污染最终 summary JSON 的 stdout。"""
+    print(message, file=sys.stderr, flush=True)
+
+
 def main() -> int:
     args = parse_args()
     config = load_fewshot_config(args.config)
@@ -127,6 +132,7 @@ def main() -> int:
             config=loop_config,
             adapter_config=adapter_config,
             loss_config=loss_config,
+            log_fn=_print_training_log,
         )
     except ModuleNotFoundError as exc:
         print(str(exc), file=sys.stderr)

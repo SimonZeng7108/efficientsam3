@@ -423,7 +423,7 @@ SAM 风格 prompt encoder 和 mask decoder 组件：
 - `native/adapter.py`：task prompt、prompt adapter、冻结/解冻策略和 EfficientSAM3 原生 wrapper。
 - `native/loss.py`：`NativeLossFactory`，封装 SAM3 原生 matcher/loss；注意 EfficientSAM3 训练态 DAC decoder 会输出 one-to-many 分支，因此这里同时配置 o2o `BinaryHungarianMatcherV2` 和 o2m `BinaryOneToManyMatcher`。当前 DataTrain 管线还不生成 mask target，所以 `LOSS.USE_MASKS=true` 会被清晰拒绝。
 - `native/predictor.py`：`NativePredictor`，把 SAM3 原生输出转成项目 `Prediction`。
-- `native/trainer.py`：`NativeFewShotTrainer`，完整多轮自动训练、推理、筛错、补样本闭环。
+- `native/trainer.py`：`NativeFewShotTrainer`，完整多轮自动训练、推理、筛错、补样本闭环；训练时会打印可微调模块、每轮/step loss、学习率、评估指标和下一轮选样。
 - `config/fewshot.py`：`FewShotExperimentConfig`，读取少样本 YAML，映射为 `NativeFewShotLoopConfig` / `NativeAdapterConfig` / `NativeLossConfig`，并保存 `resolved_config.yaml`。
 - `configs/efficient_sam3_efficientvit_s_fewshot.yaml`：推荐默认配置，参数尽量对齐 SAM3 官方 detection fine-tune / eval 口径。
 - `cli/convert_datatrain.py`：把 `DataTrain.txt + 图片目录` 一键转换为 `full_gt.json`、`image_map.json`。
