@@ -4,6 +4,7 @@ from .datatrain import (
     DataTrainDataset,
     build_image_map,
     load_datatrain,
+    load_datatrain_image_ids,
     parse_datatrain_line,
     save_image_map,
 )
@@ -65,6 +66,7 @@ __all__ = [
     "hbb_to_cxcywh_norm",
     "load_annotations",
     "load_datatrain",
+    "load_datatrain_image_ids",
     "load_error_queue",
     "load_image_batch",
     "load_predictions",

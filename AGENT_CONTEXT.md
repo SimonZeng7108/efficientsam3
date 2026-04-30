@@ -22,7 +22,7 @@ EfficientSAM3 是一个研究型代码库，目标是通过“渐进式分层知
 - 主流程不再要求 `proposal_candidates.json`。SAM3 原生输出 `pred_logits`、`pred_boxes`、`pred_masks`，后处理后写出 `predictions.json`。
 - 少样本训练默认冻结大部分 EfficientSAM3，只训练 `task_prompt_tokens`、`prompt_adapter`、可选 `dot_prod_scoring`、可选少量 bbox/cross-attention 参数。
 - 验证阶段没有交互界面。每轮训练后自动推理全量图片，用真值筛出漏检、误检、定位错误，再把被选中错误图片的真值加入下一轮训练。
-- 数据入口仍支持用户的 `DataTrain.txt` 格式：`{图片名称} 4 P/R x1 y1 ... "label" ; ...`。其中 `R` 是水平框，`P` 是多边形。
+- 数据入口支持用户真实 `DataTrain.txt` 格式：文件头 `Version 1.0.0` 会跳过；`图片名:数量 P:4/R:4 x1 y1 ... "label"` 会解析为 polygon；`.jpg.bmp`、`.bmp.bmp` 都按普通图片名处理；`1 1 1 1 1 1 1 1` 是无目标占位，不写入 `full_gt.json`，但图片仍保留在 `image_map.json` 参与全量推理和误检检查。
 
 新增原生少样本主线文件已按职责分包：
 
@@ -409,7 +409,7 @@ SAM 风格 prompt encoder 和 mask decoder 组件：
 核心文件和类：
 
 - `data/models.py`：统一 HBB、OBB、polygon、mask 标注和预测结构，并提供 HBB/OBB/polygon 互转辅助。
-- `data/datatrain.py`：`DataTrainDataset`，解析 `DataTrain.txt`，构建 `image_map`，保存 `full_gt.json` / `image_map.json`。
+- `data/datatrain.py`：`DataTrainDataset`，解析 `DataTrain.txt`，支持 `Version 1.0.0` 文件头、`图片名:数量`、`P:4/R:4` 四点标注和无目标占位过滤，构建 `image_map`，保存 `full_gt.json` / `image_map.json`。
 - `data/json_io.py`：`AnnotationJsonIO`，读取/保存标注、预测和错误队列 JSON。
 - `data/sampling.py`：`InitialTrainSelector` 和 `TrainSetUpdater`，负责第 0 轮样本选择与增量训练集更新。
 - `data/sam3_batch.py`：`Sam3BatchBuilder`，把图片和 `Annotation` 转成 SAM3 原生 batch / target。
@@ -436,6 +436,8 @@ python -m fewshot_adapter.convert_datatrain `
 
 - `dataset_json/full_gt.json`：全量真值，每个目标一条 Annotation。
 - `dataset_json/image_map.json`：图片名到图片实际路径的映射。
+
+注意：`1 1 1 1 1 1 1 1` 表示无目标占位，只会让该图片进入 `image_map.json`，不会生成目标标注。
 
 然后运行原生 EfficientSAM3 少样本闭环：
 
