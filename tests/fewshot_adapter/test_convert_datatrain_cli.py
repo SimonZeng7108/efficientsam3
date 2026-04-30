@@ -85,3 +85,42 @@ def test_convert_datatrain_cli_supports_real_colon_format_and_no_object_images(t
     assert [item["image_id"] for item in full_gt] == ["valid.bmp.bmp"]
     assert full_gt[0]["polygon"] == [[10.0, 10.0], [20.0, 10.0], [20.0, 20.0], [10.0, 20.0]]
     assert set(image_map) == {"valid.bmp.bmp", "empty.jpg.bmp"}
+
+
+def test_convert_datatrain_cli_accepts_yaml_config(tmp_path):
+    image_dir = tmp_path / "images"
+    image_dir.mkdir()
+    Image.new("RGB", (64, 64), (0, 0, 0)).save(image_dir / "img_001.jpg")
+    datatrain = tmp_path / "DataTrain.txt"
+    datatrain.write_text('img_001.jpg:1 P:4 10 10 20 10 20 20 10 20 "obj"\n', encoding="utf-8")
+    output_dir = tmp_path / "json"
+    config = tmp_path / "fewshot.yaml"
+    config.write_text(
+        "\n".join(
+            [
+                "DATA:",
+                f"  DATATRAIN: {datatrain.as_posix()}",
+                f"  IMAGE_DIR: {image_dir.as_posix()}",
+                f"  OUTPUT_DIR: {output_dir.as_posix()}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "fewshot_adapter.convert_datatrain",
+            "--config",
+            str(config),
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert (output_dir / "full_gt.json").exists()
+    assert (output_dir / "image_map.json").exists()

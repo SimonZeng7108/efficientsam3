@@ -32,12 +32,15 @@ class NativeFewShotLoopConfig:
     label: str | None = None
     device: str = "cuda"
     resolution: int = 1008
+    backbone_type: str = "efficientvit"
+    model_name: str = "b0"
+    enable_segmentation: bool = False
     seed: int = 0
     max_rounds: int = 10
     steps_per_round: int = 80
-    learning_rate: float = 1e-3
-    weight_decay: float = 0.0
-    score_threshold: float = 0.5
+    learning_rate: float = 8e-5
+    weight_decay: float = 0.1
+    score_threshold: float = 0.3
     iou_threshold: float = 0.5
     localization_error_threshold: float = 0.1
     iou_mode: str = "hbb"
@@ -97,6 +100,9 @@ def run_native_fewshot_loop(
         config=adapter_config or NativeAdapterConfig(),
         device=config.device,
         resolution=config.resolution,
+        backbone_type=config.backbone_type,
+        model_name=config.model_name,
+        enable_segmentation=config.enable_segmentation,
     )
     loss_fn = build_native_loss(loss_config)
     optimizer = torch.optim.AdamW(

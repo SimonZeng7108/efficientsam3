@@ -98,6 +98,14 @@ img_001.jpg 2 R 10 20 30 40 "target" ; P 1 2 5 2 5 6 1 6 "target"
 
 ```powershell
 python -m fewshot_adapter.convert_datatrain `
+  --config fewshot_adapter\configs\efficient_sam3_efficientvit_s_fewshot.yaml
+```
+
+默认配置文件在 `fewshot_adapter/configs/efficient_sam3_efficientvit_s_fewshot.yaml`。如果你的路径不是默认的 `dataset/DataTrain.txt` 和 `dataset/images`，优先改这个 YAML；也可以用命令行临时覆盖：
+
+```powershell
+python -m fewshot_adapter.convert_datatrain `
+  --config fewshot_adapter\configs\efficient_sam3_efficientvit_s_fewshot.yaml `
   --datatrain dataset\DataTrain.txt `
   --image-dir dataset\images `
   --output-dir dataset_json
@@ -120,29 +128,36 @@ dataset_json/
 
 注意：当前训练 loss 首先使用 SAM3 原生 box loss。多边形标注会先派生 HBB 参与训练；后续如果要验证真实 OBB / polygon 输出，需要继续增强预测后处理。
 
+### 2.1 配置文件优先级
+
+训练和转换都支持 `--config`。推荐先改 `fewshot_adapter/configs/efficient_sam3_efficientvit_s_fewshot.yaml`，再用命令行临时覆盖少数参数。
+
+当前默认值的来源：
+
+- `DATA.IMG_SIZE=1008`：对齐 SAM3 / EfficientSAM3 官方输入分辨率。
+- `MODEL.BACKBONE_TYPE=efficientvit`、`MODEL.MODEL_NAME=b0`：对应 `efficient_sam3_efficientvit_s.pt`。
+- `MODEL.ENABLE_SEGMENTATION=false`、`LOSS.USE_MASKS=false`：先按官方 detection fine-tune 路线只训 box / class / presence，后续需要 mask/OBB 后处理时再打开。
+- `TRAIN.LEARNING_RATE=0.00008`、`TRAIN.WEIGHT_DECAY=0.1`：学习率和 weight decay 贴近官方 detection 配置的 transformer 参数组。
+- `EVAL.SCORE_THRESHOLD=0.3`：贴近官方 thresholded postprocessor。
+- `LOSS.*` 的 matcher / loss 权重来自官方 detection fine-tune 配置。
+
 ## 3. 先跑 1 步 Smoke Test
 
 第一次不要直接跑 10 轮。先用 1 轮 1 步确认模型能加载、数据能读取、前向和反向能走通。
 
 ```powershell
 python -m fewshot_adapter.train_native_efficientsam3_fewshot `
-  --full-ground-truth dataset_json\full_gt.json `
-  --image-map dataset_json\image_map.json `
-  --checkpoint sam3_checkpoints\efficient_sam3_efficientvit_s.pt `
+  --config fewshot_adapter\configs\efficient_sam3_efficientvit_s_fewshot.yaml `
   --output-root runs\native_fewshot_smoke `
-  --label target `
-  --device cuda `
   --max-rounds 1 `
-  --steps-per-round 1 `
-  --score-threshold 0.3 `
-  --iou-threshold 0.5 `
-  --iou-mode hbb
+  --steps-per-round 1
 ```
 
 Smoke test 成功后应看到：
 
 ```text
 runs/native_fewshot_smoke/
+  resolved_config.yaml
   train_round_0.json
   summary.json
   round_00/
@@ -158,6 +173,7 @@ runs/native_fewshot_smoke/
 - `round_00/adapter.pt` 是否生成。
 - `round_00/predictions.json` 是否生成。
 - `round_00/errors.json` 是否生成。
+- `resolved_config.yaml` 是否保存了最终生效配置。
 - 根目录 `summary.json` 是否能打开。
 - `summary.json` 里的 `last_loss.core_loss` 是否是有限数值，不应为 `NaN` 或 `inf`。
 - `summary.json` 里的 `metrics.precision`、`metrics.recall`、`metrics.f1`、`metrics.miou` 是否符合直觉。
@@ -181,43 +197,23 @@ Smoke test 通过后，建议先用 20 到 100 张图的小数据子集验证闭
 
 ```powershell
 python -m fewshot_adapter.train_native_efficientsam3_fewshot `
-  --full-ground-truth dataset_json\full_gt.json `
-  --image-map dataset_json\image_map.json `
-  --checkpoint sam3_checkpoints\efficient_sam3_efficientvit_s.pt `
+  --config fewshot_adapter\configs\efficient_sam3_efficientvit_s_fewshot.yaml `
   --output-root runs\native_fewshot_baseline `
-  --label target `
-  --device cuda `
-  --resolution 1008 `
   --seed 0 `
   --max-rounds 5 `
-  --steps-per-round 30 `
-  --learning-rate 1e-3 `
-  --score-threshold 0.3 `
-  --iou-threshold 0.5 `
-  --localization-error-threshold 0.1 `
-  --iou-mode hbb `
-  --num-prompt-tokens 8
+  --steps-per-round 30
 ```
 
 如果 baseline 能跑通但定位不够好，再尝试开放 bbox head：
 
 ```powershell
 python -m fewshot_adapter.train_native_efficientsam3_fewshot `
-  --full-ground-truth dataset_json\full_gt.json `
-  --image-map dataset_json\image_map.json `
-  --checkpoint sam3_checkpoints\efficient_sam3_efficientvit_s.pt `
+  --config fewshot_adapter\configs\efficient_sam3_efficientvit_s_fewshot.yaml `
   --output-root runs\native_fewshot_bbox_embed `
-  --label target `
-  --device cuda `
-  --resolution 1008 `
   --seed 0 `
   --max-rounds 5 `
   --steps-per-round 50 `
   --learning-rate 5e-4 `
-  --score-threshold 0.3 `
-  --iou-threshold 0.5 `
-  --iou-mode hbb `
-  --num-prompt-tokens 8 `
   --train-bbox-embed
 ```
 
@@ -238,6 +234,7 @@ round_00/
 
 文件含义：
 
+- `resolved_config.yaml`：根输出目录下的最终生效配置，已经合并 YAML 和命令行覆盖项。
 - `adapter.pt`：本轮训练后的少样本 adapter 权重，只保存任务相关权重。
 - `predictions.json`：全量图片推理结果。
 - `errors.json`：根据全量真值自动筛出的错误队列。

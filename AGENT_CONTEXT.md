@@ -420,6 +420,8 @@ SAM 风格 prompt encoder 和 mask decoder 组件：
 - `native/loss.py`：`NativeLossFactory`，封装 SAM3 原生 matcher/loss。
 - `native/predictor.py`：`NativePredictor`，把 SAM3 原生输出转成项目 `Prediction`。
 - `native/trainer.py`：`NativeFewShotTrainer`，完整多轮自动训练、推理、筛错、补样本闭环。
+- `config/fewshot.py`：`FewShotExperimentConfig`，读取少样本 YAML，映射为 `NativeFewShotLoopConfig` / `NativeAdapterConfig` / `NativeLossConfig`，并保存 `resolved_config.yaml`。
+- `configs/efficient_sam3_efficientvit_s_fewshot.yaml`：推荐默认配置，参数尽量对齐 SAM3 官方 detection fine-tune / eval 口径。
 - `cli/convert_datatrain.py`：把 `DataTrain.txt + 图片目录` 一键转换为 `full_gt.json`、`image_map.json`。
 - `cli/train_native.py`：当前推荐训练 CLI 的实现层。
 - `utils/torch.py`：PyTorch 懒加载工具；无 torch 环境会给清晰错误。
@@ -428,9 +430,7 @@ SAM 风格 prompt encoder 和 mask decoder 组件：
 
 ```powershell
 python -m fewshot_adapter.convert_datatrain `
-  --datatrain DataTrain.txt `
-  --image-dir images `
-  --output-dir dataset_json
+  --config fewshot_adapter/configs/efficient_sam3_efficientvit_s_fewshot.yaml
 ```
 
 它会输出：
@@ -444,15 +444,11 @@ python -m fewshot_adapter.convert_datatrain `
 
 ```powershell
 python -m fewshot_adapter.train_native_efficientsam3_fewshot `
-  --full-ground-truth full_gt.json `
-  --image-map image_map.json `
-  --checkpoint efficient_sam3_efficientvit_s.pt `
-  --output-root runs/native_fewshot `
-  --label target `
-  --device cuda `
-  --max-rounds 10 `
-  --steps-per-round 80
+  --config fewshot_adapter/configs/efficient_sam3_efficientvit_s_fewshot.yaml `
+  --max-rounds 10
 ```
+
+CLI 参数优先级高于 YAML，适合临时覆盖 `--output-root`、`--seed`、`--score-threshold`、`--steps-per-round`。训练启动前会把合并后的配置保存到输出目录的 `resolved_config.yaml`。
 
 当前本地环境没有安装 PyTorch，所以单元测试只覆盖轻量路径和清晰失败提示；真实训练需要用户在 GPU 环境验证。
 

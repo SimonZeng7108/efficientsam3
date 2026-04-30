@@ -273,6 +273,7 @@ def build_native_fewshot_model(
     backbone_type: str = "efficientvit",
     model_name: str = "b0",
     resolution: int = 1008,
+    enable_segmentation: bool = False,
 ) -> Any:
     """加载完整 EfficientSAM3，并包装为少样本 adapter 模型。"""
     require_torch()
@@ -285,7 +286,7 @@ def build_native_fewshot_model(
         device=device,
         load_from_HF=False,
         eval_mode=False,
-        enable_segmentation=True,
+        enable_segmentation=enable_segmentation,
         enable_inst_interactivity=False,
     )
     wrapper = NativeEfficientSAM3FewShotModel(model=model, config=config).to(device)

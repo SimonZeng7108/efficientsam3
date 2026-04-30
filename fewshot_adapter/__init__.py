@@ -2,9 +2,25 @@
 
 这里集中暴露闭环实验最常用的数据结构、IO、DataTrain 解析和原生 SAM3
 训练函数。具体实现已按职责拆到 `data/`、`geometry/`、`evaluation/`、
-`native/`、`cli/`、`utils/`，后续智能体可以优先从这些目录理解系统。
+`native/`、`cli/`、`config/`、`utils/`，后续智能体可以优先从这些目录理解系统。
 """
 
+from .config import (
+    FewShotAdapterSection,
+    FewShotDataSection,
+    FewShotEvalSection,
+    FewShotExperimentConfig,
+    FewShotLossSection,
+    FewShotModelSection,
+    FewShotTrainSection,
+    apply_config_overrides,
+    build_adapter_config,
+    build_loop_config,
+    build_loss_config,
+    config_to_dict,
+    load_fewshot_config,
+    save_fewshot_config,
+)
 from .data import (
     HBB,
     OBB,
@@ -84,6 +100,13 @@ __all__ = [
     "DetectionMetrics",
     "ErrorItem",
     "ErrorSelector",
+    "FewShotAdapterSection",
+    "FewShotDataSection",
+    "FewShotEvalSection",
+    "FewShotExperimentConfig",
+    "FewShotLossSection",
+    "FewShotModelSection",
+    "FewShotTrainSection",
     "GeometryOps",
     "HBB",
     "InitialTrainSelector",
@@ -104,14 +127,19 @@ __all__ = [
     "TrainSetUpdater",
     "add_selected_errors_to_train_set",
     "add_selected_image_truth",
+    "apply_config_overrides",
     "annotation_to_target_box",
     "box_iou",
     "build_error_queue",
+    "build_adapter_config",
     "build_image_map",
+    "build_loop_config",
+    "build_loss_config",
     "build_native_fewshot_model",
     "build_native_loss",
     "build_sam3_training_batch",
     "compute_detection_metrics",
+    "config_to_dict",
     "create_initial_train_set",
     "freeze_for_fewshot",
     "greedy_match_predictions",
@@ -123,6 +151,7 @@ __all__ = [
     "load_datatrain",
     "load_datatrain_image_ids",
     "load_error_queue",
+    "load_fewshot_config",
     "load_image_batch",
     "load_predictions",
     "native_outputs_to_predictions",
@@ -139,6 +168,7 @@ __all__ = [
     "run_native_fewshot_loop",
     "save_annotations",
     "save_error_queue",
+    "save_fewshot_config",
     "save_image_map",
     "save_native_adapter",
     "save_predictions",
