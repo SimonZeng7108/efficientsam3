@@ -28,7 +28,7 @@ EfficientSAM3 是一个研究型代码库，目标是通过“渐进式分层知
 
 - `fewshot_adapter/data/`：标注模型、DataTrain 解析、JSON IO、初始样本选择、训练集更新、SAM3 batch 构造。
 - `fewshot_adapter/geometry/`：polygon/OBB 面积、IoU 和 polygon 转 OBB。
-- `fewshot_adapter/evaluation/`：预测与真值匹配、错误队列生成、下一轮样本选择。
+- `fewshot_adapter/evaluation/`：预测与真值匹配、precision / recall / F1 / mIoU 指标、错误队列生成、下一轮样本选择。
 - `fewshot_adapter/native/`：EfficientSAM3 task prompt / adapter、原生 loss、预测后处理、自动闭环训练。
 - `fewshot_adapter/cli/`：命令行实现层。
 - `fewshot_adapter/convert_datatrain.py`：兼容入口，内部转发到 `fewshot_adapter.cli.convert_datatrain`。
@@ -415,6 +415,7 @@ SAM 风格 prompt encoder 和 mask decoder 组件：
 - `data/sam3_batch.py`：`Sam3BatchBuilder`，把图片和 `Annotation` 转成 SAM3 原生 batch / target。
 - `geometry/ops.py`：`GeometryOps`，polygon/OBB 面积、IoU 和 polygon 转 OBB。
 - `evaluation/matching.py`：`DetectionMatcher` 和 `ErrorSelector`，负责匹配、筛错、选择下一轮样本。
+- `evaluation/metrics.py`：`DetectionMetrics` 和 `compute_detection_metrics`，负责把匹配结果汇总为 TP/FP/FN、precision、recall、F1、mIoU，并写入每轮 `summary.json` 的 `metrics` 字段。
 - `native/adapter.py`：task prompt、prompt adapter、冻结/解冻策略和 EfficientSAM3 原生 wrapper。
 - `native/loss.py`：`NativeLossFactory`，封装 SAM3 原生 matcher/loss。
 - `native/predictor.py`：`NativePredictor`，把 SAM3 原生输出转成项目 `Prediction`。

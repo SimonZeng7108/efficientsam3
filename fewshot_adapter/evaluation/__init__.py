@@ -10,14 +10,17 @@ from .matching import (
     greedy_match_predictions,
     select_next_training_sample,
 )
+from .metrics import DetectionMetrics, compute_detection_metrics
 
 __all__ = [
     "DetectionMatcher",
+    "DetectionMetrics",
     "ErrorItem",
     "ErrorSelector",
     "Match",
     "box_iou",
     "build_error_queue",
+    "compute_detection_metrics",
     "greedy_match_predictions",
     "select_next_training_sample",
 ]

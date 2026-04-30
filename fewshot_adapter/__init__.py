@@ -42,11 +42,13 @@ from .data import (
 )
 from .evaluation import (
     DetectionMatcher,
+    DetectionMetrics,
     ErrorItem,
     ErrorSelector,
     Match,
     box_iou,
     build_error_queue,
+    compute_detection_metrics,
     greedy_match_predictions,
     select_next_training_sample,
 )
@@ -79,6 +81,7 @@ __all__ = [
     "AnnotationJsonIO",
     "DataTrainDataset",
     "DetectionMatcher",
+    "DetectionMetrics",
     "ErrorItem",
     "ErrorSelector",
     "GeometryOps",
@@ -108,6 +111,7 @@ __all__ = [
     "build_native_fewshot_model",
     "build_native_loss",
     "build_sam3_training_batch",
+    "compute_detection_metrics",
     "create_initial_train_set",
     "freeze_for_fewshot",
     "greedy_match_predictions",

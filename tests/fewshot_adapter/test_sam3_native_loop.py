@@ -2,7 +2,7 @@
 
 from fewshot_adapter.data.models import Annotation, HBB
 from fewshot_adapter.evaluation.matching import ErrorItem
-from fewshot_adapter.native.trainer import _resolve_label, add_selected_image_truth
+from fewshot_adapter.native.trainer import _compute_round_metrics, _resolve_label, add_selected_image_truth
 
 
 def test_add_selected_image_truth_adds_gt_for_false_positive_image():
@@ -47,3 +47,21 @@ def test_resolve_label_requires_explicit_label_for_multiclass_data():
         assert "--label" in str(exc)
     else:
         raise AssertionError("expected multi-class data to require an explicit label")
+
+
+def test_compute_round_metrics_filters_to_target_label():
+    """每轮 summary 指标只评估当前目标类别，避免其他类别污染 recall。"""
+    metrics = _compute_round_metrics(
+        full_ground_truth=[
+            Annotation("target.jpg", "target_1", "target", "hbb", hbb=HBB(0, 0, 10, 10)),
+            Annotation("other.jpg", "other_1", "other", "hbb", hbb=HBB(0, 0, 10, 10)),
+        ],
+        predictions=[],
+        target_label="target",
+        iou_threshold=0.5,
+        iou_mode="hbb",
+    )
+
+    assert metrics["ground_truth_count"] == 1
+    assert metrics["prediction_count"] == 0
+    assert metrics["fn"] == 1

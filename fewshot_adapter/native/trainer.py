@@ -12,10 +12,11 @@ from pathlib import Path
 from typing import Any
 
 from ..data.json_io import load_annotations, save_annotations, save_error_queue, save_predictions
-from ..data.models import Annotation
+from ..data.models import Annotation, Prediction
 from ..data.sam3_batch import build_sam3_training_batch, group_annotations_by_image, load_image_batch
 from ..data.sampling import add_selected_errors_to_train_set, create_initial_train_set
 from ..evaluation.matching import build_error_queue, select_next_training_sample
+from ..evaluation.metrics import compute_detection_metrics
 from ..utils.torch import require_torch
 from .adapter import NativeAdapterConfig, build_native_fewshot_model, save_native_adapter
 from .loss import NativeLossConfig, build_native_loss
@@ -135,11 +136,19 @@ def run_native_fewshot_loop(
         errors_path = round_dir / "errors.json"
         next_train_path = round_dir / "next_train.json"
         save_predictions(predictions_path, predictions)
+        target_ground_truth = _filter_ground_truth_by_label(full_ground_truth, target_label)
         errors = build_error_queue(
-            ground_truths=full_ground_truth,
+            ground_truths=target_ground_truth,
             predictions=predictions,
             iou_threshold=config.iou_threshold,
             localization_error_threshold=config.localization_error_threshold,
+            iou_mode=config.iou_mode,
+        )
+        metrics = _compute_round_metrics(
+            full_ground_truth=full_ground_truth,
+            predictions=predictions,
+            target_label=target_label,
+            iou_threshold=config.iou_threshold,
             iou_mode=config.iou_mode,
         )
         selected = select_next_training_sample(errors)
@@ -165,6 +174,7 @@ def run_native_fewshot_loop(
             "train_count": len(current_train),
             "prediction_count": len(predictions),
             "error_count": len(errors),
+            "metrics": metrics,
             "selected_image_id": None if selected is None else selected.image_id,
             "adapter": str(adapter_path),
             "predictions": str(predictions_path),
@@ -303,6 +313,32 @@ def add_selected_image_truth(
         next_train.append(annotation)
         existing_ids.add(annotation.object_id)
     return next_train
+
+
+def _compute_round_metrics(
+    *,
+    full_ground_truth: list[Annotation],
+    predictions: list[Prediction],
+    target_label: str,
+    iou_threshold: float,
+    iou_mode: str,
+) -> dict[str, float | int]:
+    """计算每轮 summary 中展示的检测指标。"""
+    return compute_detection_metrics(
+        ground_truths=full_ground_truth,
+        predictions=predictions,
+        label=target_label,
+        iou_threshold=iou_threshold,
+        iou_mode=iou_mode,
+    ).to_dict()
+
+
+def _filter_ground_truth_by_label(
+    ground_truths: list[Annotation],
+    label: str,
+) -> list[Annotation]:
+    """闭环当前只训练一个目标类，错误队列也应只评估该类。"""
+    return [ground_truth for ground_truth in ground_truths if ground_truth.label == label]
 
 
 def _build_inference_find_stage(*, batch_size: int, torch: Any, device: str) -> Any:

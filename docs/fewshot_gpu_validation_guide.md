@@ -160,6 +160,7 @@ runs/native_fewshot_smoke/
 - `round_00/errors.json` 是否生成。
 - 根目录 `summary.json` 是否能打开。
 - `summary.json` 里的 `last_loss.core_loss` 是否是有限数值，不应为 `NaN` 或 `inf`。
+- `summary.json` 里的 `metrics.precision`、`metrics.recall`、`metrics.f1`、`metrics.miou` 是否符合直觉。
 
 快速查看每轮摘要：
 
@@ -248,13 +249,18 @@ round_00/
 - `rounds[].train_count`：本轮训练目标数量。
 - `rounds[].prediction_count`：本轮全量预测数量。
 - `rounds[].error_count`：本轮错误数量。
+- `rounds[].metrics.tp/fp/fn`：当前目标类别的匹配成功数、误检数、漏检数。
+- `rounds[].metrics.precision`：`TP / (TP + FP)`。
+- `rounds[].metrics.recall`：`TP / (TP + FN)`。
+- `rounds[].metrics.f1`：precision 和 recall 的调和平均。
+- `rounds[].metrics.miou`：所有 TP 匹配 IoU 的平均值；没有 TP 时为 `0.0`。
 - `rounds[].selected_image_id`：自动选入下一轮的错误图片。
 - `rounds[].last_loss`：最后一步 loss 字典。
 
-快速打印每轮错误数：
+快速打印每轮错误数和指标：
 
 ```powershell
-python -c "import json; s=json.load(open('runs/native_fewshot_baseline/summary.json', encoding='utf-8')); [print(r['round'], 'train=', r['train_count'], 'pred=', r['prediction_count'], 'err=', r['error_count'], 'next=', r['selected_image_id']) for r in s['rounds']]"
+python -c "import json; s=json.load(open('runs/native_fewshot_baseline/summary.json', encoding='utf-8')); [print(r['round'], 'train=', r['train_count'], 'pred=', r['prediction_count'], 'err=', r['error_count'], 'P=', round(r['metrics']['precision'], 4), 'R=', round(r['metrics']['recall'], 4), 'F1=', round(r['metrics']['f1'], 4), 'mIoU=', round(r['metrics']['miou'], 4), 'next=', r['selected_image_id']) for r in s['rounds']]"
 ```
 
 判断是否值得继续：
@@ -364,6 +370,7 @@ iou_threshold：
 是否 train_bbox_embed：
 是否 train_decoder_cross_attention：
 每轮 error_count：
+每轮 precision / recall / F1 / mIoU：
 主要失败类型：
 结论：
 ```
