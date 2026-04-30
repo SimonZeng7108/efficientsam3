@@ -1,0 +1,75 @@
+# EfficientSAM3-S 少样本目标检测闭环默认配置。
+# 参数默认值尽量贴近 SAM3 官方 detection fine-tune / eval 配置。
+
+DATA:
+  # 原始数据入口；转换阶段使用。
+  DATATRAIN: dataset/DataTrain.txt
+  IMAGE_DIR: dataset/images
+  OUTPUT_DIR: dataset_json
+
+  # 训练阶段使用；通常由 convert_datatrain 生成。
+  FULL_GROUND_TRUTH: dataset_json/full_gt.json
+  IMAGE_MAP: dataset_json/image_map.json
+
+  # SAM3 / EfficientSAM3 官方图像分辨率。
+  IMG_SIZE: 1008
+
+MODEL:
+  CHECKPOINT: sam3_checkpoints/efficient_sam3_efficientvit_s.pt
+  BACKBONE_TYPE: efficientvit
+  MODEL_NAME: b0
+  DEVICE: cuda
+
+  # 默认先走 box/class/presence，便于快速 smoke test。
+  # 如果要训练粗 mask 并由 mask 拟合真实 OBB，请同时设置：
+  # MODEL.ENABLE_SEGMENTATION=true 与 LOSS.USE_MASKS=true。
+  ENABLE_SEGMENTATION: false
+
+ADAPTER:
+  NUM_PROMPT_TOKENS: 8
+  PROMPT_DIM: 256
+  PROMPT_ADAPTER_DIM: 64
+  PROMPT_INIT_STD: 0.02
+  TRAIN_DOT_PROD_SCORING: true
+  TRAIN_BBOX_EMBED: false
+  TRAIN_DECODER_CROSS_ATTENTION: false
+
+TRAIN:
+  OUTPUT_ROOT: runs/native_fewshot
+  SEED: 0
+  MAX_ROUNDS: 10
+  STEPS_PER_ROUND: 80
+
+  # 官方 transformer LR 为 8e-4 * lr_scale 0.1；少样本 adapter 先用更稳的 8e-5。
+  LEARNING_RATE: 0.00008
+  WEIGHT_DECAY: 0.1
+
+EVAL:
+  LABEL: obj
+  SCORE_THRESHOLD: 0.3
+  IOU_THRESHOLD: 0.5
+  LOCALIZATION_ERROR_THRESHOLD: 0.1
+  IOU_MODE: hbb
+
+LOSS:
+  COST_CLASS: 2.0
+  COST_BBOX: 5.0
+  COST_GIOU: 2.0
+  LOSS_CE: 20.0
+  LOSS_BBOX: 5.0
+  LOSS_GIOU: 2.0
+  PRESENCE_LOSS: 20.0
+  POS_WEIGHT: 10.0
+  ALPHA: 0.25
+  GAMMA: 2.0
+  USE_PRESENCE: true
+  O2M_WEIGHT: 2.0
+  O2M_MATCHER_ALPHA: 0.3
+  O2M_MATCHER_THRESHOLD: 0.4
+  O2M_MATCHER_TOPK: 4
+  USE_O2M_MATCHER_ON_O2M_AUX: false
+  # true 时会把 HBB/OBB/Polygon 标注栅格化为粗 mask，并接入 SAM3 官方 Masks loss。
+  # 注意：开启后必须同步打开 MODEL.ENABLE_SEGMENTATION。
+  USE_MASKS: false
+  LOSS_MASK: 200.0
+  LOSS_DICE: 10.0
