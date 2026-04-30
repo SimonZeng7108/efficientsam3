@@ -330,7 +330,7 @@ total_loss =
 - SAM3 原生 `pred_logits` 转换后的目标置信度。
 - SAM3 原生 `pred_boxes` 转换后的像素 HBB。
 - 可选 `pred_masks` 后处理得到的 mask / polygon。
-- 开启 segmentation + mask loss 时，由预测 mask 的凸包拟合 OBB；没有 mask 或 mask 为空时，才回退到 HBB 派生的 angle=0 OBB 兼容字段。
+- 开启 segmentation + mask loss 时，由预测 mask 的最大连通域凸包拟合 OBB；没有 mask 或 mask 为空时，才回退到 HBB 派生的 angle=0 OBB 兼容字段。
 - 风险标记和错误类型。
 
 当前 MVP 默认走“完整 EfficientSAM3 -> task visual prompt / adapter -> SAM3 原生 decoder 输出”的路径。旧的 `proposal_candidates.json` / 外置 head 实现已经从代码中清理，不再是产品验证主线。每轮训练后直接对全量图片执行原生前向，预测结果写入 `predictions.json`，再由真值匹配模块筛选漏检、误检和定位错误。

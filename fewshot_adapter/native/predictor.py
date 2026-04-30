@@ -81,7 +81,7 @@ def tensor_box_to_hbb(
 
 def record_to_prediction(record: NativePredictionRecord) -> Prediction:
     """把原生预测记录转成项目公共 `Prediction`。"""
-    # 这里的 OBB 只是 HBB 的 angle=0 兼容字段，不代表已经具备真实旋转框预测能力。
+    # 有 mask 时 record.obb 来自 mask 后处理；无 mask 时才补 angle=0 兼容字段。
     obb = record.obb or hbb_to_zero_angle_obb(record.hbb)
     return Prediction(
         image_id=record.image_id,
@@ -98,7 +98,7 @@ def record_to_prediction(record: NativePredictionRecord) -> Prediction:
 def hbb_to_zero_angle_obb(hbb: HBB) -> OBB:
     """把水平框转成 angle=0 的 OBB 基线。
 
-    这是为了统一输出结构；真实 OBB 仍需后续由 mask/polygon 拟合或增加旋转框分支。
+    这是为了统一输出结构；真实旋转框优先由 `pred_masks` 后处理得到。
     """
     width = max(0.0, float(hbb.x2) - float(hbb.x1))
     height = max(0.0, float(hbb.y2) - float(hbb.y1))
@@ -271,6 +271,7 @@ def _sigmoid_array(values: np.ndarray) -> np.ndarray:
 
 
 def _binary_mask_to_shape(mask: np.ndarray) -> MaskShape | None:
+    mask = _largest_connected_component(mask)
     ys, xs = np.nonzero(mask)
     if len(xs) == 0:
         return None
@@ -321,3 +322,56 @@ def _cross(origin: Point, left: Point, right: Point) -> float:
         (left[0] - origin[0]) * (right[1] - origin[1])
         - (left[1] - origin[1]) * (right[0] - origin[0])
     )
+
+
+def _largest_connected_component(mask: np.ndarray) -> np.ndarray:
+    """只保留最大 8 邻域连通域，降低 mask 噪点对 OBB 的影响。"""
+    binary = np.asarray(mask, dtype=bool)
+    if not binary.any():
+        return binary
+
+    height, width = binary.shape
+    visited = np.zeros_like(binary, dtype=bool)
+    best_component: list[tuple[int, int]] = []
+    for start_y, start_x in zip(*np.nonzero(binary)):
+        if visited[start_y, start_x]:
+            continue
+        component = _collect_component(
+            binary,
+            visited,
+            start_y=int(start_y),
+            start_x=int(start_x),
+            width=width,
+            height=height,
+        )
+        if len(component) > len(best_component):
+            best_component = component
+
+    output = np.zeros_like(binary, dtype=bool)
+    for y, x in best_component:
+        output[y, x] = True
+    return output
+
+
+def _collect_component(
+    binary: np.ndarray,
+    visited: np.ndarray,
+    *,
+    start_y: int,
+    start_x: int,
+    width: int,
+    height: int,
+) -> list[tuple[int, int]]:
+    stack = [(start_y, start_x)]
+    visited[start_y, start_x] = True
+    component: list[tuple[int, int]] = []
+    while stack:
+        y, x = stack.pop()
+        component.append((y, x))
+        for next_y in range(max(0, y - 1), min(height, y + 2)):
+            for next_x in range(max(0, x - 1), min(width, x + 2)):
+                if visited[next_y, next_x] or not binary[next_y, next_x]:
+                    continue
+                visited[next_y, next_x] = True
+                stack.append((next_y, next_x))
+    return component

@@ -333,7 +333,7 @@ python -c "import json; s=json.load(open('runs/native_fewshot_baseline/summary.j
 
 - 在 YAML 中设置 `MODEL.ENABLE_SEGMENTATION=true` 和 `LOSS.USE_MASKS=true`。
 - 训练时由 HBB/OBB/Polygon 标注生成粗 mask target，同时保留 box loss。
-- 推理时如果 `pred_masks` 存在，会从二值 mask 提取凸包并拟合最小外接旋转矩形，写入 `predictions.json` 的 `obb` 和 `polygon` 字段。
+- 推理时如果 `pred_masks` 存在，会先保留最大连通域，再从二值 mask 提取凸包并拟合最小外接旋转矩形，写入 `predictions.json` 的 `obb` 和 `polygon` 字段。
 - 如果某条预测 mask 为空或模型未输出 mask，该条预测会回退到 HBB 的 angle=0 OBB；检查 `predictions.json` 里 `obb.angle` 是否大量为 0，可以快速判断是否真的走到了 mask OBB 路线。
 
 ## 7. 常见问题

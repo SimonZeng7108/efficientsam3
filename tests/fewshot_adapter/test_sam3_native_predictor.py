@@ -87,3 +87,35 @@ def test_native_outputs_to_predictions_fits_obb_from_predicted_mask():
     assert len(predictions) == 1
     assert predictions[0].obb is not None
     assert abs(predictions[0].obb.angle) > 1.0
+
+
+def test_native_outputs_to_predictions_ignores_small_disconnected_mask_noise():
+    """mask 拟合 OBB 前应过滤远处小噪点，避免旋转框被异常拉大。"""
+    mask = [
+        [1, 1, 0, 0, 0, 0],
+        [1, 1, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 1],
+    ]
+    outputs = {
+        "pred_boxes": [[[0.5, 0.5, 1.0, 1.0]]],
+        "pred_logits": [[[4.0]]],
+        "pred_masks": [[mask]],
+    }
+
+    predictions = native_outputs_to_predictions(
+        outputs,
+        image_ids=["img.jpg"],
+        original_sizes=[(6, 6)],
+        label="target",
+        score_threshold=0.5,
+    )
+
+    assert len(predictions) == 1
+    assert predictions[0].obb is not None
+    assert predictions[0].obb.cx < 2.0
+    assert predictions[0].obb.cy < 2.0
+    assert predictions[0].obb.w <= 2.5
+    assert predictions[0].obb.h <= 2.5

@@ -82,7 +82,7 @@ build_efficientsam3_image_model(
 4. 将 `pred_logits.sigmoid()` 与 presence score 合并成最终置信度。
 5. 过滤低分预测，归一化 box 转原图像素坐标。
 6. 如果输出 `pred_masks`，二值化并 resize 到原图尺寸。
-7. 根据 mask 凸包拟合 OBB；没有 mask 时回退到 HBB 的 angle=0 兼容 OBB。
+7. 根据 mask 最大连通域凸包拟合 OBB；没有 mask 时回退到 HBB 的 angle=0 兼容 OBB。
 8. 写出 `predictions.json`，供现有错误筛选模块使用。
 
 ## 自动闭环

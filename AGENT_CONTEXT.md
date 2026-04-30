@@ -423,7 +423,7 @@ SAM 风格 prompt encoder 和 mask decoder 组件：
 - `evaluation/metrics.py`：`DetectionMetrics` 和 `compute_detection_metrics`，负责把匹配结果汇总为 TP/FP/FN、precision、recall、F1、mIoU，并写入每轮 `summary.json` 的 `metrics` 字段。
 - `native/adapter.py`：task prompt、prompt adapter、冻结/解冻策略和 EfficientSAM3 原生 wrapper。
 - `native/loss.py`：`NativeLossFactory`，封装 SAM3 原生 matcher/loss；注意 EfficientSAM3 训练态 DAC decoder 会输出 one-to-many 分支，因此这里同时配置 o2o `BinaryHungarianMatcherV2` 和 o2m `BinaryOneToManyMatcher`。`LOSS.USE_MASKS=true` 会额外加入 SAM3 官方 `Masks` loss。
-- `native/predictor.py`：`NativePredictor`，把 SAM3 原生输出转成项目 `Prediction`；如果有 `pred_masks`，会由二值 mask 凸包拟合旋转 OBB，没有 mask 时回退到 HBB 的 angle=0 兼容 OBB。
+- `native/predictor.py`：`NativePredictor`，把 SAM3 原生输出转成项目 `Prediction`；如果有 `pred_masks`，会先保留最大连通域，再由二值 mask 凸包拟合旋转 OBB，没有 mask 时回退到 HBB 的 angle=0 兼容 OBB。
 - `native/trainer.py`：`NativeFewShotTrainer`，完整多轮自动训练、推理、筛错、补样本闭环；训练时会打印可微调模块、每轮/step loss、学习率、评估指标和下一轮选样。
 - `config/fewshot.py`：`FewShotExperimentConfig`，读取少样本 YAML，映射为 `NativeFewShotLoopConfig` / `NativeAdapterConfig` / `NativeLossConfig`，并保存 `resolved_config.yaml`。
 - `configs/efficient_sam3_efficientvit_s_fewshot.yaml`：推荐默认配置，参数尽量对齐 SAM3 官方 detection fine-tune / eval 口径。
@@ -470,7 +470,7 @@ GPU 验证时优先看 `docs/fewshot_gpu_validation_guide.md`。第一步先跑 
 - 单轮训练会按训练图片缓存 SAM3 batch，减少重复读图和 GPU 拷贝。
 - 训练 loss 出现 NaN/inf 会直接报错。
 - 已支持粗 mask target + SAM3 官方 mask loss；开启时必须同步打开 `MODEL.ENABLE_SEGMENTATION=true`。
-- 预测 OBB 会优先由 `pred_masks` 拟合；仅在没有 mask 或 mask 为空时使用 angle=0 的 HBB 兼容字段。
+- 预测 OBB 会优先由 `pred_masks` 的最大连通域拟合；仅在没有 mask 或 mask 为空时使用 angle=0 的 HBB 兼容字段。
 
 ## 容易踩坑的地方
 
