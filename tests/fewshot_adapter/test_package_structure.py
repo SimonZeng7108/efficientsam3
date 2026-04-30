@@ -8,6 +8,7 @@ from fewshot_adapter.evaluation.matching import DetectionMatcher, ErrorSelector
 from fewshot_adapter.geometry.ops import GeometryOps
 from fewshot_adapter.native.loss import NativeLossFactory
 from fewshot_adapter.native.predictor import NativePredictor
+from fewshot_adapter.visualization import RoundVisualizationOutputs
 
 
 def test_datatrain_dataset_saves_native_training_inputs(tmp_path):
@@ -37,3 +38,4 @@ def test_high_level_classes_are_importable():
     assert GeometryOps is not None
     assert NativeLossFactory is not None
     assert NativePredictor is not None
+    assert RoundVisualizationOutputs is not None

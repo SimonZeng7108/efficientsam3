@@ -166,6 +166,9 @@ runs/native_fewshot_smoke/
     errors.json
     next_train.json
     summary.json
+    train_inputs/
+    errors_vis/
+    predictions_vis/
 ```
 
 重点检查：
@@ -173,6 +176,9 @@ runs/native_fewshot_smoke/
 - `round_00/adapter.pt` 是否生成。
 - `round_00/predictions.json` 是否生成。
 - `round_00/errors.json` 是否生成。
+- `round_00/train_inputs/` 是否能看到本轮训练输入图片和绿色真值框。
+- `round_00/errors_vis/` 是否能看到筛选出来的错误图片、绿色真值框、红色预测框和错误类型。
+- `round_00/predictions_vis/` 是否覆盖了全量图片；无预测的背景图也应保存原图。
 - `resolved_config.yaml` 是否保存了最终生效配置。
 - 根目录 `summary.json` 是否能打开。
 - `summary.json` 里的 `last_loss.core_loss` 是否是有限数值，不应为 `NaN` 或 `inf`。
@@ -230,6 +236,12 @@ round_00/
   errors.json
   next_train.json
   summary.json
+  train_inputs/
+    xxx_gt.jpg
+  errors_vis/
+    xxx_error.jpg
+  predictions_vis/
+    xxx_pred.jpg
 ```
 
 文件含义：
@@ -240,6 +252,9 @@ round_00/
 - `errors.json`：根据全量真值自动筛出的错误队列。
 - `next_train.json`：下一轮训练集。
 - `summary.json`：本轮统计信息。
+- `train_inputs/`：本轮实际输入训练的图片；有真值时画绿色真值框或 polygon，背景图则保存原图。
+- `errors_vis/`：本轮错误队列涉及的图片；绿色是真值，红色是预测，左上角写错误类型和风险分数。
+- `predictions_vis/`：全量图片检测结果；每张 `image_map.json` 里的图片都会输出一张，没检测到目标时就是原图。
 
 根目录 `summary.json` 里最重要的是：
 
@@ -252,6 +267,9 @@ round_00/
 - `rounds[].metrics.f1`：precision 和 recall 的调和平均。
 - `rounds[].metrics.miou`：所有 TP 匹配 IoU 的平均值；没有 TP 时为 `0.0`。
 - `rounds[].selected_image_id`：自动选入下一轮的错误图片。
+- `rounds[].train_inputs`：本轮训练输入可视化目录。
+- `rounds[].errors_vis`：本轮错误图片可视化目录。
+- `rounds[].predictions_vis`：本轮全量检测结果可视化目录。
 - `rounds[].last_loss`：最后一步 loss 字典。
 
 快速打印每轮错误数和指标：

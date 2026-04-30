@@ -30,11 +30,14 @@ EfficientSAM3 是一个研究型代码库，目标是通过“渐进式分层知
 - `fewshot_adapter/geometry/`：polygon/OBB 面积、IoU 和 polygon 转 OBB。
 - `fewshot_adapter/evaluation/`：预测与真值匹配、precision / recall / F1 / mIoU 指标、错误队列生成、下一轮样本选择。
 - `fewshot_adapter/native/`：EfficientSAM3 task prompt / adapter、原生 loss、预测后处理、自动闭环训练。
+- `fewshot_adapter/visualization/`：每轮调试图片输出；在 `round_xx/train_inputs`、`round_xx/errors_vis`、`round_xx/predictions_vis` 中画训练输入真值、错误样本和全量预测结果。
 - `fewshot_adapter/cli/`：命令行实现层。
 - `fewshot_adapter/convert_datatrain.py`：兼容入口，内部转发到 `fewshot_adapter.cli.convert_datatrain`。
 - `fewshot_adapter/train_native_efficientsam3_fewshot.py`：兼容入口，内部转发到 `fewshot_adapter.cli.train_native`。
 - `docs/superpowers/specs/2026-04-29-native-efficientsam3-fewshot-design.md`：本次原生重构规格。
 - `docs/superpowers/plans/2026-04-29-native-efficientsam3-fewshot-refactor.md`：本次原生重构实施计划。
+- `docs/superpowers/specs/2026-04-30-round-visualization-output-design.md`：每轮可视化输出规格。
+- `docs/superpowers/plans/2026-04-30-round-visualization-output.md`：每轮可视化输出实施计划。
 - `docs/fewshot_gpu_validation_guide.md`：后续在 GPU 机器上验证少样本闭环的命令、输出检查和常见问题排查。
 
 旧的 proposal、候选特征、prototype head、外置 torch head 相关文件已经删除，避免后续智能体误走旧路线。

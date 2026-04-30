@@ -18,6 +18,7 @@ from ..data.sampling import add_selected_errors_to_train_set, create_initial_tra
 from ..evaluation.matching import build_error_queue, select_next_training_sample
 from ..evaluation.metrics import compute_detection_metrics
 from ..utils.torch import require_torch
+from ..visualization.round_outputs import render_round_visualizations
 from .adapter import NativeAdapterConfig, build_native_fewshot_model, save_native_adapter
 from .loss import NativeLossConfig, build_native_loss
 from .predictor import native_outputs_to_predictions
@@ -174,6 +175,14 @@ def run_native_fewshot_loop(
                 label=target_label,
             )
         save_annotations(next_train_path, next_train)
+        visual_outputs = _render_round_visual_outputs(
+            round_dir=round_dir,
+            image_map=image_map,
+            current_train=current_train,
+            full_ground_truth=full_ground_truth,
+            predictions=predictions,
+            errors=errors,
+        )
 
         summary = {
             "round": round_index,
@@ -186,6 +195,7 @@ def run_native_fewshot_loop(
             "predictions": str(predictions_path),
             "errors": str(errors_path),
             "next_train": str(next_train_path),
+            **visual_outputs,
             "last_loss": train_history[-1] if train_history else None,
         }
         _write_json(round_dir / "summary.json", summary)
@@ -337,6 +347,27 @@ def _compute_round_metrics(
         iou_threshold=iou_threshold,
         iou_mode=iou_mode,
     ).to_dict()
+
+
+def _render_round_visual_outputs(
+    *,
+    round_dir: str | Path,
+    image_map: dict[str, str],
+    current_train: list[Annotation],
+    full_ground_truth: list[Annotation],
+    predictions: list[Prediction],
+    errors: list[Any],
+) -> dict[str, str]:
+    """渲染当前轮图片并返回可写入 summary 的目录路径。"""
+    outputs = render_round_visualizations(
+        round_dir=round_dir,
+        image_map=image_map,
+        train_annotations=current_train,
+        full_ground_truth=full_ground_truth,
+        predictions=predictions,
+        errors=errors,
+    )
+    return outputs.to_summary_dict()
 
 
 def _filter_ground_truth_by_label(

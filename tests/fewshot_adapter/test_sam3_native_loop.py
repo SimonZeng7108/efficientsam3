@@ -1,8 +1,15 @@
 """测试 EfficientSAM3 原生闭环的训练集更新辅助逻辑。"""
 
+from PIL import Image
+
 from fewshot_adapter.data.models import Annotation, HBB
 from fewshot_adapter.evaluation.matching import ErrorItem
-from fewshot_adapter.native.trainer import _compute_round_metrics, _resolve_label, add_selected_image_truth
+from fewshot_adapter.native.trainer import (
+    _compute_round_metrics,
+    _render_round_visual_outputs,
+    _resolve_label,
+    add_selected_image_truth,
+)
 
 
 def test_add_selected_image_truth_adds_gt_for_false_positive_image():
@@ -65,3 +72,23 @@ def test_compute_round_metrics_filters_to_target_label():
     assert metrics["ground_truth_count"] == 1
     assert metrics["prediction_count"] == 0
     assert metrics["fn"] == 1
+
+
+def test_render_round_visual_outputs_returns_summary_paths(tmp_path):
+    """训练器层要把本轮可视化目录写进 round summary。"""
+    image_path = tmp_path / "target.jpg"
+    Image.new("RGB", (48, 48), "white").save(image_path)
+    annotation = Annotation("target.jpg", "target_1", "target", "hbb", hbb=HBB(5, 5, 20, 20))
+
+    summary_paths = _render_round_visual_outputs(
+        round_dir=tmp_path / "round_00",
+        image_map={"target.jpg": str(image_path)},
+        current_train=[annotation],
+        full_ground_truth=[annotation],
+        predictions=[],
+        errors=[],
+    )
+
+    assert set(summary_paths) == {"train_inputs", "errors_vis", "predictions_vis"}
+    assert (tmp_path / "round_00" / "train_inputs" / "target.jpg_gt.jpg").is_file()
+    assert (tmp_path / "round_00" / "predictions_vis" / "target.jpg_pred.jpg").is_file()
