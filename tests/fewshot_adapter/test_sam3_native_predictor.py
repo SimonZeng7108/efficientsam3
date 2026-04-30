@@ -58,3 +58,32 @@ def test_native_outputs_to_predictions_handles_batched_logits_lists():
     assert len(predictions) == 1
     assert predictions[0].prediction_id == "img.jpg:0000"
     assert predictions[0].hbb == HBB(25.0, 25.0, 75.0, 75.0)
+
+
+def test_native_outputs_to_predictions_fits_obb_from_predicted_mask():
+    """存在 pred_masks 时，产品 OBB 应来自 mask 形状，而不是 HBB 的 angle=0 占位框。"""
+    mask = [
+        [1, 1, 0, 0, 0, 0],
+        [1, 1, 1, 0, 0, 0],
+        [0, 1, 1, 1, 0, 0],
+        [0, 0, 1, 1, 1, 0],
+        [0, 0, 0, 1, 1, 1],
+        [0, 0, 0, 0, 1, 1],
+    ]
+    outputs = {
+        "pred_boxes": [[[0.5, 0.5, 1.0, 1.0]]],
+        "pred_logits": [[[4.0]]],
+        "pred_masks": [[mask]],
+    }
+
+    predictions = native_outputs_to_predictions(
+        outputs,
+        image_ids=["img.jpg"],
+        original_sizes=[(6, 6)],
+        label="target",
+        score_threshold=0.5,
+    )
+
+    assert len(predictions) == 1
+    assert predictions[0].obb is not None
+    assert abs(predictions[0].obb.angle) > 1.0

@@ -19,6 +19,7 @@ from .json_io import (
     save_predictions,
     save_training_samples,
 )
+from .masks import annotation_to_mask
 from .models import (
     HBB,
     OBB,
@@ -69,6 +70,7 @@ __all__ = [
     "add_selected_errors_to_training_samples",
     "annotations_to_training_samples",
     "annotation_to_target_box",
+    "annotation_to_mask",
     "build_image_map",
     "build_sam3_training_batch",
     "build_sam3_training_batch_from_samples",

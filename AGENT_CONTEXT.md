@@ -415,14 +415,15 @@ SAM 风格 prompt encoder 和 mask decoder 组件：
 - `data/models.py`：统一 HBB、OBB、polygon、mask 标注和预测结构；`TrainingSample` 表示图片级训练样本，支持 positive 和 no-object negative。
 - `data/datatrain.py`：`DataTrainDataset`，解析 `DataTrain.txt`，支持 `Version 1.0.0` 文件头、`图片名:数量`、`P:4/R:4` 四点标注和无目标占位过滤，构建 `image_map`，保存 `full_gt.json` / `image_map.json`。
 - `data/json_io.py`：`AnnotationJsonIO`，读取/保存标注、预测、错误队列和图片级训练样本 JSON。
+- `data/masks.py`：把 HBB/OBB/Polygon 标注按训练分辨率栅格化为粗 mask target，用于 SAM3 官方 mask loss。
 - `data/sampling.py`：`InitialTrainSelector` 和 `TrainSetUpdater`，负责第 0 轮样本选择、增量正样本更新和纯背景误检 hard negative 更新。
-- `data/sam3_batch.py`：`Sam3BatchBuilder`，把图片和 `TrainingSample` 转成 SAM3 原生 batch / target；负样本会生成 `num_boxes=0`。
+- `data/sam3_batch.py`：`Sam3BatchBuilder`，把图片和 `TrainingSample` 转成 SAM3 原生 batch / target；负样本会生成 `num_boxes=0`；开启 `LOSS.USE_MASKS` 时会填充 `segments/is_valid_segment`。
 - `geometry/ops.py`：`GeometryOps`，polygon/OBB 面积、IoU 和 polygon 转 OBB。
 - `evaluation/matching.py`：`DetectionMatcher` 和 `ErrorSelector`，负责匹配、筛错、选择下一轮样本。
 - `evaluation/metrics.py`：`DetectionMetrics` 和 `compute_detection_metrics`，负责把匹配结果汇总为 TP/FP/FN、precision、recall、F1、mIoU，并写入每轮 `summary.json` 的 `metrics` 字段。
 - `native/adapter.py`：task prompt、prompt adapter、冻结/解冻策略和 EfficientSAM3 原生 wrapper。
-- `native/loss.py`：`NativeLossFactory`，封装 SAM3 原生 matcher/loss；注意 EfficientSAM3 训练态 DAC decoder 会输出 one-to-many 分支，因此这里同时配置 o2o `BinaryHungarianMatcherV2` 和 o2m `BinaryOneToManyMatcher`。当前 DataTrain 管线还不生成 mask target，所以 `LOSS.USE_MASKS=true` 会被清晰拒绝。
-- `native/predictor.py`：`NativePredictor`，把 SAM3 原生输出转成项目 `Prediction`。
+- `native/loss.py`：`NativeLossFactory`，封装 SAM3 原生 matcher/loss；注意 EfficientSAM3 训练态 DAC decoder 会输出 one-to-many 分支，因此这里同时配置 o2o `BinaryHungarianMatcherV2` 和 o2m `BinaryOneToManyMatcher`。`LOSS.USE_MASKS=true` 会额外加入 SAM3 官方 `Masks` loss。
+- `native/predictor.py`：`NativePredictor`，把 SAM3 原生输出转成项目 `Prediction`；如果有 `pred_masks`，会由二值 mask 凸包拟合旋转 OBB，没有 mask 时回退到 HBB 的 angle=0 兼容 OBB。
 - `native/trainer.py`：`NativeFewShotTrainer`，完整多轮自动训练、推理、筛错、补样本闭环；训练时会打印可微调模块、每轮/step loss、学习率、评估指标和下一轮选样。
 - `config/fewshot.py`：`FewShotExperimentConfig`，读取少样本 YAML，映射为 `NativeFewShotLoopConfig` / `NativeAdapterConfig` / `NativeLossConfig`，并保存 `resolved_config.yaml`。
 - `configs/efficient_sam3_efficientvit_s_fewshot.yaml`：推荐默认配置，参数尽量对齐 SAM3 官方 detection fine-tune / eval 口径。
@@ -468,7 +469,8 @@ GPU 验证时优先看 `docs/fewshot_gpu_validation_guide.md`。第一步先跑 
 - 错误匹配按 `(image_id, label)` 分组，避免大数据量时全量交叉遍历。
 - 单轮训练会按训练图片缓存 SAM3 batch，减少重复读图和 GPU 拷贝。
 - 训练 loss 出现 NaN/inf 会直接报错。
-- 预测 OBB 已在代码和文档中明确为 angle=0 基线，不是真实旋转框能力。
+- 已支持粗 mask target + SAM3 官方 mask loss；开启时必须同步打开 `MODEL.ENABLE_SEGMENTATION=true`。
+- 预测 OBB 会优先由 `pred_masks` 拟合；仅在没有 mask 或 mask 为空时使用 angle=0 的 HBB 兼容字段。
 
 ## 容易踩坑的地方
 

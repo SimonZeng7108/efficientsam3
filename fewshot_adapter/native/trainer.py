@@ -95,6 +95,8 @@ def run_native_fewshot_loop(
     log_fn: LogFn | None = print,
 ) -> dict[str, Any]:
     """执行完整 EfficientSAM3 原生少样本闭环。"""
+    resolved_loss_config = loss_config or NativeLossConfig()
+    _validate_mask_training_config(config=config, loss_config=resolved_loss_config)
     torch = require_torch()
     from sam3.model.model_misc import SAM3Output
 
@@ -120,7 +122,7 @@ def run_native_fewshot_loop(
         model_name=config.model_name,
         enable_segmentation=config.enable_segmentation,
     )
-    loss_fn = build_native_loss(loss_config)
+    loss_fn = build_native_loss(resolved_loss_config)
     optimizer = torch.optim.AdamW(
         [parameter for parameter in wrapper.parameters() if parameter.requires_grad],
         lr=config.learning_rate,
@@ -155,6 +157,7 @@ def run_native_fewshot_loop(
             round_index=round_index,
             log_every=_DEFAULT_LOG_EVERY,
             log_fn=log_fn,
+            include_masks=resolved_loss_config.use_masks,
         )
         if train_history:
             _emit_log(
@@ -261,7 +264,7 @@ def run_native_fewshot_loop(
         "mode": "native_efficientsam3_fewshot",
         "config": asdict(config),
         "adapter_config": asdict(adapter_config or NativeAdapterConfig()),
-        "loss_config": asdict(loss_config or NativeLossConfig()),
+        "loss_config": asdict(resolved_loss_config),
         "rounds": round_summaries,
     }
     _write_json(output_root / "summary.json", final_summary)
@@ -283,10 +286,12 @@ def train_native_adapter_one_round(
     round_index: int | None = None,
     log_every: int | None = None,
     log_fn: LogFn | None = None,
+    include_masks: bool = False,
 ) -> list[dict[str, float]]:
     """训练当前 round 的 task prompt / adapter。"""
     if steps <= 0:
         return []
+    torch = require_torch()
     if training_samples is None:
         if annotations is None:
             raise ValueError("annotations or training_samples must be provided")
@@ -302,6 +307,7 @@ def train_native_adapter_one_round(
             image_map,
             resolution=resolution,
             device=device,
+            include_masks=include_masks,
         )
         for sample_index, sample in sample_items
     }
@@ -465,6 +471,19 @@ def _render_round_visual_outputs(
         errors=errors,
     )
     return outputs.to_summary_dict()
+
+
+def _validate_mask_training_config(
+    *,
+    config: NativeFewShotLoopConfig,
+    loss_config: NativeLossConfig,
+) -> None:
+    """在训练入口处校验 mask loss 所需的 SAM3 结构是否启用。"""
+    if loss_config.use_masks and not config.enable_segmentation:
+        raise ValueError(
+            "LOSS.USE_MASKS=true requires MODEL.ENABLE_SEGMENTATION=true, "
+            "because SAM3 only emits pred_masks when the segmentation head is built."
+        )
 
 
 def _format_trainable_module_logs(wrapper: Any) -> list[str]:

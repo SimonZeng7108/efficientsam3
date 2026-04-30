@@ -6,7 +6,14 @@ from dataclasses import dataclass
 from math import exp
 from typing import Any, Sequence
 
-from ..data.models import HBB, OBB, Prediction
+import numpy as np
+from PIL import Image
+
+from ..data.models import HBB, OBB, Point, Prediction
+from ..geometry import polygon_to_obb
+
+_BILINEAR = Image.Resampling.BILINEAR if hasattr(Image, "Resampling") else Image.BILINEAR
+_NEAREST = Image.Resampling.NEAREST if hasattr(Image, "Resampling") else Image.NEAREST
 
 
 @dataclass(frozen=True)
@@ -19,7 +26,16 @@ class NativePredictionRecord:
     score: float
     hbb: HBB
     obb: OBB | None = None
+    polygon: list[Point] | None = None
     mask_path: str | None = None
+
+
+@dataclass(frozen=True)
+class MaskShape:
+    """由预测 mask 派生出的几何形状。"""
+
+    polygon: list[Point]
+    obb: OBB
 
 
 class NativePredictor:
@@ -74,6 +90,7 @@ def record_to_prediction(record: NativePredictionRecord) -> Prediction:
         score=record.score,
         hbb=record.hbb,
         obb=obb,
+        polygon=record.polygon,
         mask_path=record.mask_path,
     )
 
@@ -109,6 +126,7 @@ def native_outputs_to_predictions(
     """
     boxes = _to_nested_list(outputs["pred_boxes"])
     scores = _sigmoid_nested(outputs["pred_logits"])
+    masks = outputs.get("pred_masks")
     if "presence_logit_dec" in outputs:
         presence_scores = _sigmoid_flat(outputs["presence_logit_dec"])
         for batch_index, batch_scores in enumerate(scores):
@@ -128,15 +146,30 @@ def native_outputs_to_predictions(
                 width=width,
                 height=height,
             )
+            mask_shape = _prediction_mask_shape(
+                masks,
+                batch_index=batch_index,
+                query_index=query_index,
+                width=width,
+                height=height,
+            )
             record = NativePredictionRecord(
                 image_id=image_id,
                 prediction_id=f"{image_id}:{query_index:04d}",
                 label=label,
                 score=float(score),
                 hbb=HBB(x1, y1, x2, y2),
+                obb=None if mask_shape is None else mask_shape.obb,
+                polygon=None if mask_shape is None else mask_shape.polygon,
             )
             predictions.append(record_to_prediction(record))
     return predictions
+
+
+def mask_to_obb(mask: Any) -> OBB | None:
+    """把已经二值化到原图尺寸的 mask 拟合为 OBB。"""
+    shape = _binary_mask_to_shape(np.asarray(mask, dtype=bool))
+    return None if shape is None else shape.obb
 
 
 def _to_nested_list(value: Any) -> list:
@@ -169,3 +202,122 @@ def _sigmoid_scalar(value: Any) -> float:
         return 1 / (1 + z)
     z = exp(number)
     return z / (1 + z)
+
+
+def _prediction_mask_shape(
+    masks: Any,
+    *,
+    batch_index: int,
+    query_index: int,
+    width: int,
+    height: int,
+) -> MaskShape | None:
+    """取出某个 query 的 mask，并转换成原图坐标下的 polygon/OBB。"""
+    if masks is None:
+        return None
+    mask_array = _select_query_mask(masks, batch_index=batch_index, query_index=query_index)
+    binary_mask = _mask_array_to_binary(mask_array, width=width, height=height)
+    return _binary_mask_to_shape(binary_mask)
+
+
+def _select_query_mask(masks: Any, *, batch_index: int, query_index: int) -> np.ndarray:
+    """兼容 torch tensor 和轻量单测中的 Python list。"""
+    if hasattr(masks, "detach"):
+        selected = masks[batch_index, query_index]
+        selected = selected.detach().float().cpu().numpy()
+    else:
+        selected = masks[batch_index][query_index]
+    return np.asarray(selected)
+
+
+def _mask_array_to_binary(mask_array: np.ndarray, *, width: int, height: int) -> np.ndarray:
+    """把 SAM3 mask logits/probability/binary mask 统一成原图尺寸 bool mask。"""
+    squeezed = np.squeeze(mask_array)
+    if squeezed.ndim != 2:
+        raise ValueError(f"expected 2D mask for one query, got shape {mask_array.shape}")
+
+    if squeezed.dtype == np.bool_:
+        if squeezed.shape != (height, width):
+            return _resize_binary_mask(squeezed, width=width, height=height)
+        return squeezed.astype(bool)
+
+    values = np.asarray(squeezed, dtype=np.float32)
+    values = np.nan_to_num(values, nan=-60.0, posinf=60.0, neginf=-60.0)
+    if values.size == 0:
+        return np.zeros((height, width), dtype=bool)
+    if float(values.min()) < 0.0 or float(values.max()) > 1.0:
+        values = _sigmoid_array(values)
+    if values.shape != (height, width):
+        values = _resize_float_mask(values, width=width, height=height)
+    return values > 0.5
+
+
+def _resize_binary_mask(mask: np.ndarray, *, width: int, height: int) -> np.ndarray:
+    image = Image.fromarray(mask.astype(np.uint8) * 255)
+    resized = image.resize((width, height), resample=_NEAREST)
+    return np.asarray(resized, dtype=np.uint8) > 127
+
+
+def _resize_float_mask(mask: np.ndarray, *, width: int, height: int) -> np.ndarray:
+    clipped = np.clip(mask, 0.0, 1.0)
+    image = Image.fromarray((clipped * 255.0).astype(np.uint8))
+    resized = image.resize((width, height), resample=_BILINEAR)
+    return np.asarray(resized, dtype=np.float32) / 255.0
+
+
+def _sigmoid_array(values: np.ndarray) -> np.ndarray:
+    clipped = np.clip(values, -60.0, 60.0)
+    return 1.0 / (1.0 + np.exp(-clipped))
+
+
+def _binary_mask_to_shape(mask: np.ndarray) -> MaskShape | None:
+    ys, xs = np.nonzero(mask)
+    if len(xs) == 0:
+        return None
+    points: list[Point] = []
+    for x, y in zip(xs.tolist(), ys.tolist()):
+        left = float(x)
+        top = float(y)
+        right = left + 1.0
+        bottom = top + 1.0
+        # 用像素四角而不是中心点，可以让拟合出的 OBB 覆盖完整前景区域。
+        points.extend(
+            [
+                (left, top),
+                (right, top),
+                (right, bottom),
+                (left, bottom),
+            ]
+        )
+    hull = _convex_hull(points)
+    if len(hull) < 3:
+        return None
+    return MaskShape(polygon=hull, obb=polygon_to_obb(hull))
+
+
+def _convex_hull(points: Sequence[Point]) -> list[Point]:
+    """单调链凸包；输入是 mask 前景像素角点，输出按轮廓顺序排列。"""
+    unique_points = sorted({(float(x), float(y)) for x, y in points})
+    if len(unique_points) <= 1:
+        return list(unique_points)
+
+    lower: list[Point] = []
+    for point in unique_points:
+        while len(lower) >= 2 and _cross(lower[-2], lower[-1], point) <= 0:
+            lower.pop()
+        lower.append(point)
+
+    upper: list[Point] = []
+    for point in reversed(unique_points):
+        while len(upper) >= 2 and _cross(upper[-2], upper[-1], point) <= 0:
+            upper.pop()
+        upper.append(point)
+
+    return lower[:-1] + upper[:-1]
+
+
+def _cross(origin: Point, left: Point, right: Point) -> float:
+    return (
+        (left[0] - origin[0]) * (right[1] - origin[1])
+        - (left[1] - origin[1]) * (right[0] - origin[0])
+    )

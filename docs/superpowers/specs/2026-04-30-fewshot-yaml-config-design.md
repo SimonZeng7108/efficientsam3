@@ -10,7 +10,7 @@
 
 - `resolution=1008`、输入归一化均值方差 `0.5` 来自 SAM3 官方 eval / train 配置。
 - EfficientSAM3-S 使用 `backbone_type=efficientvit`、`model_name=b0`，对应 `efficient_sam3_efficientvit_s.pt`。
-- detection fine-tune 默认不训练 mask，`enable_segmentation=false`、`use_masks=false` 对齐 Roboflow detection 配置。
+- detection fine-tune 默认不训练 mask，`enable_segmentation=false`、`use_masks=false` 对齐 Roboflow detection 配置；如要验证真实 OBB，可同时打开 `enable_segmentation=true` 与 `use_masks=true`，用粗 mask target 训练 SAM3 mask head。
 - matcher / box loss 使用官方值：`cost_class=2.0`、`cost_bbox=5.0`、`cost_giou=2.0`、`loss_bbox=5.0`、`loss_giou=2.0`、`loss_ce=20.0`、`presence_loss=20.0`、`pos_weight=10.0`、`alpha=0.25`、`gamma=2.0`。
 - 推理阈值默认 `score_threshold=0.3`，贴近官方 thresholded postprocessor；评估匹配仍用常见 `iou_threshold=0.5`。
 
@@ -82,7 +82,7 @@ LOSS:
 - `convert_datatrain` 支持 `--config`，从 `DATA.DATATRAIN`、`DATA.IMAGE_DIR`、`DATA.OUTPUT_DIR` 读取路径。
 - `train_native_efficientsam3_fewshot` 支持 `--config`，把 YAML 映射到 `NativeFewShotLoopConfig`、`NativeAdapterConfig`、`NativeLossConfig`。
 - `O2M_*` 参数必须传给原生 `Sam3LossWrapper`，因为 EfficientSAM3 训练态 DAC decoder 会输出 one-to-many 分支。
-- 当前 DataTrain 管线不生成 SAM3 mask target，所以 `LOSS.USE_MASKS=true` 应清晰报错，避免在 SAM3 `Masks` loss 深处崩溃。
+- `LOSS.USE_MASKS=true` 会把 DataTrain 的 HBB/OBB/Polygon 栅格化为粗 mask target，并把官方 `Masks` loss 加入训练；若 `MODEL.ENABLE_SEGMENTATION=false`，训练入口应清晰报错，避免在 SAM3 `Masks` loss 深处因缺少 `pred_masks` 崩溃。
 - 命令行参数优先级高于 YAML，适合临时覆盖 `--seed`、`--score-threshold`、`--steps-per-round` 等实验参数。
 - 训练启动后保存最终生效配置到 `OUTPUT_ROOT/resolved_config.yaml`，用于复现实验。
 - 配置加载模块必须是轻量纯 Python，不能要求 GPU 或 torch；没有 PyYAML 时给出清晰错误。

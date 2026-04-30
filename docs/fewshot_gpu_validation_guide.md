@@ -126,7 +126,7 @@ dataset_json/
 
 转换阶段会检查 `DataTrain.txt` 中的图片是否真实存在。如果报 `image file not found`，先修正图片目录或文件名，再进入训练。
 
-注意：当前训练 loss 首先使用 SAM3 原生 box loss。多边形标注会先派生 HBB 参与训练；后续如果要验证真实 OBB / polygon 输出，需要继续增强预测后处理。
+注意：默认配置会先使用 SAM3 原生 box/class/presence loss，便于快速 smoke test。多边形、OBB 和 HBB 标注都会派生 HBB 参与 box loss；如果打开 `MODEL.ENABLE_SEGMENTATION=true` 和 `LOSS.USE_MASKS=true`，同一批标注还会栅格化为粗 mask target，训练 SAM3 原生 mask loss，并在推理后由预测 mask 拟合旋转 OBB。
 
 ### 2.1 配置文件优先级
 
@@ -136,7 +136,8 @@ dataset_json/
 
 - `DATA.IMG_SIZE=1008`：对齐 SAM3 / EfficientSAM3 官方输入分辨率。
 - `MODEL.BACKBONE_TYPE=efficientvit`、`MODEL.MODEL_NAME=b0`：对应 `efficient_sam3_efficientvit_s.pt`。
-- `MODEL.ENABLE_SEGMENTATION=false`、`LOSS.USE_MASKS=false`：先按官方 detection fine-tune 路线只训 box / class / presence。当前 DataTrain 管线尚未生成 SAM3 mask target，因此不要把 `LOSS.USE_MASKS` 改成 `true`；后续补齐 mask target 后再打开。
+- `MODEL.ENABLE_SEGMENTATION=false`、`LOSS.USE_MASKS=false`：默认按官方 detection fine-tune 路线只训 box / class / presence，适合第一次 smoke test。
+- `MODEL.ENABLE_SEGMENTATION=true`、`LOSS.USE_MASKS=true`：启用 SAM3 segmentation head 和官方 `Masks` loss；DataTrain 的 HBB/OBB/Polygon 会生成粗 mask target，推理时优先由 `pred_masks` 拟合真实旋转 OBB。
 - `TRAIN.LEARNING_RATE=0.00008`、`TRAIN.WEIGHT_DECAY=0.1`：学习率和 weight decay 贴近官方 detection 配置的 transformer 参数组。
 - `EVAL.SCORE_THRESHOLD=0.3`：贴近官方 thresholded postprocessor。
 - `LOSS.*` 的 matcher / loss 权重来自官方 detection fine-tune 配置；其中 `O2M_*` 对应 EfficientSAM3 训练态 DAC decoder 的 one-to-many 分支，不能随意删掉。
@@ -237,6 +238,21 @@ python -m fewshot_adapter.train_native_efficientsam3_fewshot `
 
 `--train-decoder-cross-attention` 暂时不建议第一轮就打开。它可训练参数更多，可能更强，但也更容易过拟合和爆显存。只有在 prompt + bbox embed 明显不够时再试。
 
+如果要验证真实旋转 OBB 路线，建议复制一份 YAML，例如 `fewshot_adapter/configs/efficient_sam3_efficientvit_s_fewshot_obb.yaml`，只改下面几项：
+
+```yaml
+MODEL:
+  ENABLE_SEGMENTATION: true
+
+LOSS:
+  USE_MASKS: true
+
+EVAL:
+  IOU_MODE: obb
+```
+
+然后先跑 1 轮 1 步 smoke test。若模型输出里没有 `pred_masks`，预测会回退到 HBB 的 angle=0 OBB 兼容字段；这时不要把 `--iou-mode obb` 的结果当成最终旋转框能力。
+
 ## 5. 输出文件怎么看
 
 每一轮目录：
@@ -301,7 +317,7 @@ python -c "import json; s=json.load(open('runs/native_fewshot_baseline/summary.j
 
 ## 6. HBB、Polygon、OBB 当前验证策略
 
-当前推荐先用：
+第一次环境验证推荐先用：
 
 ```text
 --iou-mode hbb
@@ -309,15 +325,16 @@ python -c "import json; s=json.load(open('runs/native_fewshot_baseline/summary.j
 
 原因：
 
-- 原始 `R` 框会直接作为 HBB。
-- 原始 `P` 多边形会派生 HBB 参与第一版训练和匹配。
-- 当前预测后处理主要输出 SAM3 box，对外写成 HBB，并补一个 angle=0 的 OBB 基线。
+- 原始 `R` 框和 `P` 多边形都会派生 HBB，box loss 和 HBB 匹配最容易先跑通。
+- 不开启 segmentation head 时，预测后处理只能稳定依赖 SAM3 box 输出。
+- 如果没有 `pred_masks`，代码仍会补一个 angle=0 的 OBB 兼容字段，保证 JSON 结构一致。
 
-暂时不要把 `--iou-mode obb` 当成最终旋转框能力验证。当前预测写出的 OBB 是由 HBB 补出来的 angle=0 兼容字段，不是真实旋转框预测。它目前只能验证已有 OBB 字段的匹配逻辑，还不是完整旋转框产品能力。后续要做真正 OBB 产品，需要补：
+要验证真实旋转框能力，需要使用 mask 路线：
 
-- 从 mask 或 polygon 拟合 OBB。
-- 或增加 OBB 后处理 / rotated NMS。
-- 或在 adapter 之外增加 OBB regression 分支。
+- 在 YAML 中设置 `MODEL.ENABLE_SEGMENTATION=true` 和 `LOSS.USE_MASKS=true`。
+- 训练时由 HBB/OBB/Polygon 标注生成粗 mask target，同时保留 box loss。
+- 推理时如果 `pred_masks` 存在，会从二值 mask 提取凸包并拟合最小外接旋转矩形，写入 `predictions.json` 的 `obb` 和 `polygon` 字段。
+- 如果某条预测 mask 为空或模型未输出 mask，该条预测会回退到 HBB 的 angle=0 OBB；检查 `predictions.json` 里 `obb.angle` 是否大量为 0，可以快速判断是否真的走到了 mask OBB 路线。
 
 ## 7. 常见问题
 

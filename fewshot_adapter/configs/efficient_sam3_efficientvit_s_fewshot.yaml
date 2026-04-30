@@ -20,7 +20,9 @@ MODEL:
   MODEL_NAME: b0
   DEVICE: cuda
 
-  # 目标检测阶段默认只走 box/class/presence；当前 DataTrain 管线尚未生成 mask target。
+  # 默认先走 box/class/presence，便于快速 smoke test。
+  # 如果要训练粗 mask 并由 mask 拟合真实 OBB，请同时设置：
+  # MODEL.ENABLE_SEGMENTATION=true 与 LOSS.USE_MASKS=true。
   ENABLE_SEGMENTATION: false
 
 ADAPTER:
@@ -66,7 +68,8 @@ LOSS:
   O2M_MATCHER_THRESHOLD: 0.4
   O2M_MATCHER_TOPK: 4
   USE_O2M_MATCHER_ON_O2M_AUX: false
-  # 当前必须保持 false；开启前需要先实现 SAM3 mask target 构造。
+  # true 时会把 HBB/OBB/Polygon 标注栅格化为粗 mask，并接入 SAM3 官方 Masks loss。
+  # 注意：开启后必须同步打开 MODEL.ENABLE_SEGMENTATION。
   USE_MASKS: false
   LOSS_MASK: 200.0
   LOSS_DICE: 10.0

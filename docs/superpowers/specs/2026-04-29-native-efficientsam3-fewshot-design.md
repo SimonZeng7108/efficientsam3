@@ -44,7 +44,7 @@
 {图片名称} 4 P/R x1 y1 x2 y2 ... "label" ; P/R ...
 ```
 
-`DataTrain.txt` 解析后得到统一 `Annotation`。HBB、Polygon、未来扩展 OBB 都会补齐 HBB / polygon 派生字段。训练送给 SAM3 的目标框统一转为归一化 `cxcywh`，用于 matcher 和 bbox loss。当前 MVP 不生成 SAM3 mask target，`LOSS.USE_MASKS` 必须保持 `false`；后续如果要训练 mask loss，再补 polygon/HBB 到 mask 的栅格化目标。
+`DataTrain.txt` 解析后得到统一 `Annotation`。HBB、Polygon、未来扩展 OBB 都会补齐 HBB / polygon 派生字段。训练送给 SAM3 的目标框统一转为归一化 `cxcywh`，用于 matcher 和 bbox loss。若设置 `LOSS.USE_MASKS=true`，同一批 HBB/OBB/Polygon 标注会被栅格化为粗 mask target，填入 SAM3 `BatchedFindTarget.segments/is_valid_segment`，再交给官方 `Masks` loss。开启 mask loss 时必须同时设置 `MODEL.ENABLE_SEGMENTATION=true`，否则模型不会输出 `pred_masks`。
 
 每轮训练集是 annotation 列表，不是候选框列表。每轮推理会对全量图片直接跑 EfficientSAM3 原生输出，再经阈值、NMS、mask resize、box/mask/polygon/OBB 后处理生成 `predictions.json`。
 
@@ -81,8 +81,8 @@ build_efficientsam3_image_model(
 3. 得到原生 `pred_logits`、`pred_boxes`、`pred_masks`。
 4. 将 `pred_logits.sigmoid()` 与 presence score 合并成最终置信度。
 5. 过滤低分预测，归一化 box 转原图像素坐标。
-6. mask resize 到原图尺寸。
-7. 根据 mask 或 polygon 拟合 OBB。
+6. 如果输出 `pred_masks`，二值化并 resize 到原图尺寸。
+7. 根据 mask 凸包拟合 OBB；没有 mask 时回退到 HBB 的 angle=0 兼容 OBB。
 8. 写出 `predictions.json`，供现有错误筛选模块使用。
 
 ## 自动闭环
@@ -101,6 +101,7 @@ build_efficientsam3_image_model(
 当前主线模块：
 
 - `fewshot_adapter/data/sam3_batch.py`：把图片和 `TrainingSample` 转成 SAM3 训练 batch / target；支持正样本和 no-object 负样本。
+- `fewshot_adapter/data/masks.py`：把 HBB/OBB/Polygon 标注栅格化为粗 mask target。
 - `fewshot_adapter/native/adapter.py`：任务 prompt、prompt adapter、冻结/解冻策略和 SAM3 原生 wrapper。
 - `fewshot_adapter/native/loss.py`：轻量封装 SAM3 matcher/loss，同时配置 o2o / o2m matcher。
 - `fewshot_adapter/native/predictor.py`：原生推理与预测后处理。
@@ -126,5 +127,6 @@ build_efficientsam3_image_model(
 - wrapper 冻结/解冻参数选择逻辑。
 - CLI 在缺少 PyTorch 时给出清晰错误。
 - 推理后处理能把 normalized box 转回像素预测。
+- 开启 mask loss 时能生成 SAM3 mask target，并能把预测 mask 拟合为旋转 OBB。
 
 真实训练验证由用户在 GPU 环境执行，命令会输出每轮 checkpoint、predictions、errors、summary，便于观察是否逐轮减少错误。

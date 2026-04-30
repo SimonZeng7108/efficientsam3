@@ -15,6 +15,7 @@ import numpy as np
 from PIL import Image
 
 from ..utils.torch import require_torch
+from .masks import annotation_to_mask
 from .models import HBB, Annotation, TrainingSample, normalize_annotation
 
 
@@ -55,12 +56,14 @@ class Sam3BatchBuilder:
         *,
         resolution: int = 1008,
         device: str = "cuda",
+        include_masks: bool = False,
     ) -> NativeSam3Batch:
         return build_sam3_training_batch(
             annotations,
             image_map,
             resolution=resolution,
             device=device,
+            include_masks=include_masks,
         )
 
     def build_training_batch_from_samples(
@@ -70,12 +73,14 @@ class Sam3BatchBuilder:
         *,
         resolution: int = 1008,
         device: str = "cuda",
+        include_masks: bool = False,
     ) -> NativeSam3Batch:
         return build_sam3_training_batch_from_samples(
             samples,
             image_map,
             resolution=resolution,
             device=device,
+            include_masks=include_masks,
         )
 
     def load_image_batch(
@@ -192,6 +197,7 @@ def build_sam3_training_batch(
     *,
     resolution: int = 1008,
     device: str = "cuda",
+    include_masks: bool = False,
 ) -> NativeSam3Batch:
     """构造一次少样本训练 batch。
 
@@ -214,6 +220,7 @@ def build_sam3_training_batch(
         image_map,
         resolution=resolution,
         device=device,
+        include_masks=include_masks,
     )
 
 
@@ -223,6 +230,7 @@ def build_sam3_training_batch_from_samples(
     *,
     resolution: int = 1008,
     device: str = "cuda",
+    include_masks: bool = False,
 ) -> NativeSam3Batch:
     """构造支持正样本和 no-object 负样本的 SAM3 原生训练 batch。"""
     if not samples:
@@ -249,6 +257,8 @@ def build_sam3_training_batch_from_samples(
         target_cls=BatchedFindTarget,
         torch=torch,
         device=device,
+        include_masks=include_masks,
+        resolution=resolution,
     )
     return NativeSam3Batch(
         image_batch=image_batch,
@@ -284,6 +294,8 @@ def _build_find_target(
     target_cls: Any,
     torch: Any,
     device: str,
+    include_masks: bool = False,
+    resolution: int | None = None,
 ) -> Any:
     """构造 SAM3 `BatchedFindTarget`。
 
@@ -291,12 +303,25 @@ def _build_find_target(
     `boxes_padded` 是 `(B, max_targets_per_image, 4)`，供
     `BinaryHungarianMatcherV2` 高效匹配使用。
     """
+    if include_masks and resolution is None:
+        raise ValueError("resolution must be provided when include_masks=True")
+
     per_image_boxes: list[list[tuple[float, float, float, float]]] = []
+    flat_masks: list[np.ndarray] = []
     for annotations, (width, height) in zip(grouped.values(), original_sizes):
-        boxes = [
-            annotation_to_target_box(annotation, width=width, height=height)
-            for annotation in annotations
-        ]
+        boxes = []
+        for annotation in annotations:
+            boxes.append(annotation_to_target_box(annotation, width=width, height=height))
+            if include_masks:
+                # mask 与 box 使用相同遍历顺序，保证 packed target 中一一对应。
+                flat_masks.append(
+                    annotation_to_mask(
+                        annotation,
+                        width=width,
+                        height=height,
+                        resolution=int(resolution),
+                    )
+                )
         per_image_boxes.append(boxes)
 
     num_boxes = torch.tensor(
@@ -334,14 +359,36 @@ def _build_find_target(
             object_ids.append(next_object_id)
             next_object_id += 1
 
+    if include_masks:
+        if flat_masks:
+            segments = torch.as_tensor(
+                np.stack(flat_masks, axis=0),
+                dtype=torch.bool,
+                device=device,
+            )
+        else:
+            segments = torch.empty(
+                (0, int(resolution), int(resolution)),
+                dtype=torch.bool,
+                device=device,
+            )
+        is_valid_segment = torch.ones(
+            (len(flat_masks),),
+            dtype=torch.bool,
+            device=device,
+        )
+    else:
+        segments = None
+        is_valid_segment = None
+
     return target_cls(
         num_boxes=num_boxes,
         boxes=boxes_tensor,
         boxes_padded=boxes_padded,
         repeated_boxes=boxes_tensor,
-        segments=None,
+        segments=segments,
         semantic_segments=None,
-        is_valid_segment=None,
+        is_valid_segment=is_valid_segment,
         is_exhaustive=torch.ones(len(per_image_boxes), dtype=torch.bool, device=device),
         object_ids=torch.tensor(object_ids, dtype=torch.long, device=device),
         object_ids_padded=object_ids_padded,

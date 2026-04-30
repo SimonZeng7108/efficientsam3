@@ -330,7 +330,7 @@ total_loss =
 - SAM3 原生 `pred_logits` 转换后的目标置信度。
 - SAM3 原生 `pred_boxes` 转换后的像素 HBB。
 - 可选 `pred_masks` 后处理得到的 mask / polygon。
-- HBB 派生的 angle=0 OBB 基线，后续可由 mask/polygon 最小外接矩形替换。
+- 开启 segmentation + mask loss 时，由预测 mask 的凸包拟合 OBB；没有 mask 或 mask 为空时，才回退到 HBB 派生的 angle=0 OBB 兼容字段。
 - 风险标记和错误类型。
 
 当前 MVP 默认走“完整 EfficientSAM3 -> task visual prompt / adapter -> SAM3 原生 decoder 输出”的路径。旧的 `proposal_candidates.json` / 外置 head 实现已经从代码中清理，不再是产品验证主线。每轮训练后直接对全量图片执行原生前向，预测结果写入 `predictions.json`，再由真值匹配模块筛选漏检、误检和定位错误。
@@ -741,7 +741,7 @@ GPU 验证阶段需要量化每轮迭代是否真的变好。
   + 默认冻结主体，只开放 prompt、adapter、dot_prod_scoring
   + 可选开放 bbox_embed 或 decoder cross-attention
   + SAM3 原生 decoder / matcher / loss
-  + 后续通过 mask/polygon 后处理生成 OBB
+  + 可选开启粗 mask loss，并通过预测 mask/polygon 后处理生成 OBB
   + GPU 端基于真值自动迭代微调验证
   + NPU 端只部署最终固定推理模型
 ```
@@ -764,4 +764,4 @@ GPU 验证的最小流程是：
 4. 再用 20 到 100 张图跑 5 轮左右的小规模验证。
 5. 观察每轮 `summary.json` 里的 `error_count`、`prediction_count`、`selected_image_id`。
 
-第一轮建议只使用 `--iou-mode hbb`。当前预测后处理主要输出 HBB，并补 angle=0 的 OBB 基线；真正 OBB 能力需要后续增加 mask/polygon 拟合或 OBB 分支后再验证。
+第一轮环境验证建议先使用 `--iou-mode hbb`，确认模型加载、训练、全量推理和错误队列都能跑通。要验证真实 OBB，请在 YAML 中同时打开 `MODEL.ENABLE_SEGMENTATION=true` 和 `LOSS.USE_MASKS=true`；此时训练会用 HBB/OBB/Polygon 生成粗 mask target，推理会优先由 `pred_masks` 拟合旋转 OBB。如果模型没有输出 mask 或 mask 为空，单条预测仍会回退到 angle=0 的兼容 OBB。

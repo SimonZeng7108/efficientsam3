@@ -10,9 +10,11 @@ from .adapter import (
 )
 from .loss import NativeLossConfig, NativeLossFactory, build_native_loss
 from .predictor import (
+    MaskShape,
     NativePredictionRecord,
     NativePredictor,
     hbb_to_zero_angle_obb,
+    mask_to_obb,
     native_outputs_to_predictions,
     record_to_prediction,
     tensor_box_to_hbb,
@@ -32,6 +34,7 @@ __all__ = [
     "NativeFewShotTrainer",
     "NativeLossConfig",
     "NativeLossFactory",
+    "MaskShape",
     "NativePredictionRecord",
     "NativePredictor",
     "add_selected_image_truth",
@@ -40,6 +43,7 @@ __all__ = [
     "build_native_loss",
     "freeze_for_fewshot",
     "hbb_to_zero_angle_obb",
+    "mask_to_obb",
     "native_outputs_to_predictions",
     "record_to_prediction",
     "run_native_fewshot_loop",

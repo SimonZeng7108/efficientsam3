@@ -46,14 +46,8 @@ def build_native_loss(config: NativeLossConfig | None = None) -> Any:
     这里采用 local normalization，避免单卡少样本验证时触发分布式 all_reduce。
     """
     cfg = config or NativeLossConfig()
-    if cfg.use_masks:
-        raise ValueError(
-            "LOSS.USE_MASKS is not supported yet because the current DataTrain "
-            "pipeline does not build SAM3 mask targets. Keep USE_MASKS=false "
-            "until mask target generation is implemented."
-        )
     require_torch()
-    from sam3.train.loss.loss_fns import Boxes, IABCEMdetr
+    from sam3.train.loss.loss_fns import Boxes, IABCEMdetr, Masks
     from sam3.train.loss.sam3_loss import Sam3LossWrapper
     from sam3.train.matcher import BinaryHungarianMatcherV2, BinaryOneToManyMatcher
 
@@ -86,6 +80,15 @@ def build_native_loss(config: NativeLossConfig | None = None) -> Any:
             use_presence=cfg.use_presence,
         ),
     ]
+    if cfg.use_masks:
+        loss_fns.append(
+            Masks(
+                weight_dict={
+                    "loss_mask": cfg.loss_mask,
+                    "loss_dice": cfg.loss_dice,
+                }
+            )
+        )
     return Sam3LossWrapper(
         loss_fns_find=loss_fns,
         matcher=matcher,
