@@ -22,7 +22,7 @@ EfficientSAM3 是一个研究型代码库，目标是通过“渐进式分层知
 - 主流程不再要求 `proposal_candidates.json`。SAM3 原生输出 `pred_logits`、`pred_boxes`、`pred_masks`，后处理后写出 `predictions.json`。
 - 少样本训练默认冻结大部分 EfficientSAM3，只训练 `task_prompt_tokens`、`prompt_adapter`、可选 `dot_prod_scoring`、可选少量 bbox/cross-attention 参数。
 - 验证阶段没有交互界面。每轮训练后自动推理全量图片，用真值筛出漏检、误检、定位错误，再把被选中错误图片的真值加入下一轮训练。
-- 数据入口支持用户真实 `DataTrain.txt` 格式：文件头 `Version 1.0.0` 会跳过；`图片名:数量 P:4/R:4 x1 y1 ... "label"` 会解析为 polygon；`.jpg.bmp`、`.bmp.bmp` 都按普通图片名处理；`1 1 1 1 1 1 1 1` 是无目标占位，不写入 `full_gt.json`，但图片仍保留在 `image_map.json` 参与全量推理和误检检查。
+- 数据入口支持用户真实 `DataTrain.txt` 格式：文件头 `Version 1.0.0` 会跳过；`图片名:数量 P:4/R:4 x1 y1 ... "label"` 会解析为 polygon；`.jpg`、`.jpg.bmp`、`.bmp.bmp` 都按普通图片名处理；`1 1 1 1 1 1 1 1` 是无目标占位，不写入 `full_gt.json`，但图片仍保留在 `image_map.json` 参与全量推理和误检检查。
 
 新增原生少样本主线文件已按职责分包：
 

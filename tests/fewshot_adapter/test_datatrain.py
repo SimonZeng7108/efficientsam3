@@ -51,6 +51,16 @@ def test_parse_datatrain_line_reads_colon_rotated_rectangle_as_polygon():
     assert annotations[0].polygon == [(577, 518), (518, 518), (518, 458), (577, 458)]
 
 
+def test_parse_datatrain_line_keeps_plain_jpg_filename():
+    """图片名不限制后缀，只有 .jpg 的文件也要按原名保留。"""
+    line = 'plain_image.jpg:1 P:4 10 10 20 10 20 20 10 20 "obj"'
+
+    annotations = parse_datatrain_line(line)
+
+    assert annotations[0].image_id == "plain_image.jpg"
+    assert annotations[0].object_id == "plain_image_0001"
+
+
 def test_parse_datatrain_line_skips_degenerate_placeholder_object():
     """`1 1 1 1 1 1 1 1` 是无目标占位，不应写入 full_gt。"""
     line = '90008205_c1s1_00088.bmp.bmp:1 P:4 1 1 1 1 1 1 1 1 "obj"'
