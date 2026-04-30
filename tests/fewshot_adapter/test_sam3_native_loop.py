@@ -2,13 +2,14 @@
 
 from PIL import Image
 
-from fewshot_adapter.data.models import Annotation, HBB
+from fewshot_adapter.data.models import Annotation, HBB, TrainingSample
 from fewshot_adapter.evaluation.matching import ErrorItem
 from fewshot_adapter.native.trainer import (
     _compute_round_metrics,
     _render_round_visual_outputs,
     _resolve_label,
     add_selected_image_truth,
+    add_selected_training_sample,
 )
 
 
@@ -92,3 +93,33 @@ def test_render_round_visual_outputs_returns_summary_paths(tmp_path):
     assert set(summary_paths) == {"train_inputs", "errors_vis", "predictions_vis"}
     assert (tmp_path / "round_00" / "train_inputs" / "target.jpg_gt.jpg").is_file()
     assert (tmp_path / "round_00" / "predictions_vis" / "target.jpg_pred.jpg").is_file()
+
+
+def test_add_selected_training_sample_adds_background_false_positive_as_negative():
+    """训练器应把纯背景误检加入下一轮 hard negative。"""
+    current = [
+        TrainingSample(
+            image_id="seed.jpg",
+            label="target",
+            annotations=[Annotation("seed.jpg", "seed_1", "target", "hbb", hbb=HBB(0, 0, 1, 1))],
+        )
+    ]
+    selected = ErrorItem(
+        image_id="background.jpg",
+        error_type="false_positive",
+        risk_score=0.9,
+        reason="prediction has no matching ground truth",
+        ground_truth_ids=[],
+        prediction_ids=["background.jpg:0000"],
+        selected_for_next_round=True,
+    )
+
+    next_samples = add_selected_training_sample(
+        current,
+        all_ground_truths=current[0].annotations,
+        selected=selected,
+        label="target",
+    )
+
+    assert next_samples[-1].sample_type == "negative"
+    assert next_samples[-1].image_id == "background.jpg"

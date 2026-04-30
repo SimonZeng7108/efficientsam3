@@ -1,9 +1,10 @@
 """测试 SAM3 原生训练 batch 的纯数据转换部分。"""
 
-from fewshot_adapter.data.models import Annotation, HBB
+from fewshot_adapter.data.models import Annotation, HBB, TrainingSample
 from fewshot_adapter.data.sam3_batch import (
     annotation_to_target_box,
     group_annotations_by_image,
+    group_training_samples_by_image,
     hbb_to_cxcywh_norm,
 )
 
@@ -48,3 +49,24 @@ def test_annotation_to_target_box_uses_polygon_derived_hbb():
         0.4,
         0.5,
     )
+
+
+def test_group_training_samples_by_image_keeps_negative_sample_with_empty_targets():
+    """负样本图片进入 batch 时应保留 image_id，但目标列表为空。"""
+    positive = TrainingSample(
+        image_id="target.jpg",
+        label="target",
+        annotations=[Annotation("target.jpg", "gt_1", "target", "hbb", hbb=HBB(0, 0, 1, 1))],
+    )
+    negative = TrainingSample(
+        image_id="background.jpg",
+        label="target",
+        annotations=[],
+        sample_type="negative",
+    )
+
+    grouped = group_training_samples_by_image([positive, negative])
+
+    assert list(grouped) == ["target.jpg", "background.jpg"]
+    assert grouped["target.jpg"][0].object_id == "gt_1"
+    assert grouped["background.jpg"] == []

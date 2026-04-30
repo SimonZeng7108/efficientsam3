@@ -12,7 +12,7 @@ from typing import Iterable, Mapping
 
 from PIL import Image, ImageDraw
 
-from ..data.models import HBB, Annotation, Prediction, normalize_annotation, polygon_to_hbb
+from ..data.models import HBB, Annotation, Prediction, TrainingSample, normalize_annotation, polygon_to_hbb
 from ..evaluation.matching import ErrorItem
 
 _GT_COLOR = (0, 180, 60)
@@ -47,6 +47,7 @@ def render_round_visualizations(
     full_ground_truth: list[Annotation],
     predictions: list[Prediction],
     errors: list[ErrorItem],
+    training_samples: list[TrainingSample] | None = None,
 ) -> RoundVisualizationOutputs:
     """输出当前轮的训练输入图、错误复查图和全量检测结果图。"""
     root = Path(round_dir)
@@ -57,13 +58,15 @@ def render_round_visualizations(
     )
     _ensure_dirs(outputs)
 
-    train_by_image = _group_annotations(train_annotations)
     full_gt_by_id = {annotation.object_id: normalize_annotation(annotation) for annotation in full_ground_truth}
     full_gt_by_image = _group_annotations(full_ground_truth)
     predictions_by_id = {prediction.prediction_id: prediction for prediction in predictions}
     predictions_by_image = _group_predictions(predictions)
 
-    _render_train_inputs(outputs.train_inputs_dir, image_map, train_by_image)
+    if training_samples is None:
+        _render_train_inputs(outputs.train_inputs_dir, image_map, _group_annotations(train_annotations))
+    else:
+        _render_train_samples(outputs.train_inputs_dir, image_map, training_samples)
     _render_prediction_results(outputs.predictions_dir, image_map, predictions_by_image)
     _render_error_results(
         outputs.errors_dir,
@@ -93,6 +96,22 @@ def _render_train_inputs(
         for annotation in annotations:
             _draw_annotation(draw, normalize_annotation(annotation), prefix="GT")
         _save_jpeg(image, output_dir / _output_name(image_id, "gt"))
+
+
+def _render_train_samples(
+    output_dir: Path,
+    image_map: Mapping[str, str],
+    samples: list[TrainingSample],
+) -> None:
+    for sample in samples:
+        image = _open_rgb(image_map, sample.image_id)
+        draw = ImageDraw.Draw(image)
+        if sample.sample_type == "negative":
+            _draw_text(draw, (4, 14), f"NEGATIVE no-object {sample.label}")
+        else:
+            for annotation in sample.annotations:
+                _draw_annotation(draw, normalize_annotation(annotation), prefix="GT")
+        _save_jpeg(image, output_dir / _output_name(sample.image_id, "gt"))
 
 
 def _render_prediction_results(

@@ -176,12 +176,13 @@ runs/native_fewshot_smoke/
 - `round_00/adapter.pt` 是否生成。
 - `round_00/predictions.json` 是否生成。
 - `round_00/errors.json` 是否生成。
-- `round_00/train_inputs/` 是否能看到本轮训练输入图片和绿色真值框。
+- `round_00/train_inputs/` 是否能看到本轮训练输入图片；正样本有绿色真值框，负样本会标注 `NEGATIVE no-object`。
 - `round_00/errors_vis/` 是否能看到筛选出来的错误图片、绿色真值框、红色预测框和错误类型。
 - `round_00/predictions_vis/` 是否覆盖了全量图片；无预测的背景图也应保存原图。
 - `resolved_config.yaml` 是否保存了最终生效配置。
 - 根目录 `summary.json` 是否能打开。
 - `summary.json` 里的 `last_loss.core_loss` 是否是有限数值，不应为 `NaN` 或 `inf`。
+- 如果本轮包含 `sample_type=negative`，重点看 `last_loss.presence_loss` 是否是有限数值；当前 no-object 负样本主要通过 SAM3 decoder 的 presence 分支压低纯背景误检。
 - `summary.json` 里的 `metrics.precision`、`metrics.recall`、`metrics.f1`、`metrics.miou` 是否符合直觉。
 
 快速查看每轮摘要：
@@ -250,15 +251,17 @@ round_00/
 - `adapter.pt`：本轮训练后的少样本 adapter 权重，只保存任务相关权重。
 - `predictions.json`：全量图片推理结果。
 - `errors.json`：根据全量真值自动筛出的错误队列。
-- `next_train.json`：下一轮训练集。
+- `next_train.json`：下一轮图片级训练样本列表。`sample_type=positive` 表示有目标正样本，`sample_type=negative` 表示纯背景 no-object 负样本。
 - `summary.json`：本轮统计信息。
-- `train_inputs/`：本轮实际输入训练的正样本图片；有真值时画绿色真值框或 polygon。当前训练集还没有 no-object 负样本结构，所以纯背景误检图会出现在 `errors_vis/` 和 `predictions_vis/`，但不会作为背景训练图进入 `train_inputs/`。
+- `train_inputs/`：本轮实际输入训练的图片；正样本画绿色真值框或 polygon，纯背景负样本写 `NEGATIVE no-object` 且不画框。
 - `errors_vis/`：本轮错误队列涉及的图片；绿色是真值，红色是预测，左上角写错误类型和风险分数。
 - `predictions_vis/`：全量图片检测结果；每张 `image_map.json` 里的图片都会输出一张，没检测到目标时就是原图。
 
 根目录 `summary.json` 里最重要的是：
 
 - `rounds[].train_count`：本轮训练目标数量。
+- `rounds[].train_image_count`：本轮训练图片数量，包含正样本图和 no-object 负样本图。
+- `rounds[].negative_train_count`：本轮 no-object 负样本图片数量。
 - `rounds[].prediction_count`：本轮全量预测数量。
 - `rounds[].error_count`：本轮错误数量。
 - `rounds[].metrics.tp/fp/fn`：当前目标类别的匹配成功数、误检数、漏检数。
@@ -275,14 +278,14 @@ round_00/
 快速打印每轮错误数和指标：
 
 ```powershell
-python -c "import json; s=json.load(open('runs/native_fewshot_baseline/summary.json', encoding='utf-8')); [print(r['round'], 'train=', r['train_count'], 'pred=', r['prediction_count'], 'err=', r['error_count'], 'P=', round(r['metrics']['precision'], 4), 'R=', round(r['metrics']['recall'], 4), 'F1=', round(r['metrics']['f1'], 4), 'mIoU=', round(r['metrics']['miou'], 4), 'next=', r['selected_image_id']) for r in s['rounds']]"
+python -c "import json; s=json.load(open('runs/native_fewshot_baseline/summary.json', encoding='utf-8')); [print(r['round'], 'train=', r['train_count'], 'neg=', r['negative_train_count'], 'pred=', r['prediction_count'], 'err=', r['error_count'], 'P=', round(r['metrics']['precision'], 4), 'R=', round(r['metrics']['recall'], 4), 'F1=', round(r['metrics']['f1'], 4), 'mIoU=', round(r['metrics']['miou'], 4), 'next=', r['selected_image_id']) for r in s['rounds']]"
 ```
 
 判断是否值得继续：
 
 - 如果 `prediction_count` 长期为 0，优先降低 `--score-threshold` 到 `0.1` 或检查模型输出后处理。
 - 如果 `error_count` 不下降，但预测框位置大致对，尝试 `--train-bbox-embed`。
-- 如果全是误检，先提高 `--score-threshold`，再检查 label 是否一致；纯背景误检目前只会被统计和可视化，真正把 no-object 背景图加入训练仍是下一阶段 hard negative 功能。
+- 如果全是误检，先检查 `next_train.json` 是否加入了 `sample_type=negative` 的背景图，再观察下一轮 `negative_train_count` 是否增加；如果误检仍多，再提高 `--score-threshold` 或增加 hard negative 轮数。
 - 如果全是漏检，先降低 `--score-threshold`，并确认初始训练图片确实有该 label。
 
 ## 6. HBB、Polygon、OBB 当前验证策略

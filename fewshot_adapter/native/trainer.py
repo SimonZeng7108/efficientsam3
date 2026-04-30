@@ -11,10 +11,14 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from ..data.json_io import load_annotations, save_annotations, save_error_queue, save_predictions
-from ..data.models import Annotation, Prediction
-from ..data.sam3_batch import build_sam3_training_batch, group_annotations_by_image, load_image_batch
-from ..data.sampling import add_selected_errors_to_train_set, create_initial_train_set
+from ..data.json_io import load_annotations, save_error_queue, save_predictions, save_training_samples
+from ..data.models import Annotation, Prediction, TrainingSample
+from ..data.sam3_batch import build_sam3_training_batch, build_sam3_training_batch_from_samples, load_image_batch
+from ..data.sampling import (
+    add_selected_errors_to_training_samples,
+    annotations_to_training_samples,
+    create_initial_training_samples,
+)
 from ..evaluation.matching import build_error_queue, select_next_training_sample
 from ..evaluation.metrics import compute_detection_metrics
 from ..utils.torch import require_torch
@@ -89,12 +93,12 @@ def run_native_fewshot_loop(
     image_map = _read_json_dict(image_map_path)
     target_label = _resolve_label(config.label, full_ground_truth)
 
-    current_train = create_initial_train_set(
+    current_train = create_initial_training_samples(
         full_ground_truth,
         label=target_label,
         seed=config.seed,
     )
-    save_annotations(output_root / "train_round_0.json", current_train)
+    save_training_samples(output_root / "train_round_0.json", current_train)
 
     wrapper = build_native_fewshot_model(
         checkpoint_path=config.checkpoint,
@@ -121,7 +125,7 @@ def run_native_fewshot_loop(
             wrapper=wrapper,
             optimizer=optimizer,
             loss_fn=loss_fn,
-            annotations=current_train,
+            training_samples=current_train,
             image_map=image_map,
             steps=config.steps_per_round,
             resolution=config.resolution,
@@ -162,19 +166,16 @@ def run_native_fewshot_loop(
         if selected is not None:
             errors = [_mark_selected(error, selected) for error in errors]
         save_error_queue(errors_path, errors)
-        next_train = add_selected_errors_to_train_set(
-            current_train,
-            full_ground_truth,
-            errors,
-        )
         if selected is not None:
-            next_train = add_selected_image_truth(
-                next_train,
+            next_train = add_selected_training_sample(
+                current_train,
                 full_ground_truth,
-                selected_image_id=selected.image_id,
+                selected=selected,
                 label=target_label,
             )
-        save_annotations(next_train_path, next_train)
+        else:
+            next_train = list(current_train)
+        save_training_samples(next_train_path, next_train)
         visual_outputs = _render_round_visual_outputs(
             round_dir=round_dir,
             image_map=image_map,
@@ -186,7 +187,9 @@ def run_native_fewshot_loop(
 
         summary = {
             "round": round_index,
-            "train_count": len(current_train),
+            "train_count": _count_positive_annotations(current_train),
+            "train_image_count": len(current_train),
+            "negative_train_count": _count_negative_samples(current_train),
             "prediction_count": len(predictions),
             "error_count": len(errors),
             "metrics": metrics,
@@ -200,7 +203,7 @@ def run_native_fewshot_loop(
         }
         _write_json(round_dir / "summary.json", summary)
         round_summaries.append(summary)
-        if not errors or len(next_train) == len(current_train):
+        if not errors or _training_sample_signature(next_train) == _training_sample_signature(current_train):
             break
         current_train = next_train
 
@@ -220,7 +223,8 @@ def train_native_adapter_one_round(
     wrapper: Any,
     optimizer: Any,
     loss_fn: Any,
-    annotations: list[Annotation],
+    annotations: list[Annotation] | None = None,
+    training_samples: list[TrainingSample] | None = None,
     image_map: dict[str, str],
     steps: int,
     resolution: int,
@@ -230,24 +234,28 @@ def train_native_adapter_one_round(
     """训练当前 round 的 task prompt / adapter。"""
     if steps <= 0:
         return []
-    grouped_items = list(group_annotations_by_image(annotations).items())
-    if not grouped_items:
+    if training_samples is None:
+        if annotations is None:
+            raise ValueError("annotations or training_samples must be provided")
+        training_samples = annotations_to_training_samples(annotations)
+    sample_items = list(enumerate(training_samples))
+    if not sample_items:
         raise ValueError("current train set is empty")
     history: list[dict[str, float]] = []
     # 少样本训练集通常很小，按图片缓存 batch 可避免每个 step 重复 Image.open/resize/to(device)。
-    batch_by_image_id = {
-        image_id: build_sam3_training_batch(
-            image_annotations,
+    batch_by_index = {
+        sample_index: build_sam3_training_batch_from_samples(
+            [sample],
             image_map,
             resolution=resolution,
             device=device,
         )
-        for image_id, image_annotations in grouped_items
+        for sample_index, sample in sample_items
     }
     wrapper.train()
     for step in range(steps):
-        image_id, _ = grouped_items[step % len(grouped_items)]
-        batch = batch_by_image_id[image_id]
+        sample_index, _ = sample_items[step % len(sample_items)]
+        batch = batch_by_index[sample_index]
         optimizer.zero_grad(set_to_none=True)
         out = wrapper.forward_batch(batch)
         sam3_output = sam3_output_cls([[out]])
@@ -313,11 +321,10 @@ def add_selected_image_truth(
     selected_image_id: str,
     label: str,
 ) -> list[Annotation]:
-    """把被选中错误图片上的同类真值加入训练集。
+    """兼容旧 annotation 训练集格式的真值追加函数。
 
-    漏检/定位错误通常已经通过 `ground_truth_ids` 加入；误检图片没有
-    ground_truth_ids 时，这个兜底逻辑可以把该图已有真值也喂给下一轮。
-    如果图片确实没有目标，则当前版本不会构造 no-object 样本。
+    新的原生闭环请使用 `add_selected_training_sample`，它支持把纯背景误检
+    转成 no-object 负样本；这里保留给旧测试或外部调用，不再承载新训练逻辑。
     """
     existing_ids = {annotation.object_id for annotation in train_set}
     next_train = list(train_set)
@@ -329,6 +336,25 @@ def add_selected_image_truth(
         next_train.append(annotation)
         existing_ids.add(annotation.object_id)
     return next_train
+
+
+def add_selected_training_sample(
+    train_samples: list[TrainingSample],
+    all_ground_truths: list[Annotation],
+    *,
+    selected: Any,
+    label: str,
+) -> list[TrainingSample]:
+    """把选中的错误样本加入图片级训练集。
+
+    纯背景误检会生成 `negative` 样本；有同类真值的图片会生成或扩展正样本。
+    """
+    return add_selected_errors_to_training_samples(
+        train_samples,
+        all_ground_truths,
+        [selected],
+        label=label,
+    )
 
 
 def _compute_round_metrics(
@@ -353,21 +379,53 @@ def _render_round_visual_outputs(
     *,
     round_dir: str | Path,
     image_map: dict[str, str],
-    current_train: list[Annotation],
+    current_train: list[TrainingSample] | list[Annotation],
     full_ground_truth: list[Annotation],
     predictions: list[Prediction],
     errors: list[Any],
 ) -> dict[str, str]:
     """渲染当前轮图片并返回可写入 summary 的目录路径。"""
+    training_samples = (
+        current_train
+        if not current_train or isinstance(current_train[0], TrainingSample)
+        else annotations_to_training_samples(current_train)
+    )
     outputs = render_round_visualizations(
         round_dir=round_dir,
         image_map=image_map,
-        train_annotations=current_train,
+        train_annotations=[],
+        training_samples=training_samples,
         full_ground_truth=full_ground_truth,
         predictions=predictions,
         errors=errors,
     )
     return outputs.to_summary_dict()
+
+
+def _count_positive_annotations(samples: list[TrainingSample]) -> int:
+    return sum(len(sample.annotations) for sample in samples)
+
+
+def _count_negative_samples(samples: list[TrainingSample]) -> int:
+    return sum(1 for sample in samples if sample.sample_type == "negative")
+
+
+def _training_sample_signature(samples: list[TrainingSample]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    positive_ids = tuple(
+        sorted(
+            annotation.object_id
+            for sample in samples
+            for annotation in sample.annotations
+        )
+    )
+    negative_ids = tuple(
+        sorted(
+            f"{sample.label}:{sample.image_id}"
+            for sample in samples
+            if sample.sample_type == "negative"
+        )
+    )
+    return positive_ids, negative_ids
 
 
 def _filter_ground_truth_by_label(

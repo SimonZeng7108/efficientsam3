@@ -21,6 +21,7 @@ from .trainer import (
     NativeFewShotLoopConfig,
     NativeFewShotTrainer,
     add_selected_image_truth,
+    add_selected_training_sample,
     run_native_fewshot_loop,
 )
 
@@ -34,6 +35,7 @@ __all__ = [
     "NativePredictionRecord",
     "NativePredictor",
     "add_selected_image_truth",
+    "add_selected_training_sample",
     "build_native_fewshot_model",
     "build_native_loss",
     "freeze_for_fewshot",

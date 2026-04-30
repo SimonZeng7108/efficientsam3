@@ -12,6 +12,7 @@ from typing import Literal, Sequence
 
 Point = tuple[float, float]
 SourceType = Literal["hbb", "obb", "polygon", "mask"]
+TrainingSampleType = Literal["positive", "negative"]
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,29 @@ class Prediction:
     obb: OBB | None = None
     polygon: list[Point] | None = None
     mask_path: str | None = None
+
+
+@dataclass(frozen=True)
+class TrainingSample:
+    """图片级训练样本。
+
+    `Annotation` 表示一个目标；`TrainingSample` 表示一张进入训练的图片。
+    正样本包含一个或多个目标标注，负样本表示该图对当前 label 没有目标。
+    """
+
+    image_id: str
+    label: str
+    annotations: list[Annotation]
+    sample_type: TrainingSampleType = "positive"
+    reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.sample_type not in {"positive", "negative"}:
+            raise ValueError("sample_type must be 'positive' or 'negative'")
+        if self.sample_type == "positive" and not self.annotations:
+            raise ValueError("positive training sample must contain annotations")
+        if self.sample_type == "negative" and self.annotations:
+            raise ValueError("negative training sample must not contain annotations")
 
 
 def _clean_number(value: float) -> float | int:

@@ -2,7 +2,7 @@
 
 from PIL import Image
 
-from fewshot_adapter.data.models import HBB, Annotation, Prediction
+from fewshot_adapter.data.models import HBB, Annotation, Prediction, TrainingSample
 from fewshot_adapter.evaluation.matching import ErrorItem
 from fewshot_adapter.visualization.round_outputs import render_round_visualizations
 
@@ -87,3 +87,30 @@ def test_prediction_visualization_keeps_background_image_without_predictions(tmp
 
     rendered = Image.open(round_dir / "predictions_vis" / "background.jpg_pred.jpg")
     assert rendered.size == (32, 24)
+
+
+def test_train_input_visualization_writes_negative_sample_without_box(tmp_path):
+    """负样本训练图要保存原图并标注 no-object，不能画成真值框。"""
+    image_path = tmp_path / "background.jpg"
+    Image.new("RGB", (40, 30), "white").save(image_path)
+    round_dir = tmp_path / "round_00"
+
+    render_round_visualizations(
+        round_dir=round_dir,
+        image_map={"background.jpg": str(image_path)},
+        train_annotations=[],
+        training_samples=[
+            TrainingSample(
+                image_id="background.jpg",
+                label="obj",
+                annotations=[],
+                sample_type="negative",
+                reason="false_positive",
+            )
+        ],
+        full_ground_truth=[],
+        predictions=[],
+        errors=[],
+    )
+
+    assert (round_dir / "train_inputs" / "background.jpg_gt.jpg").is_file()

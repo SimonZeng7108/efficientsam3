@@ -280,6 +280,7 @@ final_score = adapter_score * 0.7 + prototype_similarity * 0.3
 
 - 正样本区域得分高。
 - 负样本区域得分低。
+- 对纯背景 no-object 样本，presence 分支输出低置信度，避免背景图持续误检。
 - 预测 mask/region 与标注区域对齐。
 - OBB 或 polygon 后处理后与标注尽量一致。
 
@@ -711,14 +712,14 @@ GPU 验证阶段需要量化每轮迭代是否真的变好。
 - 每轮继续微调。
 - 记录每轮性能变化。
 
-当前代码已实现这一步的正样本闭环、错误队列、指标统计和每轮可视化输出。需要注意：纯背景误检图目前会被统计到 `errors.json`，并输出到 `errors_vis/` / `predictions_vis/` 供复查，但还不会作为 no-object 负样本进入训练；这部分仍归入第三步 hard negative / no-object 策略。
+当前代码已实现这一步的正样本闭环、错误队列、指标统计和每轮可视化输出，并已补充 no-object hard negative：纯背景误检会以 `sample_type=negative` 写入 `next_train.json`，下一轮用 `num_boxes=0` 的 SAM3 target 参与训练。
 
 ### 第三步：增强模型
 
 - 如果定位不足，尝试开放 `bbox_embed`。
 - 如果类别/目标适配仍不足，再谨慎尝试 decoder cross-attention。
 - 增加 mask / polygon 后处理，拟合真正 OBB。
-- 加 hard negative 或 no-object 样本策略。
+- 继续增强 hard negative 策略，例如每轮同时选择一个正向错误和一个背景负样本，或限制负样本比例避免过度压低召回。
 - 必要时再考虑 LoRA 或 prototype memory re-rank。
 
 ### 第四步：NPU 可部署性验证

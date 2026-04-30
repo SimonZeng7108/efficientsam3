@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ..evaluation.matching import ErrorItem
-from .models import HBB, OBB, Annotation, Prediction
+from .models import HBB, OBB, Annotation, Prediction, TrainingSample
 
 
 class AnnotationJsonIO:
@@ -41,6 +41,14 @@ class AnnotationJsonIO:
     @staticmethod
     def save_error_queue(path: str | Path, errors: list[ErrorItem]) -> None:
         save_error_queue(path, errors)
+
+    @staticmethod
+    def load_training_samples(path: str | Path) -> list[TrainingSample]:
+        return load_training_samples(path)
+
+    @staticmethod
+    def save_training_samples(path: str | Path, samples: list[TrainingSample]) -> None:
+        save_training_samples(path, samples)
 
 
 def load_annotations(path: str | Path) -> list[Annotation]:
@@ -86,9 +94,26 @@ def save_error_queue(path: str | Path, errors: list[ErrorItem]) -> None:
     )
 
 
+def save_training_samples(path: str | Path, samples: list[TrainingSample]) -> None:
+    """保存图片级训练样本 JSON，支持正样本和 no-object 负样本。"""
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = [_training_sample_to_dict(sample) for sample in samples]
+    output_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
 def load_error_queue(path: str | Path) -> list[ErrorItem]:
     raw_items = _read_json_list(path)
     return [_error_item_from_dict(item) for item in raw_items]
+
+
+def load_training_samples(path: str | Path) -> list[TrainingSample]:
+    """读取图片级训练样本 JSON。"""
+    raw_items = _read_json_list(path)
+    return [_training_sample_from_dict(item) for item in raw_items]
 
 
 def _annotation_to_dict(annotation: Annotation) -> dict[str, Any]:
@@ -149,6 +174,18 @@ def _prediction_to_dict(prediction: Prediction) -> dict[str, Any]:
     return payload
 
 
+def _training_sample_to_dict(sample: TrainingSample) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "image_id": sample.image_id,
+        "label": sample.label,
+        "sample_type": sample.sample_type,
+        "annotations": [_annotation_to_dict(annotation) for annotation in sample.annotations],
+    }
+    if sample.reason is not None:
+        payload["reason"] = sample.reason
+    return payload
+
+
 def _read_json_list(path: str | Path) -> list[dict[str, Any]]:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(payload, list):
@@ -179,6 +216,16 @@ def _prediction_from_dict(item: dict[str, Any]) -> Prediction:
         obb=_parse_obb(item.get("obb")),
         polygon=_parse_polygon(item.get("polygon")),
         mask_path=item.get("mask_path"),
+    )
+
+
+def _training_sample_from_dict(item: dict[str, Any]) -> TrainingSample:
+    return TrainingSample(
+        image_id=str(item["image_id"]),
+        label=str(item["label"]),
+        sample_type=item.get("sample_type", "positive"),
+        annotations=[_annotation_from_dict(annotation) for annotation in item.get("annotations", [])],
+        reason=item.get("reason"),
     )
 
 

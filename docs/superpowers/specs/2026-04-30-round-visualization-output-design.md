@@ -24,11 +24,11 @@ runs/native_fewshot/
 
 ## 渲染规则
 
-- `train_inputs/`：渲染当前轮实际输入训练的正样本图片；有真值时画绿色真值框或 polygon。纯背景误检图当前只在 `errors_vis/` 和 `predictions_vis/` 里复查，尚未作为 no-object 负样本进入训练。
+- `train_inputs/`：渲染当前轮实际输入训练的图片；正样本画绿色真值框或 polygon，纯背景 hard negative 写 `NEGATIVE no-object`，不画框。
 - `errors_vis/`：只渲染本轮错误队列涉及的图片；绿色画真值，红色画预测，文字标出错误类型。
 - `predictions_vis/`：按 `image_map.json` 渲染全量图片；有预测时画红色预测框、类别和分数；没有预测时保存原图。
 - 当前模型主输出是 HBB；真值若来自 polygon，则按 polygon 轮廓画，便于观察旋转/四边形标注。
-- 可视化输出不改变训练逻辑，只作为 GPU 验证和错误复查辅助。
+- 可视化输出不改变训练逻辑，只作为 GPU 验证和错误复查辅助；纯背景负样本真正参与训练的入口是 `next_train.json` 里的 `sample_type=negative`，训练 batch 中对应 `num_boxes=0`。
 
 ## 测试口径
 

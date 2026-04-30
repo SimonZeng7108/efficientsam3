@@ -15,7 +15,7 @@ import numpy as np
 from PIL import Image
 
 from ..utils.torch import require_torch
-from .models import HBB, Annotation, normalize_annotation
+from .models import HBB, Annotation, TrainingSample, normalize_annotation
 
 
 @dataclass(frozen=True)
@@ -63,6 +63,21 @@ class Sam3BatchBuilder:
             device=device,
         )
 
+    def build_training_batch_from_samples(
+        self,
+        samples: Sequence[TrainingSample],
+        image_map: Mapping[str, str | Path],
+        *,
+        resolution: int = 1008,
+        device: str = "cuda",
+    ) -> NativeSam3Batch:
+        return build_sam3_training_batch_from_samples(
+            samples,
+            image_map,
+            resolution=resolution,
+            device=device,
+        )
+
     def load_image_batch(
         self,
         image_ids: Sequence[str],
@@ -86,6 +101,16 @@ def group_annotations_by_image(
     grouped: "OrderedDict[str, list[Annotation]]" = OrderedDict()
     for annotation in annotations:
         grouped.setdefault(annotation.image_id, []).append(annotation)
+    return grouped
+
+
+def group_training_samples_by_image(
+    samples: Sequence[TrainingSample],
+) -> "OrderedDict[str, list[Annotation]]":
+    """按图片分组训练样本；负样本保留 image_id，但目标列表为空。"""
+    grouped: "OrderedDict[str, list[Annotation]]" = OrderedDict()
+    for sample in samples:
+        grouped.setdefault(sample.image_id, []).extend(sample.annotations)
     return grouped
 
 
@@ -176,10 +201,36 @@ def build_sam3_training_batch(
     """
     if not annotations:
         raise ValueError("annotations must not be empty")
+    samples = [
+        TrainingSample(
+            image_id=image_id,
+            label=image_annotations[0].label,
+            annotations=list(image_annotations),
+        )
+        for image_id, image_annotations in group_annotations_by_image(annotations).items()
+    ]
+    return build_sam3_training_batch_from_samples(
+        samples,
+        image_map,
+        resolution=resolution,
+        device=device,
+    )
+
+
+def build_sam3_training_batch_from_samples(
+    samples: Sequence[TrainingSample],
+    image_map: Mapping[str, str | Path],
+    *,
+    resolution: int = 1008,
+    device: str = "cuda",
+) -> NativeSam3Batch:
+    """构造支持正样本和 no-object 负样本的 SAM3 原生训练 batch。"""
+    if not samples:
+        raise ValueError("training samples must not be empty")
     torch = require_torch()
     from sam3.model.data_misc import BatchedFindTarget
 
-    grouped = group_annotations_by_image(annotations)
+    grouped = group_training_samples_by_image(samples)
     image_ids = list(grouped)
     image_batch = load_image_batch(
         image_ids,
@@ -254,7 +305,10 @@ def _build_find_target(
         device=device,
     )
     flat_boxes = [box for boxes in per_image_boxes for box in boxes]
-    boxes_tensor = torch.tensor(flat_boxes, dtype=torch.float32, device=device)
+    if flat_boxes:
+        boxes_tensor = torch.tensor(flat_boxes, dtype=torch.float32, device=device)
+    else:
+        boxes_tensor = torch.empty((0, 4), dtype=torch.float32, device=device)
     max_boxes = max((len(boxes) for boxes in per_image_boxes), default=0)
     boxes_padded = torch.zeros(
         (len(per_image_boxes), max_boxes, 4),
@@ -268,7 +322,7 @@ def _build_find_target(
         device=device,
     )
     next_object_id = 0
-    object_ids = []
+    object_ids: list[int] = []
     for batch_index, boxes in enumerate(per_image_boxes):
         for box_index, box in enumerate(boxes):
             boxes_padded[batch_index, box_index] = torch.tensor(
