@@ -19,10 +19,11 @@ EfficientSAM3 是一个研究型代码库，目标是通过“渐进式分层知
 关键结论：
 
 - `efficient_sam3_efficientvit_s.pt` 是完整 EfficientSAM3 图像模型，包含 EfficientViT 图像编码器、SAM3 decoder、`DotProductScoring`、box/mask head，不是单独图像编码器。
-- 主流程不再要求 `proposal_candidates.json`。SAM3 原生输出 `pred_logits`、`pred_boxes`、`pred_masks`，后处理后写出 `predictions.json`。
+- 主流程不再要求 `proposal_candidates.json`。SAM3 原生输出 `pred_logits`、`pred_boxes`、`pred_masks`，后处理会做单图同类 NMS 后写出 `predictions.json`。
 - 少样本训练默认冻结大部分 EfficientSAM3，只训练 `task_prompt_tokens`、`prompt_adapter`、可选 `dot_prod_scoring`、可选少量 bbox/cross-attention 参数。
-- 验证阶段没有交互界面。每轮训练后自动推理全量图片，用真值筛出漏检、误检、定位错误，再把被选中错误图片的同类真值加入下一轮训练。
+- 验证阶段没有交互界面。每轮训练后自动推理全量图片，用真值筛出漏检、误检、定位错误和低置信正确样本，再把被选中错误图片的同类真值加入下一轮训练。
 - 当前闭环支持 no-object hard negative：纯背景误检会进入 `errors.json`、`errors_vis/` 和 `predictions_vis/`，并以 `sample_type=negative` 写入 `next_train.json`，下一轮用 `num_boxes=0` 的 SAM3 target 更新 adapter。
+- 默认 YAML 的 `EVAL.LABEL=null`，单类别数据集会自动推断 label；多类别数据集必须显式传 `--label`。最终根目录 `summary.json` 会写入 `target_label`。
 - 数据入口支持用户真实 `DataTrain.txt` 格式：文件头 `Version 1.0.0` 会跳过；`图片名:数量 P:4/R:4 x1 y1 ... "label"` 会解析为 polygon；`.jpg`、`.jpg.bmp`、`.bmp.bmp` 都按普通图片名处理；`1 1 1 1 1 1 1 1` 是无目标占位，不写入 `full_gt.json`，但图片仍保留在 `image_map.json` 参与全量推理和误检检查。
 
 新增原生少样本主线文件已按职责分包：
@@ -420,10 +421,10 @@ SAM 风格 prompt encoder 和 mask decoder 组件：
 - `data/sam3_batch.py`：`Sam3BatchBuilder`，把图片和 `TrainingSample` 转成 SAM3 原生 batch / target；负样本会生成 `num_boxes=0`；开启 `LOSS.USE_MASKS` 时会填充 `segments/is_valid_segment`。
 - `geometry/ops.py`：`GeometryOps`，polygon/OBB 面积、IoU 和 polygon 转 OBB。
 - `evaluation/matching.py`：`DetectionMatcher` 和 `ErrorSelector`，负责匹配、筛错、选择下一轮样本。
-- `evaluation/metrics.py`：`DetectionMetrics` 和 `compute_detection_metrics`，负责把匹配结果汇总为 TP/FP/FN、precision、recall、F1、mIoU，并写入每轮 `summary.json` 的 `metrics` 字段。
+- `evaluation/metrics.py`：`DetectionMetrics` 和 `compute_detection_metrics`，负责把匹配结果汇总为 TP/FP/FN、precision、recall、F1、mIoU，并写入每轮 `summary.json` 的 `metrics` 字段；每轮 summary 还会写 `error_type_counts` 便于快速看主要错误类型。
 - `native/adapter.py`：task prompt、prompt adapter、冻结/解冻策略和 EfficientSAM3 原生 wrapper。
 - `native/loss.py`：`NativeLossFactory`，封装 SAM3 原生 matcher/loss；注意 EfficientSAM3 训练态 DAC decoder 会输出 one-to-many 分支，因此这里同时配置 o2o `BinaryHungarianMatcherV2` 和 o2m `BinaryOneToManyMatcher`。`LOSS.USE_MASKS=true` 会额外加入 SAM3 官方 `Masks` loss。
-- `native/predictor.py`：`NativePredictor`，把 SAM3 原生输出转成项目 `Prediction`；如果有 `pred_masks`，会先保留最大连通域，再由二值 mask 凸包拟合旋转 OBB，没有 mask 时回退到 HBB 的 angle=0 兼容 OBB。
+- `native/predictor.py`：`NativePredictor`，把 SAM3 原生输出转成项目 `Prediction`；如果有 `pred_masks`，会先保留最大连通域，再由二值 mask 凸包拟合旋转 OBB，没有 mask 时回退到 HBB 的 angle=0 兼容 OBB；同图同类预测会按 `EVAL.NMS_IOU_THRESHOLD` 做 rotated/HBB NMS。
 - `native/trainer.py`：`NativeFewShotTrainer`，完整多轮自动训练、推理、筛错、补样本闭环；训练时会打印可微调模块、每轮/step loss、学习率、评估指标和下一轮选样。
 - `config/fewshot.py`：`FewShotExperimentConfig`，读取少样本 YAML，映射为 `NativeFewShotLoopConfig` / `NativeAdapterConfig` / `NativeLossConfig`，并保存 `resolved_config.yaml`。
 - `configs/efficient_sam3_efficientvit_s_fewshot.yaml`：推荐默认配置，参数尽量对齐 SAM3 官方 detection fine-tune / eval 口径。
@@ -483,6 +484,7 @@ GPU 验证时优先看 `docs/fewshot_gpu_validation_guide.md`。第一步先跑 
 - 训练 loss 出现 NaN/inf 会直接报错。
 - 已支持粗 mask target + SAM3 官方 mask loss；开启时必须同步打开 `MODEL.ENABLE_SEGMENTATION=true`。
 - 预测 OBB 会优先由 `pred_masks` 的最大连通域拟合；仅在没有 mask 或 mask 为空时使用 angle=0 的 HBB 兼容字段。
+- DataTrain 的四点 polygon 会派生 OBB，`EVAL.IOU_MODE=obb` 时优先使用 rotated IoU；重复 query 会先经过 NMS；低置信 TP 会以 `low_confidence_true_positive` 进入低优先级错误队列。
 
 ## 容易踩坑的地方
 

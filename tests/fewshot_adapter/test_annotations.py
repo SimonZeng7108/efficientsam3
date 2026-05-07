@@ -43,3 +43,21 @@ def test_normalize_annotation_derives_missing_polygon_and_hbb_from_obb():
     assert normalized.polygon == [(10, 25), (30, 25), (30, 35), (10, 35)]
     assert normalized.hbb == HBB(x1=10, y1=25, x2=30, y2=35)
     assert normalized.obb == annotation.obb
+
+
+def test_normalize_annotation_derives_missing_obb_from_polygon():
+    """DataTrain 的 R:4/P:4 四点标注进入 OBB 评估前，应补齐旋转框。"""
+    polygon = [(28.79, 14.64), (85.36, 71.21), (71.21, 85.36), (14.64, 28.79)]
+    annotation = Annotation(
+        image_id="img_1",
+        object_id="gt_1",
+        label="target",
+        source_type="polygon",
+        polygon=polygon,
+    )
+
+    normalized = normalize_annotation(annotation)
+
+    assert normalized.hbb == HBB(x1=14.64, y1=14.64, x2=85.36, y2=85.36)
+    assert normalized.obb is not None
+    assert 40.0 < abs(normalized.obb.angle) < 50.0

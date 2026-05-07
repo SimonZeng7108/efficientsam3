@@ -60,9 +60,11 @@ class FewShotTrainSection:
 class FewShotEvalSection:
     label: str | None = None
     score_threshold: float = 0.3
+    nms_iou_threshold: float = 0.5
     iou_threshold: float = 0.5
     localization_error_threshold: float = 0.1
     iou_mode: str = "hbb"
+    low_confidence_threshold: float | None = 0.4
 
 
 @dataclass(frozen=True)
@@ -173,9 +175,11 @@ def build_loop_config(config: FewShotExperimentConfig) -> NativeFewShotLoopConfi
         learning_rate=config.train.learning_rate,
         weight_decay=config.train.weight_decay,
         score_threshold=config.eval.score_threshold,
+        nms_iou_threshold=config.eval.nms_iou_threshold,
         iou_threshold=config.eval.iou_threshold,
         localization_error_threshold=config.eval.localization_error_threshold,
         iou_mode=config.eval.iou_mode,
+        low_confidence_threshold=config.eval.low_confidence_threshold,
         backbone_type=config.model.backbone_type,
         model_name=config.model.model_name,
         enable_segmentation=config.model.enable_segmentation,

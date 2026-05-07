@@ -90,6 +90,7 @@ def test_train_native_cli_accepts_yaml_config_and_cli_overrides_before_torch(tmp
                 "EVAL:",
                 "  LABEL: obj",
                 "  SCORE_THRESHOLD: 0.3",
+                "  NMS_IOU_THRESHOLD: 0.6",
             ]
         ),
         encoding="utf-8",
@@ -106,6 +107,8 @@ def test_train_native_cli_accepts_yaml_config_and_cli_overrides_before_torch(tmp
             "2",
             "--score-threshold",
             "0.2",
+            "--low-confidence-threshold",
+            "0.45",
         ],
         cwd=Path(__file__).resolve().parents[2],
         capture_output=True,
@@ -118,3 +121,5 @@ def test_train_native_cli_accepts_yaml_config_and_cli_overrides_before_torch(tmp
     assert "PyTorch is required" in result.stderr
     assert "STEPS_PER_ROUND: 2" in resolved_config
     assert "SCORE_THRESHOLD: 0.2" in resolved_config
+    assert "NMS_IOU_THRESHOLD: 0.6" in resolved_config
+    assert "LOW_CONFIDENCE_THRESHOLD: 0.45" in resolved_config

@@ -56,9 +56,11 @@ class NativeFewShotLoopConfig:
     learning_rate: float = 8e-5
     weight_decay: float = 0.1
     score_threshold: float = 0.3
+    nms_iou_threshold: float = 0.5
     iou_threshold: float = 0.5
     localization_error_threshold: float = 0.1
     iou_mode: str = "hbb"
+    low_confidence_threshold: float | None = 0.4
 
 
 class NativeFewShotTrainer:
@@ -178,6 +180,7 @@ def run_native_fewshot_loop(
             resolution=config.resolution,
             device=config.device,
             score_threshold=config.score_threshold,
+            nms_iou_threshold=config.nms_iou_threshold,
         )
         predictions_path = round_dir / "predictions.json"
         errors_path = round_dir / "errors.json"
@@ -190,6 +193,7 @@ def run_native_fewshot_loop(
             iou_threshold=config.iou_threshold,
             localization_error_threshold=config.localization_error_threshold,
             iou_mode=config.iou_mode,
+            low_confidence_threshold=config.low_confidence_threshold,
         )
         metrics = _compute_round_metrics(
             full_ground_truth=full_ground_truth,
@@ -245,6 +249,7 @@ def run_native_fewshot_loop(
             "negative_train_count": _count_negative_samples(current_train),
             "prediction_count": len(predictions),
             "error_count": len(errors),
+            "error_type_counts": _count_error_types(errors),
             "metrics": metrics,
             "selected_image_id": None if selected is None else selected.image_id,
             "adapter": str(adapter_path),
@@ -262,6 +267,7 @@ def run_native_fewshot_loop(
 
     final_summary = {
         "mode": "native_efficientsam3_fewshot",
+        "target_label": target_label,
         "config": asdict(config),
         "adapter_config": asdict(adapter_config or NativeAdapterConfig()),
         "loss_config": asdict(resolved_loss_config),
@@ -349,6 +355,7 @@ def predict_all_images(
     resolution: int,
     device: str,
     score_threshold: float,
+    nms_iou_threshold: float | None = 0.5,
 ) -> list:
     """对全量图片执行 EfficientSAM3 原生推理。"""
     torch = require_torch()
@@ -380,6 +387,7 @@ def predict_all_images(
                     original_sizes=image_batch.original_sizes,
                     label=label,
                     score_threshold=score_threshold,
+                    nms_iou_threshold=nms_iou_threshold,
                 )
             )
     return predictions
@@ -618,6 +626,15 @@ def _count_negative_samples(samples: list[TrainingSample]) -> int:
     return sum(1 for sample in samples if sample.sample_type == "negative")
 
 
+def _count_error_types(errors: Sequence[Any]) -> dict[str, int]:
+    """统计每类错误数量，写入 round summary 便于快速判断主要失败模式。"""
+    counts: dict[str, int] = {}
+    for error in errors:
+        error_type = str(getattr(error, "error_type", "unknown"))
+        counts[error_type] = counts.get(error_type, 0) + 1
+    return dict(sorted(counts.items()))
+
+
 def _trainable_module_group(parameter_name: str) -> str:
     normalized = parameter_name.removeprefix("module.")
     if normalized.startswith("task_prompt_tokens"):
@@ -720,11 +737,16 @@ def _build_inference_find_stage(*, batch_size: int, torch: Any, device: str) -> 
 
 
 def _resolve_label(label: str | None, annotations: list[Annotation]) -> str:
-    if label:
-        return label
     if not annotations:
         raise ValueError("full ground truth is empty; cannot infer label")
     labels = sorted({annotation.label for annotation in annotations})
+    if label:
+        if label in labels:
+            return label
+        raise ValueError(
+            f"requested label '{label}' was not found in full ground truth. "
+            f"available labels: {', '.join(labels)}"
+        )
     if len(labels) > 1:
         raise ValueError(
             "multiple labels found in full ground truth; pass --label explicitly. "

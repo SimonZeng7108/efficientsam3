@@ -10,6 +10,13 @@ from fewshot_adapter.config import (
 )
 
 
+def test_packaged_fewshot_config_does_not_pin_dataset_label():
+    """默认 YAML 应允许不同数据集自动推断单一 label。"""
+    config = load_fewshot_config("fewshot_adapter/configs/efficient_sam3_efficientvit_s_fewshot.yaml")
+
+    assert config.eval.label is None
+
+
 def test_load_fewshot_config_uses_official_detection_defaults(tmp_path):
     """默认参数尽量贴近 SAM3 官方 detection fine-tune 配置。"""
     config_path = tmp_path / "fewshot.yaml"
@@ -39,6 +46,8 @@ def test_load_fewshot_config_uses_official_detection_defaults(tmp_path):
     assert config.train.learning_rate == approx(8e-5)
     assert config.train.weight_decay == approx(0.1)
     assert config.eval.score_threshold == approx(0.3)
+    assert config.eval.nms_iou_threshold == approx(0.5)
+    assert config.eval.low_confidence_threshold == approx(0.4)
     assert config.loss.cost_class == approx(2.0)
     assert config.loss.cost_bbox == approx(5.0)
     assert config.loss.cost_giou == approx(2.0)
@@ -88,6 +97,8 @@ def test_config_builds_runtime_dataclasses(tmp_path):
                 "EVAL:",
                 "  LABEL: obj",
                 "  SCORE_THRESHOLD: 0.2",
+                "  NMS_IOU_THRESHOLD: 0.7",
+                "  LOW_CONFIDENCE_THRESHOLD: 0.45",
             ]
         ),
         encoding="utf-8",
@@ -104,6 +115,8 @@ def test_config_builds_runtime_dataclasses(tmp_path):
     assert loop_config.resolution == 512
     assert loop_config.steps_per_round == 2
     assert loop_config.score_threshold == approx(0.2)
+    assert loop_config.nms_iou_threshold == approx(0.7)
+    assert loop_config.low_confidence_threshold == approx(0.45)
     assert loop_config.backbone_type == "efficientvit"
     assert loop_config.model_name == "b0"
     assert loop_config.enable_segmentation is False

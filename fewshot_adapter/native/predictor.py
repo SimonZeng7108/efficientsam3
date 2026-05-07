@@ -10,7 +10,7 @@ import numpy as np
 from PIL import Image
 
 from ..data.models import HBB, OBB, Point, Prediction
-from ..geometry import polygon_to_obb
+from ..geometry import obb_iou, polygon_to_obb
 
 _BILINEAR = Image.Resampling.BILINEAR if hasattr(Image, "Resampling") else Image.BILINEAR
 _NEAREST = Image.Resampling.NEAREST if hasattr(Image, "Resampling") else Image.NEAREST
@@ -49,6 +49,7 @@ class NativePredictor:
         original_sizes: Sequence[tuple[int, int]],
         label: str,
         score_threshold: float,
+        nms_iou_threshold: float | None = 0.5,
     ) -> list[Prediction]:
         return native_outputs_to_predictions(
             outputs,
@@ -56,6 +57,7 @@ class NativePredictor:
             original_sizes=original_sizes,
             label=label,
             score_threshold=score_threshold,
+            nms_iou_threshold=nms_iou_threshold,
         )
 
 
@@ -118,6 +120,7 @@ def native_outputs_to_predictions(
     original_sizes: Sequence[tuple[int, int]],
     label: str,
     score_threshold: float,
+    nms_iou_threshold: float | None = 0.5,
 ) -> list[Prediction]:
     """把 SAM3 原生 batch 输出转成预测列表。
 
@@ -138,6 +141,7 @@ def native_outputs_to_predictions(
     predictions: list[Prediction] = []
     for batch_index, image_id in enumerate(image_ids):
         width, height = original_sizes[batch_index]
+        image_predictions: list[Prediction] = []
         for query_index, score in enumerate(scores[batch_index]):
             if score < score_threshold:
                 continue
@@ -162,8 +166,54 @@ def native_outputs_to_predictions(
                 obb=None if mask_shape is None else mask_shape.obb,
                 polygon=None if mask_shape is None else mask_shape.polygon,
             )
-            predictions.append(record_to_prediction(record))
+            image_predictions.append(record_to_prediction(record))
+        predictions.extend(
+            _nms_predictions(
+                image_predictions,
+                nms_iou_threshold=nms_iou_threshold,
+            )
+        )
     return predictions
+
+
+def _nms_predictions(
+    predictions: list[Prediction],
+    *,
+    nms_iou_threshold: float | None,
+) -> list[Prediction]:
+    """单图同类 NMS；优先用 OBB/rotated IoU，缺失时回退 HBB IoU。"""
+    if nms_iou_threshold is None or len(predictions) <= 1:
+        return predictions
+    ordered = sorted(predictions, key=lambda prediction: prediction.score, reverse=True)
+    kept: list[Prediction] = []
+    for prediction in ordered:
+        if all(_prediction_iou(prediction, kept_prediction) <= nms_iou_threshold for kept_prediction in kept):
+            kept.append(prediction)
+    return kept
+
+
+def _prediction_iou(left: Prediction, right: Prediction) -> float:
+    if left.obb is not None and right.obb is not None:
+        return obb_iou(left.obb, right.obb)
+    if left.hbb is None or right.hbb is None:
+        return 0.0
+    return _hbb_iou(left.hbb, right.hbb)
+
+
+def _hbb_iou(left: HBB, right: HBB) -> float:
+    inter_x1 = max(left.x1, right.x1)
+    inter_y1 = max(left.y1, right.y1)
+    inter_x2 = min(left.x2, right.x2)
+    inter_y2 = min(left.y2, right.y2)
+    inter_w = max(0.0, inter_x2 - inter_x1)
+    inter_h = max(0.0, inter_y2 - inter_y1)
+    intersection = inter_w * inter_h
+    left_area = max(0.0, left.x2 - left.x1) * max(0.0, left.y2 - left.y1)
+    right_area = max(0.0, right.x2 - right.x1) * max(0.0, right.y2 - right.y1)
+    union = left_area + right_area - intersection
+    if union <= 0:
+        return 0.0
+    return intersection / union
 
 
 def mask_to_obb(mask: Any) -> OBB | None:

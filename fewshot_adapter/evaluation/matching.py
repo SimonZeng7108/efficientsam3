@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Literal
 
-from ..data.models import HBB, Annotation, Prediction, normalize_annotation, polygon_to_hbb
+from ..data.models import HBB, OBB, Point, Annotation, Prediction, normalize_annotation, polygon_to_hbb
 
 ErrorType = Literal[
     "false_negative",
@@ -60,6 +60,7 @@ class DetectionMatcher:
         iou_threshold: float = 0.5,
         localization_error_threshold: float = 0.1,
         iou_mode: IouMode = "hbb",
+        low_confidence_threshold: float | None = None,
     ) -> list[ErrorItem]:
         return build_error_queue(
             ground_truths,
@@ -67,6 +68,7 @@ class DetectionMatcher:
             iou_threshold=iou_threshold,
             localization_error_threshold=localization_error_threshold,
             iou_mode=iou_mode,
+            low_confidence_threshold=low_confidence_threshold,
         )
 
 
@@ -99,6 +101,33 @@ def _prediction_hbb(prediction: Prediction) -> HBB | None:
     if prediction.polygon is not None:
         return polygon_to_hbb(prediction.polygon)
     return None
+
+
+def _prediction_obb(prediction: Prediction) -> OBB | None:
+    if prediction.obb is not None:
+        return prediction.obb
+    if prediction.polygon is not None:
+        return _polygon_to_obb_or_none(prediction.polygon)
+    return None
+
+
+def _annotation_obb(annotation: Annotation) -> OBB | None:
+    if annotation.obb is not None:
+        return annotation.obb
+    if annotation.polygon is not None:
+        return _polygon_to_obb_or_none(annotation.polygon)
+    return None
+
+
+def _polygon_to_obb_or_none(polygon: list[Point]) -> OBB | None:
+    if len(polygon) < 3:
+        return None
+    try:
+        from ..geometry.ops import polygon_to_obb
+
+        return polygon_to_obb(polygon)
+    except ValueError:
+        return None
 
 
 def greedy_match_predictions(
@@ -136,6 +165,7 @@ def build_error_queue(
     iou_threshold: float = 0.5,
     localization_error_threshold: float = 0.1,
     iou_mode: IouMode = "hbb",
+    low_confidence_threshold: float | None = None,
 ) -> list[ErrorItem]:
     """根据真值和预测生成错误队列。"""
     normalized_gts = [normalize_annotation(gt) for gt in ground_truths]
@@ -145,6 +175,9 @@ def build_error_queue(
     matched_prediction_ids = {match.prediction.prediction_id for match in matches}
 
     errors: list[ErrorItem] = []
+    if low_confidence_threshold is not None:
+        errors.extend(_low_confidence_true_positive_errors(matches, low_confidence_threshold))
+
     for gt in normalized_gts:
         if gt.object_id in matched_gt_ids:
             continue
@@ -223,10 +256,13 @@ def _group_predictions_by_image_label(
 
 
 def _instance_iou(gt: Annotation, prediction: Prediction, iou_mode: IouMode) -> float:
-    if iou_mode == "obb" and gt.obb is not None and prediction.obb is not None:
-        from ..geometry.ops import obb_iou
+    if iou_mode == "obb":
+        gt_obb = _annotation_obb(gt)
+        pred_obb = _prediction_obb(prediction)
+        if gt_obb is not None and pred_obb is not None:
+            from ..geometry.ops import obb_iou
 
-        return obb_iou(gt.obb, prediction.obb)
+            return obb_iou(gt_obb, pred_obb)
     if iou_mode == "polygon" and gt.polygon is not None and prediction.polygon is not None:
         from ..geometry.ops import polygon_iou
 
@@ -237,6 +273,30 @@ def _instance_iou(gt: Annotation, prediction: Prediction, iou_mode: IouMode) -> 
     if pred_hbb is None:
         return 0.0
     return box_iou(gt.hbb, pred_hbb)
+
+
+def _low_confidence_true_positive_errors(
+    matches: list[Match],
+    low_confidence_threshold: float,
+) -> list[ErrorItem]:
+    errors: list[ErrorItem] = []
+    for match in matches:
+        if match.prediction.score > low_confidence_threshold:
+            continue
+        errors.append(
+            ErrorItem(
+                image_id=match.ground_truth.image_id,
+                error_type="low_confidence_true_positive",
+                risk_score=max(0.0, low_confidence_threshold - match.prediction.score),
+                reason=(
+                    "prediction matches ground truth but score is below "
+                    "the low-confidence threshold"
+                ),
+                ground_truth_ids=[match.ground_truth.object_id],
+                prediction_ids=[match.prediction.prediction_id],
+            )
+        )
+    return errors
 
 
 def select_next_training_sample(errors: list[ErrorItem]) -> ErrorItem | None:

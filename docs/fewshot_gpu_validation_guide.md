@@ -168,7 +168,10 @@ dataset_json/
 - `MODEL.ENABLE_SEGMENTATION=false`、`LOSS.USE_MASKS=false`：默认按官方 detection fine-tune 路线只训 box / class / presence，适合第一次 smoke test。
 - `MODEL.ENABLE_SEGMENTATION=true`、`LOSS.USE_MASKS=true`：启用 SAM3 segmentation head 和官方 `Masks` loss；DataTrain 的 HBB/OBB/Polygon 会生成粗 mask target，推理时优先由 `pred_masks` 拟合真实旋转 OBB。
 - `TRAIN.LEARNING_RATE=0.00008`、`TRAIN.WEIGHT_DECAY=0.1`：学习率和 weight decay 贴近官方 detection 配置的 transformer 参数组。
+- `EVAL.LABEL=null`：单类别数据集会自动从 `full_gt.json` 推断 label，例如 `obj`、`Sample`、`瓶盖`；多类别数据集必须显式传 `--label`。
 - `EVAL.SCORE_THRESHOLD=0.3`：贴近官方 thresholded postprocessor。
+- `EVAL.NMS_IOU_THRESHOLD=0.5`：全量推理后按单图同类做 NMS；优先使用 OBB/rotated IoU，缺少 OBB 时回退 HBB IoU。
+- `EVAL.LOW_CONFIDENCE_THRESHOLD=0.4`：已匹配真值但分数偏低的预测会进入低优先级错误队列，用来补充不稳定正样本。
 - `LOSS.*` 的 matcher / loss 权重来自官方 detection fine-tune 配置；其中 `O2M_*` 对应 EfficientSAM3 训练态 DAC decoder 的 one-to-many 分支，不能随意删掉。
 
 ## 3. 先跑 1 步 Smoke Test
@@ -278,9 +281,10 @@ LOSS:
 
 EVAL:
   IOU_MODE: obb
+  NMS_IOU_THRESHOLD: 0.5
 ```
 
-然后先跑 1 轮 1 步 smoke test。若模型输出里没有 `pred_masks`，预测会回退到 HBB 的 angle=0 OBB 兼容字段；这时不要把 `--iou-mode obb` 的结果当成最终旋转框能力。
+然后先跑 1 轮 1 步 smoke test。评估真值侧会把 DataTrain 的四点 polygon 拟合为 OBB；预测侧若模型输出里没有 `pred_masks`，会回退到 HBB 的 angle=0 OBB 兼容字段，这时不要把 `--iou-mode obb` 的结果当成最终旋转框能力。
 
 ## 5. 输出文件怎么看
 
@@ -305,8 +309,8 @@ round_00/
 
 - `resolved_config.yaml`：根输出目录下的最终生效配置，已经合并 YAML 和命令行覆盖项。
 - `adapter.pt`：本轮训练后的少样本 adapter 权重，只保存任务相关权重。
-- `predictions.json`：全量图片推理结果。
-- `errors.json`：根据全量真值自动筛出的错误队列。
+- `predictions.json`：全量图片推理结果；同一图片同一 label 内会先按 `EVAL.NMS_IOU_THRESHOLD` 做 NMS，减少重复 query。
+- `errors.json`：根据全量真值自动筛出的错误队列，包含漏检、误检、定位错误和低置信正确样本。
 - `next_train.json`：下一轮图片级训练样本列表。`sample_type=positive` 表示有目标正样本，`sample_type=negative` 表示纯背景 no-object 负样本。
 - `summary.json`：本轮统计信息。
 - `train_inputs/`：本轮实际输入训练的图片；正样本画绿色真值框或 polygon，纯背景负样本写 `NEGATIVE no-object` 且不画框。
@@ -315,11 +319,13 @@ round_00/
 
 根目录 `summary.json` 里最重要的是：
 
+- `target_label`：本次实际训练和评估使用的类别；当 YAML 里 `EVAL.LABEL=null` 时，它会记录自动推断出的真实 label。
 - `rounds[].train_count`：本轮训练目标数量。
 - `rounds[].train_image_count`：本轮训练图片数量，包含正样本图和 no-object 负样本图。
 - `rounds[].negative_train_count`：本轮 no-object 负样本图片数量。
 - `rounds[].prediction_count`：本轮全量预测数量。
 - `rounds[].error_count`：本轮错误数量。
+- `rounds[].error_type_counts`：按错误类型统计数量，例如漏检、误检、定位错误、低置信正确。
 - `rounds[].metrics.tp/fp/fn`：当前目标类别的匹配成功数、误检数、漏检数。
 - `rounds[].metrics.precision`：`TP / (TP + FP)`。
 - `rounds[].metrics.recall`：`TP / (TP + FN)`。
@@ -341,7 +347,7 @@ python -c "import json; s=json.load(open('runs/native_fewshot_baseline/summary.j
 
 - 如果 `prediction_count` 长期为 0，优先降低 `--score-threshold` 到 `0.1` 或检查模型输出后处理。
 - 如果 `error_count` 不下降，但预测框位置大致对，尝试 `--train-bbox-embed`。
-- 如果全是误检，先检查 `next_train.json` 是否加入了 `sample_type=negative` 的背景图，再观察下一轮 `negative_train_count` 是否增加；如果误检仍多，再提高 `--score-threshold` 或增加 hard negative 轮数。
+- 如果全是误检，先检查 `next_train.json` 是否加入了 `sample_type=negative` 的背景图，再观察下一轮 `negative_train_count` 是否增加；如果同一目标出现大量重复框，调低 `--nms-iou-threshold`；如果误检仍多，再提高 `--score-threshold` 或增加 hard negative 轮数。
 - 如果全是漏检，先降低 `--score-threshold`，并确认初始训练图片确实有该 label。
 
 ## 6. HBB、Polygon、OBB 当前验证策略
@@ -354,7 +360,8 @@ python -c "import json; s=json.load(open('runs/native_fewshot_baseline/summary.j
 
 原因：
 
-- 原始 `R` 框和 `P` 多边形都会派生 HBB，box loss 和 HBB 匹配最容易先跑通。
+- 原始 `R` 框和 `P` 多边形都会派生 HBB；box loss 和 HBB 匹配最容易先跑通。
+- 当 `EVAL.IOU_MODE=obb` 时，真值 polygon 会先拟合 OBB，再参与 rotated IoU；不会因为 DataTrain 只有四点 polygon 就直接退回 HBB。
 - 不开启 segmentation head 时，预测后处理只能稳定依赖 SAM3 box 输出。
 - 如果没有 `pred_masks`，代码仍会补一个 angle=0 的 OBB 兼容字段，保证 JSON 结构一致。
 
@@ -420,12 +427,38 @@ python -m pip install -e ".[stage1]"
 
 按顺序排查：
 
-- 确认 `--label` 和 `DataTrain.txt` 中的 label 完全一致。
-- 先看 `predictions.json` 是否有预测。
-- 降低 `--score-threshold` 到 `0.1` 看是否只是阈值过高。
-- 检查第一轮 `train_round_0.json` 是否选到了有代表性的目标。
-- 换 `--seed` 多跑几次，避免第一张样本太偏。
-- 如果定位框大致对但 IoU 不够，尝试 `--train-bbox-embed`。
+- 先看根目录 `summary.json` 的 `target_label`。默认 `EVAL.LABEL=null` 会在单类别数据集上自动推断 label，例如 `obj`、`Sample`、`瓶盖`；如果数据集有多个类别，必须传 `--label`，否则系统会主动报错。
+- 先看 `predictions.json` 是否有预测。如果 `prediction_count=0`，优先降低 `--score-threshold` 到 `0.1`，确认不是阈值太高。
+- 如果预测框大多堆在一个位置或同一目标上重复很多框，先调低 `--nms-iou-threshold`，例如 `0.5 -> 0.3`。当前后处理会在同一图片、同一 label 内做 NMS，优先使用 OBB/rotated IoU，缺少 OBB 时回退 HBB IoU。
+- 如果框数随着 `steps_per_round` 增多而明显变多，通常说明少样本训练把打分头推得过高。可以先降低 `learning_rate`，或在 YAML 中把 `ADAPTER.TRAIN_DOT_PROD_SCORING=false`，先只训 `task_prompt_tokens + prompt_adapter`，减少过拟合。
+- 检查第一轮 `train_round_0.json` 是否选到了有代表性的目标。少样本闭环第一张图影响很大，可以换 `--seed` 多跑几次。
+- 如果定位框大致对但 IoU 不够，尝试 `--train-bbox-embed`；如果一打开就更不稳定，先关掉并降低学习率。
+
+如果可视化结果里的框全是垂直 HBB，而不是旋转 OBB，不一定是 bug。先检查本次配置：
+
+```yaml
+MODEL:
+  ENABLE_SEGMENTATION: true
+
+LOSS:
+  USE_MASKS: true
+
+EVAL:
+  IOU_MODE: obb
+```
+
+只有打开 segmentation head 并启用 mask loss 后，推理阶段才有机会从 `pred_masks` 拟合真实旋转 OBB。如果 `MODEL.ENABLE_SEGMENTATION=false` 或模型没有输出有效 mask，预测 JSON 仍会保留 `obb` 字段，但它只是由 HBB 派生的 `angle=0` 兼容框，不能代表真实旋转框能力。
+
+建议按下面顺序做小实验，不要一开始就开很多轮：
+
+```text
+1. max_rounds=1, steps_per_round=1：确认模型加载、loss、输出文件和可视化都正常。
+2. 固定 seed，steps_per_round=10/20/50 对比 prediction_count 和 error_type_counts。
+3. 如果重复框很多，优先调 NMS 和 score threshold。
+4. 如果低分漏检很多，再降低 score threshold 或增加训练步数。
+5. 如果误检很多，跑多轮让 no-object hard negative 进入 next_train.json。
+6. 如果要看 OBB，必须打开 ENABLE_SEGMENTATION + USE_MASKS + IOU_MODE=obb。
+```
 
 ## 8. 推荐记录表
 

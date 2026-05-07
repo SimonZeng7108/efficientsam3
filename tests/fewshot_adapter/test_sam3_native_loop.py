@@ -6,6 +6,7 @@ from fewshot_adapter.data.models import Annotation, HBB, TrainingSample
 from fewshot_adapter.evaluation.matching import ErrorItem
 from fewshot_adapter.native.trainer import (
     _compute_round_metrics,
+    _count_error_types,
     _format_eval_log,
     _format_loss_log,
     _format_selected_sample_log,
@@ -61,6 +62,31 @@ def test_resolve_label_requires_explicit_label_for_multiclass_data():
         raise AssertionError("expected multi-class data to require an explicit label")
 
 
+def test_resolve_label_infers_single_dataset_label_when_missing():
+    """单类别数据集不应要求每个子数据集手动改 YAML label。"""
+    annotations = [
+        Annotation("a.jpg", "a_1", "Sample", "hbb", hbb=HBB(0, 0, 1, 1)),
+        Annotation("b.jpg", "b_1", "Sample", "hbb", hbb=HBB(0, 0, 1, 1)),
+    ]
+
+    assert _resolve_label(None, annotations) == "Sample"
+
+
+def test_resolve_label_reports_available_labels_when_requested_label_is_absent():
+    annotations = [
+        Annotation("a.jpg", "a_1", "Sample", "hbb", hbb=HBB(0, 0, 1, 1)),
+    ]
+
+    try:
+        _resolve_label("obj", annotations)
+    except ValueError as exc:
+        message = str(exc)
+        assert "obj" in message
+        assert "Sample" in message
+    else:
+        raise AssertionError("expected missing requested label to fail clearly")
+
+
 def test_compute_round_metrics_filters_to_target_label():
     """每轮 summary 指标只评估当前目标类别，避免其他类别污染 recall。"""
     metrics = _compute_round_metrics(
@@ -77,6 +103,21 @@ def test_compute_round_metrics_filters_to_target_label():
     assert metrics["ground_truth_count"] == 1
     assert metrics["prediction_count"] == 0
     assert metrics["fn"] == 1
+
+
+def test_count_error_types_summarizes_round_error_queue():
+    errors = [
+        ErrorItem("a.jpg", "false_positive", 0.9, "fp", [], ["p1"]),
+        ErrorItem("b.jpg", "false_negative", 1.0, "fn", ["g1"], []),
+        ErrorItem("c.jpg", "false_positive", 0.8, "fp", [], ["p2"]),
+        ErrorItem("d.jpg", "low_confidence_true_positive", 0.1, "low", ["g2"], ["p3"]),
+    ]
+
+    assert _count_error_types(errors) == {
+        "false_negative": 1,
+        "false_positive": 2,
+        "low_confidence_true_positive": 1,
+    }
 
 
 def test_render_round_visual_outputs_returns_summary_paths(tmp_path):

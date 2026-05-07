@@ -44,6 +44,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning-rate", type=float, help="adapter 学习率。")
     parser.add_argument("--weight-decay", type=float, help="adapter weight decay。")
     parser.add_argument("--score-threshold", type=float, help="推理置信度阈值。")
+    parser.add_argument("--nms-iou-threshold", type=float, help="单图同类预测 NMS IoU 阈值。")
     parser.add_argument("--iou-threshold", type=float, help="判定匹配成功的 IoU 阈值。")
     parser.add_argument(
         "--localization-error-threshold",
@@ -51,6 +52,11 @@ def parse_args() -> argparse.Namespace:
         help="定位错误 IoU 下限。",
     )
     parser.add_argument("--iou-mode", choices=["hbb", "obb", "polygon"])
+    parser.add_argument(
+        "--low-confidence-threshold",
+        type=float,
+        help="匹配成功但分数低于该阈值时，加入低置信正确样本队列。",
+    )
     parser.add_argument("--num-prompt-tokens", type=int, help="任务 prompt token 数。")
     parser.add_argument("--prompt-adapter-dim", type=int, help="prompt adapter bottleneck 维度。")
     parser.add_argument(
@@ -115,9 +121,11 @@ def main() -> int:
             "EVAL": {
                 "LABEL": args.label,
                 "SCORE_THRESHOLD": args.score_threshold,
+                "NMS_IOU_THRESHOLD": args.nms_iou_threshold,
                 "IOU_THRESHOLD": args.iou_threshold,
                 "LOCALIZATION_ERROR_THRESHOLD": args.localization_error_threshold,
                 "IOU_MODE": args.iou_mode,
+                "LOW_CONFIDENCE_THRESHOLD": args.low_confidence_threshold,
             },
         },
     )

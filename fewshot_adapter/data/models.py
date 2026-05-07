@@ -136,4 +136,21 @@ def normalize_annotation(annotation: Annotation) -> Annotation:
     if hbb is None and polygon is not None:
         hbb = polygon_to_hbb(polygon)
 
-    return replace(annotation, polygon=polygon, hbb=hbb)
+    obb = annotation.obb
+    if obb is None and polygon is not None:
+        obb = _fit_obb_from_polygon(polygon)
+
+    return replace(annotation, polygon=polygon, hbb=hbb, obb=obb)
+
+
+def _fit_obb_from_polygon(polygon: Sequence[Point]) -> OBB | None:
+    """由 polygon 拟合 OBB；非法占位或退化 polygon 保持 None。"""
+    if len(polygon) < 3:
+        return None
+    try:
+        # 延迟导入避免 data.models 与 geometry.ops 在模块初始化阶段循环导入。
+        from ..geometry.ops import polygon_to_obb
+
+        return polygon_to_obb(polygon)
+    except ValueError:
+        return None

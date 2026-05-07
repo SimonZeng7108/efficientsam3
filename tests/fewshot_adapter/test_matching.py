@@ -1,6 +1,6 @@
 """测试预测和真值匹配、错误队列生成、下一样本选择。"""
 
-from fewshot_adapter.data.models import HBB, OBB, Annotation, Prediction
+from fewshot_adapter.data.models import HBB, OBB, Annotation, Prediction, hbb_to_polygon, obb_to_polygon, polygon_to_hbb
 from fewshot_adapter.evaluation.matching import (
     build_error_queue,
     box_iou,
@@ -46,6 +46,31 @@ def _pred_obb(prediction_id: str, obb: OBB, score: float = 0.9, image_id: str = 
         label="target",
         score=score,
         obb=obb,
+    )
+
+
+def _gt_polygon(object_id: str, polygon: list[tuple[float, float]], image_id: str = "img_1") -> Annotation:
+    return Annotation(
+        image_id=image_id,
+        object_id=object_id,
+        label="target",
+        source_type="polygon",
+        polygon=polygon,
+    )
+
+
+def _pred_polygon(
+    prediction_id: str,
+    polygon: list[tuple[float, float]],
+    score: float = 0.9,
+    image_id: str = "img_1",
+) -> Prediction:
+    return Prediction(
+        image_id=image_id,
+        prediction_id=prediction_id,
+        label="target",
+        score=score,
+        polygon=polygon,
     )
 
 
@@ -149,3 +174,50 @@ def test_build_error_queue_can_match_using_obb_iou():
     )
 
     assert errors == []
+
+
+def test_obb_mode_derives_rotated_boxes_from_polygons_instead_of_hbb_fallback():
+    """四点 polygon 没有显式 OBB 时，obb 模式也必须用旋转框 IoU。"""
+    rotated_polygon = obb_to_polygon(OBB(cx=50, cy=50, w=80, h=20, angle=45))
+    same_hbb_polygon = hbb_to_polygon(polygon_to_hbb(rotated_polygon))
+
+    matches = greedy_match_predictions(
+        [_gt_polygon("gt_1", rotated_polygon)],
+        [_pred_polygon("pred_1", same_hbb_polygon)],
+        iou_threshold=0.9,
+        iou_mode="obb",
+    )
+
+    assert matches == []
+
+
+def test_build_error_queue_reports_low_confidence_true_positive_below_threshold():
+    errors = build_error_queue(
+        [_gt("gt_1", HBB(0, 0, 10, 10))],
+        [_pred("pred_1", HBB(0, 0, 10, 10), score=0.35)],
+        iou_threshold=0.5,
+        low_confidence_threshold=0.4,
+    )
+
+    assert len(errors) == 1
+    assert errors[0].error_type == "low_confidence_true_positive"
+    assert errors[0].ground_truth_ids == ["gt_1"]
+    assert errors[0].prediction_ids == ["pred_1"]
+
+
+def test_select_next_training_sample_keeps_low_confidence_below_real_errors():
+    errors = build_error_queue(
+        [
+            _gt("gt_low", HBB(0, 0, 10, 10), image_id="img_low"),
+            _gt("gt_fn", HBB(0, 0, 10, 10), image_id="img_fn"),
+        ],
+        [_pred("pred_low", HBB(0, 0, 10, 10), score=0.35, image_id="img_low")],
+        iou_threshold=0.5,
+        low_confidence_threshold=0.4,
+    )
+
+    selected = select_next_training_sample(errors)
+
+    assert selected is not None
+    assert selected.error_type == "false_negative"
+    assert selected.image_id == "img_fn"
