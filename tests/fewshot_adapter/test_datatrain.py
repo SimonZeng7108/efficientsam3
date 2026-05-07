@@ -86,6 +86,28 @@ def test_load_datatrain_skips_version_header(tmp_path):
     assert annotations[0].image_id == "90008204_c1s1_00000.bmp.bmp"
 
 
+def test_datatrain_dataset_skips_detect_train_data_version_header(tmp_path):
+    """真实 DetectTrainData.txt 的 `Version 1.0.0` 不应被当成图片行解析。"""
+    dataset_dir = tmp_path / "24q4_jindianmilk"
+    dataset_dir.mkdir()
+    (dataset_dir / "20230922101406.jpg.bmp").write_bytes(b"fake-image")
+    datatrain = dataset_dir / "DetectTrainData.txt"
+    datatrain.write_text(
+        "\n".join(
+            [
+                "Version 1.0.0",
+                '20230922101406.jpg.bmp:1 R:4 604 423 504 362 671 86 772 148 "Sample"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    dataset = DataTrainDataset.from_file(datatrain, image_dir=dataset_dir)
+
+    assert [annotation.image_id for annotation in dataset.annotations] == ["20230922101406.jpg.bmp"]
+    assert set(dataset.image_map) == {"20230922101406.jpg.bmp"}
+
+
 def test_datatrain_dataset_keeps_no_object_images_in_image_map(tmp_path):
     image_dir = tmp_path / "images"
     image_dir.mkdir()

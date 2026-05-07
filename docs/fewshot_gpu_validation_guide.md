@@ -126,6 +126,35 @@ dataset_json/
 
 转换阶段会检查 `DataTrain.txt` 中的图片是否真实存在。如果报 `image file not found`，先修正图片目录或文件名，再进入训练。
 
+如果数据集根目录下有多个子数据集，每个子目录里都有 `DetectTrainData.txt` 和图片，可以直接用批量转换：
+
+```powershell
+python -m fewshot_adapter.convert_datatrain `
+  --batch `
+  --batch-root /home/data/public/datasets/fewshot_test_20260429 `
+  --config fewshot_adapter/configs/efficient_sam3_efficientvit_s_fewshot.yaml
+```
+
+批量转换会自动查找：
+
+```text
+/home/data/public/datasets/fewshot_test_20260429/*/DetectTrainData.txt
+```
+
+并输出为：
+
+```text
+dataset_json/
+  12356_工件定位/
+    full_gt.json
+    image_map.json
+  24q4_jindianmilk/
+    full_gt.json
+    image_map.json
+```
+
+如果想换输出根目录，可加 `--output-dir /path/to/dataset_json`。批量模式会跳过 `Version 1.0.0` 文件头；某个子数据集失败时会继续处理后面的子数据集，并在最后汇总失败列表。
+
 注意：默认配置会先使用 SAM3 原生 box/class/presence loss，便于快速 smoke test。多边形、OBB 和 HBB 标注都会派生 HBB 参与 box loss；如果打开 `MODEL.ENABLE_SEGMENTATION=true` 和 `LOSS.USE_MASKS=true`，同一批标注还会栅格化为粗 mask target，训练 SAM3 原生 mask loss，并在推理后由预测 mask 拟合旋转 OBB。
 
 ### 2.1 配置文件优先级

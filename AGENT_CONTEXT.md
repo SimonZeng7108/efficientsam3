@@ -428,6 +428,7 @@ SAM 风格 prompt encoder 和 mask decoder 组件：
 - `config/fewshot.py`：`FewShotExperimentConfig`，读取少样本 YAML，映射为 `NativeFewShotLoopConfig` / `NativeAdapterConfig` / `NativeLossConfig`，并保存 `resolved_config.yaml`。
 - `configs/efficient_sam3_efficientvit_s_fewshot.yaml`：推荐默认配置，参数尽量对齐 SAM3 官方 detection fine-tune / eval 口径。
 - `cli/convert_datatrain.py`：把 `DataTrain.txt + 图片目录` 一键转换为 `full_gt.json`、`image_map.json`。
+- `cli/convert_datatrain.py` 也支持 `--batch --batch-root <root>`，会遍历 `<root>/*/DetectTrainData.txt`，并输出到 `DATA.OUTPUT_DIR/<dataset_name>/full_gt.json` 和 `image_map.json`。
 - `cli/train_native.py`：当前推荐训练 CLI 的实现层。
 - `utils/torch.py`：PyTorch 懒加载工具；无 torch 环境会给清晰错误。
 
@@ -442,6 +443,17 @@ python -m fewshot_adapter.convert_datatrain `
 
 - `dataset_json/full_gt.json`：全量真值，每个目标一条 Annotation。
 - `dataset_json/image_map.json`：图片名到图片实际路径的映射。
+
+如果原始数据是多个子数据集目录，例如 `fewshot_test_20260429/<dataset_name>/DetectTrainData.txt`，可以运行：
+
+```powershell
+python -m fewshot_adapter.convert_datatrain `
+  --batch `
+  --batch-root /home/data/public/datasets/fewshot_test_20260429 `
+  --config fewshot_adapter/configs/efficient_sam3_efficientvit_s_fewshot.yaml
+```
+
+它会输出 `dataset_json/<dataset_name>/full_gt.json` 和 `dataset_json/<dataset_name>/image_map.json`。批量模式会跳过 `Version 1.0.0` 文件头，单个子数据集失败时会继续处理后续子数据集，最后返回非零退出码并汇总失败列表。
 
 注意：`1 1 1 1 1 1 1 1` 表示无目标占位，只会让该图片进入 `image_map.json`，不会生成目标标注。
 

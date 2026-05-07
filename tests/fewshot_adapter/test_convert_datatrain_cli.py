@@ -124,3 +124,68 @@ def test_convert_datatrain_cli_accepts_yaml_config(tmp_path):
     assert result.returncode == 0
     assert (output_dir / "full_gt.json").exists()
     assert (output_dir / "image_map.json").exists()
+
+
+def test_convert_datatrain_cli_batch_writes_one_folder_per_dataset(tmp_path):
+    """批量模式遍历每个子数据集，并把输出写到 dataset_name 子目录。"""
+    batch_root = tmp_path / "fewshot_test_20260429"
+    first = batch_root / "12356_工件定位"
+    second = batch_root / "24q4_jindianmilk"
+    first.mkdir(parents=True)
+    second.mkdir(parents=True)
+    Image.new("RGB", (64, 64), (0, 0, 0)).save(first / "a.jpg.bmp")
+    Image.new("RGB", (64, 64), (0, 0, 0)).save(second / "b.jpg.bmp")
+    (first / "DetectTrainData.txt").write_text(
+        "\n".join(
+            [
+                "Version 1.0.0",
+                'a.jpg.bmp:1 R:4 10 10 20 10 20 20 10 20 "Sample"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (second / "DetectTrainData.txt").write_text(
+        "\n".join(
+            [
+                "Version 1.0.0",
+                'b.jpg.bmp:1 R:4 5 5 15 5 15 15 5 15 "obj"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    output_root = tmp_path / "dataset_json"
+    config = tmp_path / "fewshot.yaml"
+    config.write_text(
+        "\n".join(
+            [
+                "DATA:",
+                f"  OUTPUT_DIR: {output_root.as_posix()}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "fewshot_adapter.convert_datatrain",
+            "--batch",
+            "--batch-root",
+            str(batch_root),
+            "--config",
+            str(config),
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    first_gt = json.loads((output_root / "12356_工件定位" / "full_gt.json").read_text(encoding="utf-8"))
+    second_map = json.loads((output_root / "24q4_jindianmilk" / "image_map.json").read_text(encoding="utf-8"))
+    assert first_gt[0]["label"] == "Sample"
+    assert second_map["b.jpg.bmp"].endswith("b.jpg.bmp")
+    assert "Found 2 datasets to process." in result.stdout
+    assert "SUCCESS: 12356_工件定位" in result.stdout
