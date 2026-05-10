@@ -1,35 +1,35 @@
-# EfficientViT LoRA Interactive Find Design
+# EfficientViT LoRA 交互式同类目标查找设计
 
-## Goal
+## 目标
 
-Validate whether EfficientSAM3 with the EfficientViT student backbone can support a fast few-shot interactive single-class multi-instance detection workflow.
+验证 EfficientSAM3 在使用 EfficientViT 学生主干时，是否能够支持快速少样本交互式单类别多实例检测流程。
 
-The offline experiment simulates the intended UI loop:
+离线实验用于模拟真实交互界面中的流程：
 
-1. The user provides a folder of images.
-2. The user selects one image containing the target objects.
-3. The user annotates all target instances in that image with OBB boxes.
-4. EfficientSAM3 learns the target appearance by updating LoRA parameters.
-5. EfficientSAM3 finds same-class instances across the dataset.
-6. If any image fails, the user corrects one failed image.
-7. The corrected image and all previous annotated images are used for the next LoRA update.
-8. The loop stops when all instances are detected correctly or `max_rounds` is reached.
+1. 用户输入一批待检测图片。
+2. 用户随机选择一张包含目标的图片。
+3. 用户用 OBB 框标注该图中的所有目标实例。
+4. EfficientSAM3 通过更新 LoRA 参数快速学习该目标类别特征。
+5. EfficientSAM3 在整批图片中查找同类目标实例。
+6. 如果存在漏检、误检或定位错误，用户修正其中一张失败图片。
+7. 修正图片和历史标注图片一起进入下一轮 LoRA 微调。
+8. 当所有实例均检测正确，或达到 `max_rounds` 后停止。
 
-In offline validation, dataset ground truth replaces UI annotation.
+离线验证时，用数据集真值标注代替用户交互标注。
 
-## Scope
+## 范围
 
-This design focuses on EfficientSAM3's native interactive find / grounding path. It does not use sliding-window prompt generation, and it does not use the separate `fewshot_adapter` implementation.
+本设计聚焦 EfficientSAM3 原生 interactive find / grounding 流程。主路线不使用滑窗候选 prompt，也不使用或参考单独的 `fewshot_adapter` 实现。
 
-The task is single-class, multi-instance detection:
+任务类型是单类别、多实例检测：
 
-- Each dataset has one target category such as `Sample` or `obj`.
-- Each image can contain zero, one, or many instances.
-- Success means every GT instance has a matched prediction and there are no extra predictions.
+- 每个子数据集只有一个目标类别，例如 `Sample` 或 `obj`。
+- 一张图片中可能有 0 个、1 个或多个目标实例。
+- 成功条件是所有 GT 实例都有匹配预测，并且没有多余预测。
 
-## Core Model Route
+## 核心模型路线
 
-Use the EfficientSAM3 image model with the EfficientViT student backbone:
+使用带 EfficientViT 学生主干的 EfficientSAM3 image model：
 
 ```python
 build_efficientsam3_image_model(
@@ -40,14 +40,14 @@ build_efficientsam3_image_model(
 )
 ```
 
-Source paths:
+源码定位：
 
-- `build_efficientsam3_image_model`: `sam3/sam3/model_builder.py`
-- `_create_student_vision_backbone`: `sam3/sam3/model_builder.py`
-- `ImageStudentEncoder`: `sam3/sam3/model_builder.py`
-- `Sam3Image`: `sam3/sam3/model/sam3_image.py`
+- `build_efficientsam3_image_model`：`sam3/sam3/model_builder.py`
+- `_create_student_vision_backbone`：`sam3/sam3/model_builder.py`
+- `ImageStudentEncoder`：`sam3/sam3/model_builder.py`
+- `Sam3Image`：`sam3/sam3/model/sam3_image.py`
 
-The intended forward path is:
+计划使用的原生前向路径：
 
 ```text
 BatchedDatapoint
@@ -60,72 +60,77 @@ BatchedDatapoint
 -> pred_logits / pred_boxes / pred_masks
 ```
 
-Source paths:
+源码定位：
 
-- `BatchedDatapoint`, `FindStage`, `BatchedFindTarget`: `sam3/sam3/model/data_misc.py`
-- `Sam3Image.forward`: `sam3/sam3/model/sam3_image.py`
-- `Sam3Image.forward_grounding`: `sam3/sam3/model/sam3_image.py`
-- `Sam3Image._encode_prompt`: `sam3/sam3/model/sam3_image.py`
-- `Sam3Image._run_encoder`: `sam3/sam3/model/sam3_image.py`
-- `Sam3Image._run_decoder`: `sam3/sam3/model/sam3_image.py`
-- `Sam3Image._run_segmentation_heads`: `sam3/sam3/model/sam3_image.py`
+- `BatchedDatapoint`、`FindStage`、`BatchedFindTarget`：`sam3/sam3/model/data_misc.py`
+- `Sam3Image.forward`：`sam3/sam3/model/sam3_image.py`
+- `Sam3Image.forward_grounding`：`sam3/sam3/model/sam3_image.py`
+- `Sam3Image._encode_prompt`：`sam3/sam3/model/sam3_image.py`
+- `Sam3Image._run_encoder`：`sam3/sam3/model/sam3_image.py`
+- `Sam3Image._run_decoder`：`sam3/sam3/model/sam3_image.py`
+- `Sam3Image._run_segmentation_heads`：`sam3/sam3/model/sam3_image.py`
 
-## Why This Is Not SAM-Style Sliding Prompt Detection
+## 为什么不走 SAM-style 滑窗 prompt 检测
 
-SAM-style segmentation uses:
+SAM-style 简化分割路线是：
 
 ```text
 image_encoder -> prompt_encoder(box) -> mask_decoder -> mask
 ```
 
-That route segments a prompted region. It does not natively enumerate same-class objects across the image.
+这条路线的语义是“给一个框 prompt，分割该 prompt 对应的目标区域”。它本身不会枚举整张图中的同类实例。
 
-This project should instead use EfficientSAM3's native find / grounding flow. In this flow, user OBB annotations become geometric prompts that describe the target. The model then predicts same-class instances across the image via its detector / grounding decoder.
+本项目要验证的是 EfficientSAM3 原生“用户标注一个或多个目标后，查找同类目标”的能力。用户 OBB 标注应作为 geometric prompt 描述目标类别，模型随后通过 grounding / detector decoder 在图片中输出同类实例。
 
-Reference paths for the SAM-style route, useful only as background:
+仅作为背景参考的 SAM-style 相关源码：
 
-- `PromptEncoder`: `sam3/sam3/model/student_sam/modeling/prompt_encoder.py`
-- `MaskDecoder`: `sam3/sam3/model/student_sam/modeling/mask_decoder.py`
-- `TwoWayTransformer`: `sam3/sam3/model/student_sam/modeling/transformer.py`
+- `PromptEncoder`：`sam3/sam3/model/student_sam/modeling/prompt_encoder.py`
+- `MaskDecoder`：`sam3/sam3/model/student_sam/modeling/mask_decoder.py`
+- `TwoWayTransformer`：`sam3/sam3/model/student_sam/modeling/transformer.py`
 
-These are not the primary route for this design.
+这些不是本设计的主路线。
 
-## EfficientViT LoRA Strategy
+## EfficientViT LoRA 策略
 
-The primary LoRA target is the EfficientViT student backbone, because the final requirement is a lightweight edge-deployable model.
+主要 LoRA 注入目标是 EfficientViT 学生主干，因为最终需求是轻量、适合边缘设备部署。
 
-EfficientViT attention blocks use `LiteMLA`, where QKV and output projection are convolutional:
+EfficientViT 的注意力模块使用 `LiteMLA`，其中 QKV 和输出投影是卷积结构：
 
 ```text
 LiteMLA.qkv.conv
 LiteMLA.proj.conv
 ```
 
-Source paths:
+源码定位：
 
-- `EfficientViTBackbone`: `sam3/sam3/backbones/efficientvit/efficientvit/backbone.py`
-- `EfficientViTBlock`: `sam3/sam3/backbones/efficientvit/nn/ops.py`
-- `LiteMLA`: `sam3/sam3/backbones/efficientvit/nn/ops.py`
-- `ConvLayer`: `sam3/sam3/backbones/efficientvit/nn/ops.py`
+- `EfficientViTBackbone`：`sam3/sam3/backbones/efficientvit/efficientvit/backbone.py`
+- `EfficientViTBlock`：`sam3/sam3/backbones/efficientvit/nn/ops.py`
+- `LiteMLA`：`sam3/sam3/backbones/efficientvit/nn/ops.py`
+- `ConvLayer`：`sam3/sam3/backbones/efficientvit/nn/ops.py`
 
-LoRA should be injected by replacing selected `nn.Conv2d` modules inside `LiteMLA.qkv` and `LiteMLA.proj` with a Conv-LoRA wrapper. The wrapper should freeze the base convolution and train only low-rank adapter parameters.
+LoRA 注入方式：
 
-If backbone-only LoRA is not expressive enough, add a second trainable group in the EfficientSAM3 decoder:
+- 查找 EfficientViT 主干中 `LiteMLA.qkv.conv` 和 `LiteMLA.proj.conv` 对应的 `nn.Conv2d`。
+- 用 Conv-LoRA wrapper 替换这些卷积。
+- 冻结原始卷积权重。
+- 只训练低秩 LoRA 参数。
+
+如果只训练 EfficientViT 主干 LoRA 表达能力不足，再考虑添加 EfficientSAM3 decoder 中的轻量可训练组：
 
 - `linear1`
 - `linear2`
 - `out_proj`
 
-Relevant source paths:
+相关源码定位：
 
-- Transformer encoder construction: `sam3/sam3/model_builder.py`
-- Transformer decoder construction: `sam3/sam3/model_builder.py`
-- Encoder layer definitions: `sam3/sam3/model/encoder.py`
-- Decoder layer definitions: `sam3/sam3/model/decoder.py`
+- Transformer encoder 构建：`sam3/sam3/model_builder.py`
+- Transformer decoder 构建：`sam3/sam3/model_builder.py`
+- Encoder layer 定义：`sam3/sam3/model/encoder.py`
+- Decoder layer 定义：`sam3/sam3/model/decoder.py`
 
-## Dataset Input Flow
+## 数据集输入流程
 
-The batch entry point is a plain text file. Each non-empty line is one dataset directory:
+批量实验入口是一个普通文本文件。每个非空行是一个子数据集目录：
 
 ```text
 /home/data/public/datasets/fewshot_test_20260429/24q4_machinery_circle
@@ -133,9 +138,9 @@ The batch entry point is a plain text file. Each non-empty line is one dataset d
 /home/data/public/datasets/fewshot_test_20260429/喷嘴有无
 ```
 
-For each dataset directory, load annotations from `DetectTrainData.txt` by default. `DetectTrainData_sample5.txt` can be supported as an explicit override for quick smoke tests.
+每个子数据集目录默认读取 `DetectTrainData.txt`。`DetectTrainData_sample5.txt` 可作为显式配置的快速 smoke test 输入。
 
-Annotation format:
+标注格式示例：
 
 ```text
 Version 1.0.0
@@ -143,136 +148,136 @@ Version 1.0.0
 90008300_c1s1_06_01.jpg.bmp:1 R:4 601 299 551 298 552 248 602 250 "obj"
 ```
 
-Parsing rules:
+解析规则：
 
-- Skip `Version ...` lines.
-- Treat the substring before the first `:` as the image name.
-- Treat the integer after `:` as the declared instance count.
-- Parse each `R:4 x1 y1 x2 y2 x3 y3 x4 y4 "label"` group as one OBB polygon.
-- Preserve the dataset's original label string, but evaluate as single-class within that dataset.
-- Report count mismatches instead of silently ignoring them.
+- 跳过 `Version ...` 行。
+- 第一个 `:` 之前的内容是图片名。
+- `:` 后的整数是该图片声明的实例数量。
+- 每组 `R:4 x1 y1 x2 y2 x3 y3 x4 y4 "label"` 解析为一个 OBB polygon。
+- 保留原始 label 字符串，但在每个子数据集内按单类别任务评估。
+- 如果声明数量和实际解析出的 `R:4` 数量不一致，写入数据检查报告，不静默吞掉。
 
-Image path resolution must be tolerant:
+图片路径解析必须宽松：
 
-- First try `dataset_dir / image_name`.
-- Support compound suffixes such as `.jpg.bmp` and `.bmp.bmp`.
-- If the exact path is missing, perform case-insensitive lookup within the dataset directory.
-- If still missing, match by full filename stem only when the match is unique.
-- Record missing or ambiguous images in a data validation report.
+- 优先尝试 `dataset_dir / image_name`。
+- 支持 `.jpg.bmp`、`.bmp.bmp` 等复合后缀。
+- 如果精确路径不存在，在子数据集目录内做大小写不敏感匹配。
+- 如果仍不存在，可按完整 filename stem 匹配，但必须唯一。
+- 对缺失图片和歧义匹配图片写入数据检查报告。
 
-## Annotation Conversion
+## 标注转换
 
-Each OBB polygon from `DetectTrainData.txt` should produce three internal targets:
+每个 `DetectTrainData.txt` 中的 OBB polygon 需要转换成三类内部目标：
 
 ```text
-polygon: four source points
-aabb: horizontal XYXY box enclosing the polygon
-mask: rasterized polygon mask
+polygon: 原始四点
+aabb: polygon 外接水平 XYXY 框
+mask: polygon 栅格化后的二值 mask
 ```
 
-Training input uses:
+训练输入使用：
 
-- AABB as `FindStage.input_boxes`.
-- AABB or converted normalized box as `BatchedFindTarget.boxes`.
-- Rasterized polygon mask as `BatchedFindTarget.segments` when mask loss is enabled.
+- AABB 作为 `FindStage.input_boxes`。
+- AABB 或归一化后的水平框作为 `BatchedFindTarget.boxes`。
+- 启用 mask loss 时，polygon mask 作为 `BatchedFindTarget.segments`。
 
-Source paths for expected training structures:
+源码定位：
 
-- `FindStage`: `sam3/sam3/model/data_misc.py`
-- `BatchedFindTarget`: `sam3/sam3/model/data_misc.py`
-- `BatchedDatapoint`: `sam3/sam3/model/data_misc.py`
+- `FindStage`：`sam3/sam3/model/data_misc.py`
+- `BatchedFindTarget`：`sam3/sam3/model/data_misc.py`
+- `BatchedDatapoint`：`sam3/sam3/model/data_misc.py`
 
-OBB evaluation should use polygon-derived OBB and rotated IoU. If a prediction only has a mask, derive OBB from the largest connected component of the thresholded mask.
+OBB 评估应使用 polygon 派生出的 OBB 和 rotated IoU。若预测只有 mask，则从阈值化 mask 的最大连通域拟合 OBB。
 
-## Iterative Learning Loop
+## 迭代学习闭环
 
-For each dataset:
+对每个子数据集执行以下流程：
 
-1. Build a full annotation index from `DetectTrainData.txt`.
-2. Select the initial training image.
-3. Add all GT instances from that image to the annotated set.
-4. Build an EfficientSAM3 training batch from the annotated set.
-5. Train only LoRA parameters for up to the per-round time budget.
-6. Evaluate all images in the dataset.
-7. Match predictions to GT by OBB IoU.
-8. If precision and recall are both `1.0`, stop.
-9. Otherwise select one failed image.
-10. Add all GT instances from the selected image to the annotated set.
-11. Repeat until success or `max_rounds`.
+1. 从 `DetectTrainData.txt` 构建完整标注索引。
+2. 选择初始训练图片。
+3. 将该图片所有 GT 实例加入已标注集合。
+4. 从已标注集合构造 EfficientSAM3 训练 batch。
+5. 在每轮时间预算内只训练 LoRA 参数。
+6. 对当前子数据集全量图片进行评估。
+7. 用 OBB IoU 将预测和 GT 匹配。
+8. 如果 precision 和 recall 均为 `1.0`，停止。
+9. 否则选择一张失败图片。
+10. 将该失败图片所有 GT 实例加入下一轮已标注集合。
+11. 重复直到成功或达到 `max_rounds`。
 
-The selected failed image simulates a user correction in the UI.
+被选中的失败图片模拟 UI 中的用户修正图片。
 
-## Training Forward
+## 训练前向
 
-Construct a `BatchedDatapoint` that contains:
+构造 `BatchedDatapoint`，其中包含：
 
-- `img_batch`: `(B_img, 3, H, W)`
-- `find_text_batch`: a one-element target label list or a generic target phrase
-- `find_inputs`: one or more `FindStage` records
-- `find_targets`: one or more `BatchedFindTarget` records
-- `find_metadatas`: metadata needed by the model path
+- `img_batch`：`(B_img, 3, H, W)`
+- `find_text_batch`：目标 label 或通用目标描述
+- `find_inputs`：一个或多个 `FindStage`
+- `find_targets`：一个或多个 `BatchedFindTarget`
+- `find_metadatas`：模型路径所需 metadata
 
-Source paths:
+源码定位：
 
-- `BatchedDatapoint`: `sam3/sam3/model/data_misc.py`
-- `FindStage`: `sam3/sam3/model/data_misc.py`
-- `BatchedFindTarget`: `sam3/sam3/model/data_misc.py`
-- `BatchedInferenceMetadata`: `sam3/sam3/model/data_misc.py`
+- `BatchedDatapoint`：`sam3/sam3/model/data_misc.py`
+- `FindStage`：`sam3/sam3/model/data_misc.py`
+- `BatchedFindTarget`：`sam3/sam3/model/data_misc.py`
+- `BatchedInferenceMetadata`：`sam3/sam3/model/data_misc.py`
 
-For each annotated image, geometric prompts should include the user's OBB annotations converted to AABB boxes. The model should then use `Sam3Image.forward()` so that matching and training outputs remain aligned with the native EfficientSAM3 loss path.
+对每张已标注图片，geometric prompt 应包含用户标注 OBB 转换得到的 AABB boxes。训练时调用 `Sam3Image.forward()`，让 matching 和 loss 保持在 EfficientSAM3 原生训练路径中。
 
-## Loss Strategy
+## Loss 策略
 
-Use native EfficientSAM3 losses first:
+优先使用 EfficientSAM3 原生 loss：
 
-- Box loss for detection alignment.
-- Classification / presence loss for instance confidence.
-- Mask loss for OBB-quality segmentation when `enable_segmentation=True`.
+- Box loss：用于检测框对齐。
+- Classification / presence loss：用于实例置信度。
+- Mask loss：在 `enable_segmentation=True` 时用于提升 mask 和 OBB 拟合质量。
 
-Source paths:
+源码定位：
 
-- `Sam3LossWrapper`: `sam3/sam3/train/loss/sam3_loss.py`
-- `Boxes`: `sam3/sam3/train/loss/loss_fns.py`
-- `IABCEMdetr`: `sam3/sam3/train/loss/loss_fns.py`
-- `Masks`: `sam3/sam3/train/loss/loss_fns.py`
-- `sigmoid_focal_loss`: `sam3/sam3/train/loss/loss_fns.py`
-- `dice_loss`: `sam3/sam3/train/loss/loss_fns.py`
-- `BinaryHungarianMatcherV2`: `sam3/sam3/train/matcher.py`
-- `BinaryOneToManyMatcher`: `sam3/sam3/train/matcher.py`
+- `Sam3LossWrapper`：`sam3/sam3/train/loss/sam3_loss.py`
+- `Boxes`：`sam3/sam3/train/loss/loss_fns.py`
+- `IABCEMdetr`：`sam3/sam3/train/loss/loss_fns.py`
+- `Masks`：`sam3/sam3/train/loss/loss_fns.py`
+- `sigmoid_focal_loss`：`sam3/sam3/train/loss/loss_fns.py`
+- `dice_loss`：`sam3/sam3/train/loss/loss_fns.py`
+- `BinaryHungarianMatcherV2`：`sam3/sam3/train/matcher.py`
+- `BinaryOneToManyMatcher`：`sam3/sam3/train/matcher.py`
 
-The first experiments should keep the trainable parameter count small:
+第一批实验保持可训练参数量尽量小：
 
-- Train Conv-LoRA parameters in EfficientViT.
-- Freeze all base model weights.
-- Use AMP on GPU.
-- Cap each round by wall-clock time and/or step count.
+- 只训练 EfficientViT Conv-LoRA 参数。
+- 冻结所有 base model 权重。
+- GPU 上启用 AMP。
+- 每轮训练由 wall-clock 时间和 step 数共同限制。
 
-## Evaluation
+## 评估流程
 
-Run inference over every image in the dataset after each training round.
+每轮训练后，对当前子数据集中的所有图片执行推理评估。
 
-Prediction outputs to consume:
+需要消费的预测输出：
 
 - `pred_logits`
 - `pred_boxes`
 - `pred_boxes_xyxy`
-- `pred_masks` when segmentation is enabled
+- `pred_masks`，当 segmentation head 启用时存在
 
-Source path:
+源码定位：
 
-- `Sam3Image.forward_grounding` output path: `sam3/sam3/model/sam3_image.py`
+- `Sam3Image.forward_grounding` 输出路径：`sam3/sam3/model/sam3_image.py`
 
-Postprocessing:
+后处理步骤：
 
-1. Convert `pred_logits` to scores.
-2. Filter by score threshold.
-3. Convert boxes to original image coordinates.
-4. If masks exist, threshold them and fit OBB from the largest connected component.
-5. Otherwise use the predicted box as an angle-zero fallback.
-6. Run same-class NMS.
-7. Match predictions to GT with OBB IoU.
+1. 将 `pred_logits` 转为 score。
+2. 按 score threshold 过滤。
+3. 将预测框转换回原图坐标。
+4. 如果存在 mask，阈值化 mask，并从最大连通域拟合 OBB。
+5. 如果没有 mask，则用预测水平框作为 angle=0 的兜底 OBB。
+6. 做单类别 NMS。
+7. 用 OBB IoU 将预测和 GT 匹配。
 
-Success condition:
+成功条件：
 
 ```text
 precision == 1.0
@@ -282,77 +287,77 @@ false_negative_count == 0
 localization_error_count == 0
 ```
 
-## Error Queue
+## 错误队列
 
-Each round produces an ordered error queue:
+每轮评估后生成有序错误队列：
 
-- `false_negative`: a GT instance has no matching prediction.
-- `localization_error`: a prediction overlaps a GT but does not reach the OBB IoU threshold.
-- `false_positive`: a prediction does not match any GT.
-- `low_confidence_true_positive`: optional, a correct match has low score.
+- `false_negative`：某个 GT 实例没有匹配预测。
+- `localization_error`：预测与 GT 有重叠，但 OBB IoU 未达到阈值。
+- `false_positive`：预测没有匹配任何 GT。
+- `low_confidence_true_positive`：可选，预测位置正确但分数偏低。
 
-Selection priority:
+选样优先级：
 
 ```text
 false_negative > localization_error > false_positive > low_confidence_true_positive
 ```
 
-When an image is selected, add every GT instance from that image to the next round's annotated set. This simulates a user correcting the whole failed image.
+选中某张失败图片后，将该图片中的所有 GT 实例加入下一轮训练集合，模拟用户修正整张图片。
 
-## Metrics And Artifacts
+## 指标和产物
 
-For each dataset and round, record:
+每个子数据集每一轮记录：
 
-- Training image count.
-- Training instance count.
-- Trainable parameter count.
-- Training time in seconds.
-- Precision, recall, F1.
-- Mean matched OBB IoU.
-- False positive count.
-- False negative count.
-- Localization error count.
-- Selected next image.
-- Adapter checkpoint path.
+- 训练图片数量。
+- 训练实例数量。
+- 可训练参数数量。
+- 训练耗时，单位秒。
+- Precision、recall、F1。
+- 已匹配实例的平均 OBB IoU。
+- False positive 数量。
+- False negative 数量。
+- Localization error 数量。
+- 下一轮选中的图片。
+- Adapter checkpoint 路径。
 
-For the batch run, record:
+批量运行整体记录：
 
-- Number of datasets processed.
-- Number of datasets reaching 100%.
-- Average rounds to 100%.
-- Average per-round training time.
-- Failure reasons for datasets that do not converge.
+- 处理的数据集数量。
+- 达到 100% 的数据集数量。
+- 达到 100% 的平均轮数。
+- 平均每轮训练耗时。
+- 未收敛数据集的失败原因。
 
-## Performance Targets
+## 性能目标
 
-Initial GPU validation targets:
+初始 GPU 验证目标：
 
-- Per-round LoRA update time: less than 60 seconds.
-- Successful datasets should report the number of rounds needed to reach 100%.
-- Adapter size should remain small enough for per-task swapping.
+- 每轮 LoRA 更新时间小于 60 秒。
+- 成功数据集记录达到 100% 所需轮数。
+- Adapter 体积足够小，便于按任务切换。
 
-NPU deployment constraints:
+NPU 边缘部署约束：
 
-- Keep the base EfficientViT model unchanged.
-- Keep task-specific state in LoRA adapter weights.
-- Avoid introducing operations that are hard to export unless they are used only in offline training.
-- Treat postprocessing as a separable deployment component.
+- 保持 EfficientViT base model 不变。
+- 任务特定状态保存在 LoRA adapter 权重中。
+- 避免在推理路径中新增难以导出的算子；仅训练期使用的算子不受此限制。
+- 后处理作为可独立部署的组件处理。
 
-## Open Design Decisions
+## 待实施阶段决定的问题
 
-These should be decided during implementation planning:
+以下问题留到 implementation plan 阶段确定：
 
-- Whether to reset LoRA from the base checkpoint each round or continue from the previous round.
-- Which exact EfficientViT stages receive Conv-LoRA.
-- Whether mask loss is enabled from the first experiment or added after box-only smoke tests.
-- Whether selected false-positive images without GT should become hard negatives.
-- The default OBB IoU and score thresholds.
+- 每轮是从 base checkpoint 重新初始化 LoRA，还是接着上一轮 adapter 继续训练。
+- 哪些 EfficientViT stage 注入 Conv-LoRA。
+- 第一批实验是否从一开始启用 mask loss，还是先做 box-only smoke test。
+- 对没有 GT 的 false-positive 图片是否作为 hard negative 使用。
+- 默认 OBB IoU 阈值和 score threshold。
 
-## Spec Self-Review
+## 设计自检
 
-- No dependency on `fewshot_adapter`.
-- No sliding-window prompt generation in the main route.
-- Uses EfficientSAM3 native find / grounding flow.
-- Uses EfficientViT as the lightweight student backbone.
-- Includes source paths for the key model, data, loss, and LoRA-relevant modules.
-- Handles compound image suffixes such as `.jpg.bmp` and `.bmp.bmp`.
+- 不依赖 `fewshot_adapter`。
+- 主路线不使用滑窗候选 prompt。
+- 使用 EfficientSAM3 原生 interactive find / grounding 流程。
+- 使用 EfficientViT 作为轻量学生主干。
+- 已为关键模型、数据结构、loss 和 LoRA 相关模块标注源码路径。
+- 数据加载流程支持 `.jpg.bmp`、`.bmp.bmp` 等复合图片后缀。
