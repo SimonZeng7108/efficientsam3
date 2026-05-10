@@ -82,6 +82,8 @@ image_encoder -> prompt_encoder(box) -> mask_decoder -> mask
 
 本项目要验证的是 EfficientSAM3 原生“用户标注一个或多个目标后，查找同类目标”的能力。用户 OBB 标注应作为 geometric prompt 描述目标类别，模型随后通过 grounding / detector decoder 在图片中输出同类实例。
 
+需要特别注意：`Sam3Image.forward()` 中的 geometric prompt 是和当前 `find_input.img_ids` 对应的查询图片绑定的，不是一个可以直接跨图片复用的“参考图 embedding”。因此离线闭环中，用户标注图主要用于 LoRA 微调监督；全量评估未标注图片时不能把训练图坐标直接作为评估图 prompt 使用。评估阶段应显式测试 LoRA 微调后的跨图查找能力，默认使用目标文本和空几何 prompt，或只在同一张被用户修正的图片上使用该图片自己的标注 prompt。
+
 仅作为背景参考的 SAM-style 相关源码：
 
 - `PromptEncoder`：`sam3/sam3/model/student_sam/modeling/prompt_encoder.py`
@@ -177,8 +179,8 @@ mask: polygon 栅格化后的二值 mask
 
 训练输入使用：
 
-- AABB 作为 `FindStage.input_boxes`。
-- AABB 或归一化后的水平框作为 `BatchedFindTarget.boxes`。
+- AABB 转归一化 `cx,cy,w,h` 后作为 `FindStage.input_boxes`。
+- AABB 转归一化 `cx,cy,w,h` 后作为 `BatchedFindTarget.boxes`。
 - 启用 mask loss 时，polygon mask 作为 `BatchedFindTarget.segments`。
 
 源码定位：
@@ -186,6 +188,8 @@ mask: polygon 栅格化后的二值 mask
 - `FindStage`：`sam3/sam3/model/data_misc.py`
 - `BatchedFindTarget`：`sam3/sam3/model/data_misc.py`
 - `BatchedDatapoint`：`sam3/sam3/model/data_misc.py`
+- `GeometryEncoder` 对 box 格式的说明：`sam3/sam3/model/geometry_encoders.py`
+- `box_cxcywh_to_xyxy`：`sam3/sam3/model/box_ops.py`
 
 OBB 评估应使用 polygon 派生出的 OBB 和 rotated IoU。若预测只有 mask，则从阈值化 mask 的最大连通域拟合 OBB。
 
@@ -226,6 +230,20 @@ OBB 评估应使用 polygon 派生出的 OBB 和 rotated IoU。若预测只有 m
 
 对每张已标注图片，geometric prompt 应包含用户标注 OBB 转换得到的 AABB boxes。训练时调用 `Sam3Image.forward()`，让 matching 和 loss 保持在 EfficientSAM3 原生训练路径中。
 
+坐标格式要求：
+
+- `FindStage.input_boxes` 形状为 `(N_prompt_boxes, B_query, 4)`。
+- `FindStage.input_boxes` 的 4 维 box 是归一化 `cx,cy,w,h`，不是像素 `xyxy`。
+- `FindStage.input_boxes_mask` 形状为 `(B_query, N_prompt_boxes)`，`False` 表示有效框，`True` 表示 padding。
+- `FindStage.input_boxes_label` 形状为 `(N_prompt_boxes, B_query)`。
+- `BatchedFindTarget.boxes` 和 `boxes_padded` 同样使用归一化 `cx,cy,w,h`。
+
+跨图评估约束：
+
+- 训练图的标注框坐标不能直接作为其他图片的 prompt。
+- 若评估未标注图片，默认应构造空几何 prompt，并依赖文本 prompt 与 LoRA 参数完成同类目标查找。
+- 若需要模拟用户修正某一张失败图，可以在该失败图自己的查询中使用该图 GT 转换出的 prompt，然后把该图加入下一轮训练集。
+
 ## Loss 策略
 
 优先使用 EfficientSAM3 原生 loss：
@@ -255,6 +273,8 @@ OBB 评估应使用 polygon 派生出的 OBB 和 rotated IoU。若预测只有 m
 ## 评估流程
 
 每轮训练后，对当前子数据集中的所有图片执行推理评估。
+
+评估时不得使用 GT 框作为普通测试图片的 prompt。否则会把目标位置直接泄露给模型，无法验证“少样本学习后查找同类目标”的能力。
 
 需要消费的预测输出：
 
