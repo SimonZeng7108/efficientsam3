@@ -381,3 +381,40 @@ NPU 边缘部署约束：
 - 使用 EfficientViT 作为轻量学生主干。
 - 已为关键模型、数据结构、loss 和 LoRA 相关模块标注源码路径。
 - 数据加载流程支持 `.jpg.bmp`、`.bmp.bmp` 等复合图片后缀。
+
+## 2026-05-11 实现状态
+
+当前仓库已新增独立的 `fewshot_lora` 包，代码和测试均不引用 `fewshot_adapter`。实现路线保持本设计文档的主路线：使用
+`build_efficientsam3_image_model(backbone_type="efficientvit", model_name="b0", enable_segmentation=True)` 构建
+EfficientSAM3 图像模型，并走原生 `BatchedDatapoint -> Sam3Image.forward()` 的 interactive find / grounding 流程。
+
+已实现模块包括：
+
+- 数据解析：读取批量数据集列表，解析 `DetectTrainData.txt` 的 `Version` 行、`R:4` OBB 四点标注、复合后缀图片名和大小写容错路径。
+- 几何转换：OBB polygon 转归一化 `cx,cy,w,h`、polygon mask、评估用 OBB；预测 mask 从最大连通域拟合旋转 OBB。
+- SAM3 batch：构造原生训练输入所需的 `BatchedDatapoint`、`FindStage`、`BatchedFindTarget`。
+- LoRA 注入：默认目标为 EfficientViT `LiteMLA.qkv.conv` 和 `LiteMLA.proj.conv`，并冻结非 LoRA 参数。
+- 训练闭环：用 GT 模拟用户标注，单轮只训练 LoRA 参数，记录训练耗时、样本数和 adapter 路径。
+- 评估闭环：评估阶段不把 GT 框作为普通测试图 prompt，按 dataset 级别单类别 label 生成统一 text prompt。
+- 错误队列：根据 false negative、localization error、false positive 的优先级选择下一轮失败图。
+- 汇总报告：输出每轮 precision、recall、F1、OBB IoU、错误统计、下一轮选图和 adapter 路径。
+
+本轮审查修复点：
+
+- 原生 `Sam3LossWrapper` 需要 dict 形式 target。训练代码现在先调用 `model.back_convert(batch.find_targets[0])`，再将转换后的 target 传给 loss。
+- `mask_to_obb()` 不再用水平外接框兜底主路径；当前会对最大连通域前景点构造凸包，并用 `cv2.minAreaRect` 拟合旋转 OBB。
+- 负样本图不再退回 `"object"` prompt；同一子数据集所有图片统一使用正样本解析出的单类别 label。
+- 新增 `pytest.ini` 固定仓库根目录到 `pythonpath`，保证 `pytest tests/fewshot_lora -q` 和 `python -m pytest tests/fewshot_lora -q` 行为一致。
+
+当前验证结果：
+
+```text
+pytest tests/fewshot_lora -q
+26 passed, 2 skipped
+
+python -m pytest tests/fewshot_lora -q
+26 passed, 2 skipped
+```
+
+其中 2 个 skipped 为本地环境缺少 PyTorch / SAM3 运行依赖时的条件跳过。后续在 Linux GPU 服务器上需要继续验证真实
+EfficientSAM3 权重、真实 DetectTrainData 数据集和完整训练闭环耗时。

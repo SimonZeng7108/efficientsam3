@@ -15,6 +15,9 @@
 - `Sam3Image` 检测/分割路径：`sam3/sam3/model/sam3_image.py`，这是 `build_efficientsam3_image_model()` 返回的主模型，适合少样本检测二次开发。
 - SAM-style prompt mask decoder 路径：`sam3/sam3/model/student_sam/modeling/*`，它有清晰的 `image_encoder -> prompt_encoder -> mask_decoder` 三段调用，适合快速写“框提示 + mask 重建”的 LoRA 记忆脚本。
 
+本仓库当前 `fewshot_lora` 实现以第一条 `Sam3Image` 检测/分割路径为准，目标是原生 interactive find / grounding
+闭环。本文后面保留的 SAM-style 建议只作为早期实验备选，不是当前生产实现路线。
+
 ## 1. LoRA 最佳注入点
 
 ### 1.1 EfficientSAM3 主模型构建入口
