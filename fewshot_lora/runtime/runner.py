@@ -15,7 +15,7 @@ from pathlib import Path
 from ..config import FewShotLoRAConfig
 from ..data.dataset import PreparedDataset, load_detect_dataset
 from ..data.datatrain import read_dataset_list
-from ..sam3_integration.factory import _build_trainable_model
+from ..sam3_integration.factory import build_trainable_model
 from ..sam3_integration.inference import evaluate_images
 from ..sam3_integration.training import TrainRoundResult, train_lora_round
 from .loop import DatasetRunSummary, run_dataset_loop
@@ -48,7 +48,7 @@ def run_one_dataset(dataset_dir: Path, config: FewShotLoRAConfig) -> DatasetRunS
         raise ValueError(f"{dataset_dir} 的 {config.annotation_filename} 中没有任何正样本图片")
 
     # 每个子数据集是一类新目标，因此重新构建模型并注入一份新的 LoRA adapter。
-    model, loss_fn, lora_report = _build_trainable_model(config)
+    model, loss_fn, lora_report = build_trainable_model(config)
     output_dir = config.dataset_output_dir(dataset_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     train_results: dict[int, TrainRoundResult] = {}

@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from ..config import FewShotLoRAConfig
 from ..data.dataset import PreparedImage
 from ..data.preprocess import load_image_tensor, resize_mask
-from ..runtime.loop import TrainRoundOutput
+from ..types import TrainRoundOutput
 
 if TYPE_CHECKING:
     from .lora import LoRAInjectionReport

@@ -14,17 +14,7 @@ from typing import Callable, Sequence
 from ..config import FewShotLoRAConfig
 from ..eval.errors import build_error_queue
 from ..eval.metrics import ImageEval
-
-
-@dataclass(frozen=True)
-class TrainRoundOutput:
-    """单轮训练输出统计。"""
-
-    adapter_path: Path
-    train_image_count: int
-    train_instance_count: int
-    train_seconds: float
-    train_steps: int
+from ..types import TrainRoundOutput
 
 
 TrainRoundFn = Callable[[Sequence[str], int, Path], Path | TrainRoundOutput]

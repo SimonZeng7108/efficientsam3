@@ -2,7 +2,8 @@ from pathlib import Path
 
 from fewshot_lora.config import FewShotLoRAConfig
 from fewshot_lora.eval.metrics import ImageEval
-from fewshot_lora.runtime.loop import TrainRoundOutput, run_dataset_loop
+from fewshot_lora.runtime.loop import run_dataset_loop
+from fewshot_lora.types import TrainRoundOutput
 
 
 def test_config_creates_dataset_output_dir(tmp_path: Path):

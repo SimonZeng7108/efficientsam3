@@ -10,7 +10,7 @@ from __future__ import annotations
 from ..config import FewShotLoRAConfig
 
 
-def _build_trainable_model(config: FewShotLoRAConfig):
+def build_trainable_model(config: FewShotLoRAConfig):
     """构建 EfficientSAM3 image model 并只开放 LoRA 参数训练。"""
 
     # 延迟导入 SAM3 builder，避免没有 torch/SAM3 依赖时无法导入 CLI 和纯逻辑模块。
@@ -41,3 +41,7 @@ def _build_trainable_model(config: FewShotLoRAConfig):
         normalization=config.training.loss_normalization,
     )
     return model, loss_fn, lora_report
+
+
+# 兼容旧的内部调用名；新代码应导入公开的 `build_trainable_model`。
+_build_trainable_model = build_trainable_model

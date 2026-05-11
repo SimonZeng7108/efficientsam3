@@ -21,7 +21,8 @@
 当前代码结构也按这条主路线拆分：数据解析在 `fewshot_lora/data/`，SAM3 原生集成在
 `fewshot_lora/sam3_integration/`，OBB 评估和 rotated NMS 在 `fewshot_lora/eval/`，
 闭环调度和 summary 输出在 `fewshot_lora/runtime/`。其中模型构建入口为
-`fewshot_lora/sam3_integration/factory.py::_build_trainable_model()`。
+`fewshot_lora/sam3_integration/factory.py::build_trainable_model()`；共享训练轮次 DTO
+放在 `fewshot_lora/types.py`，避免 `sam3_integration` 反向依赖 `runtime`。
 
 ## 1. LoRA 最佳注入点
 
