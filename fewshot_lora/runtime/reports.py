@@ -15,8 +15,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .config import FewShotLoRAConfig
-from .datatrain import DataIssue
+from ..config import FewShotLoRAConfig
+from ..data.datatrain import DataIssue
 from .loop import DatasetRunSummary
 
 

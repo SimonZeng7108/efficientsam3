@@ -418,3 +418,34 @@ python -m pytest tests/fewshot_lora -q
 
 其中 2 个 skipped 为本地环境缺少 PyTorch / SAM3 运行依赖时的条件跳过。后续在 Linux GPU 服务器上需要继续验证真实
 EfficientSAM3 权重、真实 DetectTrainData 数据集和完整训练闭环耗时。
+
+## 2026-05-11 结构整理
+
+为降低后续调参和排查成本，`fewshot_lora` 已从平铺文件整理为四个职责子包，根目录只保留轻量入口：
+
+- `fewshot_lora/cli.py`：命令行入口，保持外部 CLI 行为不变。
+- `fewshot_lora/config.py`：核心 dataclass 配置，继续集中维护中文参数说明。
+- `fewshot_lora/data/`：数据集列表、`DetectTrainData` 解析、图片路径容错、图片和 mask 预处理。
+- `fewshot_lora/sam3_integration/`：SAM3 原生 batch、loss、LoRA 注入、训练、推理，以及模型工厂。
+- `fewshot_lora/eval/`：OBB 几何、mask/box 后处理、rotated NMS、OBB IoU 指标和错误队列。
+- `fewshot_lora/runtime/`：交互闭环、批量 runner 和 summary 写盘。
+
+`runtime.runner` 中原来的 `_build_trainable_model()` 已移动到
+`sam3_integration/factory.py`。这样运行器只负责子数据集生命周期和闭环调度，
+模型构建、LoRA target、loss 组合等 SAM3 细节集中在 factory 中，便于后续在 Linux
+服务器上替换 checkpoint、LoRA target 或 loss 配置。
+
+预处理和后处理边界也做了显式说明：
+
+- `data/preprocess.py` 的 resize 与 normalize 约定贴近
+  `sam3.model.sam3_image_processor.Sam3Processor`，保持固定方图和 mean/std=0.5。
+- `eval/postprocess.py` 的输入保持为 SAM3 输出数组，职责贴近
+  `sam3.eval.postprocessors.PostProcessImage` 的 score/box/mask 后处理结果。
+- OBB 拟合、OBB IoU 和 rotated NMS 仍是本任务特定薄层，不混入 SAM3 原生模型代码。
+
+本轮结构整理后的验证：
+
+```text
+pytest tests/fewshot_lora -q
+27 passed, 2 skipped
+```

@@ -11,9 +11,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
 
-from .config import FewShotLoRAConfig
-from .errors import build_error_queue
-from .metrics import ImageEval
+from ..config import FewShotLoRAConfig
+from ..eval.errors import build_error_queue
+from ..eval.metrics import ImageEval
 
 
 @dataclass(frozen=True)

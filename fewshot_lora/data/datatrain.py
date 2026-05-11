@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 
-from .geometry import Polygon4
+from ..eval.geometry import Polygon4
 
 
 # 每个实例形如：R:4 x1 y1 x2 y2 x3 y3 x4 y4 "label"。

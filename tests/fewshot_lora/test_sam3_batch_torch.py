@@ -2,7 +2,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from fewshot_lora.sam3_batch import FindBatchSample, build_batched_datapoint
+from fewshot_lora.sam3_integration.sam3_batch import FindBatchSample, build_batched_datapoint
 
 
 def test_build_batched_datapoint_shapes():

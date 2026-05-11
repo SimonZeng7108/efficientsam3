@@ -68,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parse_args(argv)
     config = config_from_args(args)
-    from .runner import run_from_dataset_list
+    from .runtime.runner import run_from_dataset_list
 
     summary = run_from_dataset_list(Path(args.dataset_list), config)
     for dataset_summary in summary.dataset_summaries:

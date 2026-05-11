@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from fewshot_lora.training import _compute_find_losses
+from fewshot_lora.sam3_integration.training import _compute_find_losses
 
 
 def test_compute_find_losses_converts_batched_find_target_before_loss():

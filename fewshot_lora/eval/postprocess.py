@@ -2,6 +2,10 @@
 
 EfficientSAM3 输出的是归一化水平框和可选 mask。评估需要 OBB，所以这里优先
 从 mask 拟合 OBB；如果没有 mask，则把水平框当作 angle=0 的 OBB 兜底。
+
+本模块刻意贴近 `sam3.eval.postprocessors.PostProcessImage` 的职责边界：
+原生后处理负责 score、box、mask 的尺度转换；本任务额外需要 OBB IoU，因此
+这里只保留“SAM3 预测数组 -> OBB 实例 -> rotated NMS”这层任务特定薄逻辑。
 """
 
 from __future__ import annotations

@@ -11,10 +11,10 @@ from pathlib import Path
 import time
 from typing import TYPE_CHECKING
 
-from .config import FewShotLoRAConfig
-from .dataset import PreparedImage
-from .loop import TrainRoundOutput
-from .preprocess import load_image_tensor, resize_mask
+from ..config import FewShotLoRAConfig
+from ..data.dataset import PreparedImage
+from ..data.preprocess import load_image_tensor, resize_mask
+from ..runtime.loop import TrainRoundOutput
 
 if TYPE_CHECKING:
     from .lora import LoRAInjectionReport

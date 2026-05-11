@@ -2,9 +2,9 @@ import json
 from pathlib import Path
 
 from fewshot_lora.config import FewShotLoRAConfig
-from fewshot_lora.datatrain import DataIssue
-from fewshot_lora.loop import DatasetRunSummary, RoundSummary
-from fewshot_lora.reports import write_dataset_summary
+from fewshot_lora.data.datatrain import DataIssue
+from fewshot_lora.runtime.loop import DatasetRunSummary, RoundSummary
+from fewshot_lora.runtime.reports import write_dataset_summary
 
 
 def test_write_dataset_summary_serializes_rounds_and_data_issues(tmp_path: Path):

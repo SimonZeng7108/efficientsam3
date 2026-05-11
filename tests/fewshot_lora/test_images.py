@@ -2,7 +2,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from fewshot_lora.images import ImageResolutionError, resolve_image_path
+from fewshot_lora.data.images import ImageResolutionError, resolve_image_path
 
 
 def _touch_image(path: Path, size=(8, 6)) -> None:

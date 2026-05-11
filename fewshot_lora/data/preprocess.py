@@ -4,6 +4,11 @@
 - 图片 resize 到 EfficientSAM3 默认方图尺寸。
 - 按 SAM3 Processor 的 mean/std=0.5 做归一化。
 - mask 用最近邻 resize，避免插值制造半透明边界。
+
+实现上显式贴近 `sam3.model.sam3_image_processor.Sam3Processor`：
+它同样使用固定方图 resize，并采用 mean=[0.5, 0.5, 0.5]、
+std=[0.5, 0.5, 0.5] 的归一化。这里保留轻量函数形式，是为了训练 batch
+构造时可以直接得到 CHW tensor，而不引入交互式 processor 的 state 管理。
 """
 
 from __future__ import annotations

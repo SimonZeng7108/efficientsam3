@@ -15,7 +15,8 @@ from pathlib import Path
 import numpy as np
 
 from .datatrain import DataIssue, parse_detect_train_data
-from .geometry import (
+from .images import ImageResolutionError, resolve_image_path
+from ..eval.geometry import (
     AABB,
     OrientedBox,
     Polygon4,
@@ -24,7 +25,6 @@ from .geometry import (
     polygon_to_mask,
     polygon_to_obb,
 )
-from .images import ImageResolutionError, resolve_image_path
 
 
 @dataclass(frozen=True)

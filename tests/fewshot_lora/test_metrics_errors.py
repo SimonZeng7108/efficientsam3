@@ -1,6 +1,6 @@
-from fewshot_lora.errors import ErrorType, build_error_queue
-from fewshot_lora.geometry import OrientedBox
-from fewshot_lora.metrics import ImageGroundTruth, ImagePrediction, PredictionInstance, evaluate_image
+from fewshot_lora.eval.errors import ErrorType, build_error_queue
+from fewshot_lora.eval.geometry import OrientedBox
+from fewshot_lora.eval.metrics import ImageGroundTruth, ImagePrediction, PredictionInstance, evaluate_image
 
 
 def _box(x: float) -> OrientedBox:

@@ -3,9 +3,9 @@ from pathlib import Path
 import numpy as np
 
 from fewshot_lora.config import FewShotLoRAConfig
-from fewshot_lora.dataset import PreparedImage, PreparedInstance
-from fewshot_lora.geometry import OrientedBox, Polygon4
-from fewshot_lora.inference import _dataset_text_prompt
+from fewshot_lora.data.dataset import PreparedImage, PreparedInstance
+from fewshot_lora.eval.geometry import OrientedBox, Polygon4
+from fewshot_lora.sam3_integration.inference import _dataset_text_prompt
 
 
 def _instance(label: str) -> PreparedInstance:

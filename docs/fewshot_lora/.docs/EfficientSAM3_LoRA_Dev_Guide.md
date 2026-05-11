@@ -18,6 +18,11 @@
 本仓库当前 `fewshot_lora` 实现以第一条 `Sam3Image` 检测/分割路径为准，目标是原生 interactive find / grounding
 闭环。本文后面保留的 SAM-style 建议只作为早期实验备选，不是当前生产实现路线。
 
+当前代码结构也按这条主路线拆分：数据解析在 `fewshot_lora/data/`，SAM3 原生集成在
+`fewshot_lora/sam3_integration/`，OBB 评估和 rotated NMS 在 `fewshot_lora/eval/`，
+闭环调度和 summary 输出在 `fewshot_lora/runtime/`。其中模型构建入口为
+`fewshot_lora/sam3_integration/factory.py::_build_trainable_model()`。
+
 ## 1. LoRA 最佳注入点
 
 ### 1.1 EfficientSAM3 主模型构建入口

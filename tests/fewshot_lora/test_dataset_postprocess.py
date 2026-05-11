@@ -3,9 +3,9 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from fewshot_lora.dataset import load_detect_dataset
-from fewshot_lora.geometry import OrientedBox
-from fewshot_lora.postprocess import PredictionArrays, postprocess_predictions
+from fewshot_lora.data.dataset import load_detect_dataset
+from fewshot_lora.eval.geometry import OrientedBox
+from fewshot_lora.eval.postprocess import PredictionArrays, postprocess_predictions
 
 
 def test_load_detect_dataset_resolves_images_and_converts_instances(tmp_path: Path):

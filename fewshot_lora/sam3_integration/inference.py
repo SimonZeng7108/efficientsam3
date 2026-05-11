@@ -7,11 +7,11 @@
 
 from __future__ import annotations
 
-from .config import FewShotLoRAConfig
-from .dataset import PreparedImage
-from .metrics import ImageGroundTruth, evaluate_image
-from .postprocess import PredictionArrays, postprocess_predictions
-from .preprocess import load_image_tensor
+from ..config import FewShotLoRAConfig
+from ..data.dataset import PreparedImage
+from ..data.preprocess import load_image_tensor
+from ..eval.metrics import ImageGroundTruth, evaluate_image
+from ..eval.postprocess import PredictionArrays, postprocess_predictions
 
 
 def evaluate_images(model, images: list[PreparedImage], config: FewShotLoRAConfig):
@@ -69,6 +69,8 @@ def predict_image(
         boxes = out["pred_boxes"][0]
         masks = None
         if "pred_masks" in out:
+            # 这里和 Sam3Processor._forward_grounding 的 mask 路径保持一致：
+            # 先把低分辨率 logits 插值回原图尺寸，再 sigmoid 成概率图。
             pred_masks = out["pred_masks"][0].unsqueeze(1)
             pred_masks = F.interpolate(
                 pred_masks,

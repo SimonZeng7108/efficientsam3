@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fewshot_lora.datatrain import parse_detect_train_data, read_dataset_list
+from fewshot_lora.data.datatrain import parse_detect_train_data, read_dataset_list
 
 
 def test_parse_detect_train_data_skips_version_and_parses_multi_instance_obb(tmp_path: Path):

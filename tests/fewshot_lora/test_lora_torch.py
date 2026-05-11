@@ -2,7 +2,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from fewshot_lora.lora import LoRAConv2d, freeze_non_lora, inject_lora_conv2d_by_suffix
+from fewshot_lora.sam3_integration.lora import LoRAConv2d, freeze_non_lora, inject_lora_conv2d_by_suffix
 
 
 class TinyModule(torch.nn.Module):

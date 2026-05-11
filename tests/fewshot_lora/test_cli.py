@@ -25,7 +25,7 @@ def test_parse_args_keeps_smoke_annotation_filename_configurable():
 
 
 def test_main_prints_chinese_summary(monkeypatch, capsys):
-    fake_runner = ModuleType("fewshot_lora.runner")
+    fake_runner = ModuleType("fewshot_lora.runtime.runner")
 
     def fake_run_from_dataset_list(dataset_list_path, config):
         return SimpleNamespace(
@@ -35,7 +35,7 @@ def test_main_prints_chinese_summary(monkeypatch, capsys):
         )
 
     fake_runner.run_from_dataset_list = fake_run_from_dataset_list
-    monkeypatch.setitem(sys.modules, "fewshot_lora.runner", fake_runner)
+    monkeypatch.setitem(sys.modules, "fewshot_lora.runtime.runner", fake_runner)
 
     exit_code = main(["--dataset-list", "datasets.txt", "--output-dir", "runs"])
 

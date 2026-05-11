@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
 
-from fewshot_lora.geometry import (
+from fewshot_lora.eval.geometry import (
     OrientedBox,
     Polygon4,
     aabb_to_normalized_cxcywh,
