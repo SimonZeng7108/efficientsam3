@@ -105,6 +105,10 @@ class TrainingConfig:
         default=True,
         metadata=_help("是否启用原生 mask loss；开启后 polygon mask 会参与监督。"),
     )
+    continue_from_previous_round: bool = field(
+        default=True,
+        metadata=_help("是否在同一子数据集内跨轮连续训练同一份 LoRA；默认复用内存中的上一轮权重。"),
+    )
 
 
 @dataclass(frozen=True)
@@ -132,6 +136,10 @@ class EvaluationConfig:
     text_prompt: str = field(
         default="object",
         metadata=_help("无实例 label 可用时的兜底文本 prompt；评估时不使用 GT 框。"),
+    )
+    reload_adapter_for_eval: bool = field(
+        default=True,
+        metadata=_help("评估时是否重新构建 base model 并从磁盘加载 adapter；默认开启以验证 checkpoint 可恢复。"),
     )
 
 

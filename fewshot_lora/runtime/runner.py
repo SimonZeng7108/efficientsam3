@@ -72,6 +72,12 @@ def run_one_dataset(dataset_dir: Path, config: FewShotLoRAConfig) -> DatasetRunS
     def evaluate_round(round_index, adapter_path):
         """闭包：把通用 loop 的评估回调接到真实 text-only 全量评估。"""
 
+        if config.evaluation.reload_adapter_for_eval:
+            # 默认走“原始 base model + 磁盘 LoRA adapter”的恢复路径。
+            # 这样每一轮评估都能顺带验证刚保存的 adapter.pt 是否可加载、可复现实例化。
+            eval_model, _loss_fn, _lora_report = build_trainable_model(config)
+            load_lora_adapter(eval_model, adapter_path)
+            return evaluate_images(eval_model, dataset.images, config)
         return evaluate_images(model, dataset.images, config)
 
     summary = run_dataset_loop(
@@ -85,3 +91,10 @@ def run_one_dataset(dataset_dir: Path, config: FewShotLoRAConfig) -> DatasetRunS
     write_dataset_summary(output_dir / "summary.json", config, summary, dataset.issues)
     return summary
 
+
+def load_lora_adapter(model, adapter_path: Path):
+    """延迟加载 LoRA adapter，避免 runner 顶层导入 torch 依赖。"""
+
+    from ..sam3_integration.lora import load_lora_adapter as _load_lora_adapter
+
+    return _load_lora_adapter(model, adapter_path)

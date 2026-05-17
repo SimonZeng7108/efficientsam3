@@ -20,6 +20,7 @@ def test_write_dataset_summary_serializes_rounds_and_data_issues(tmp_path: Path)
                 train_instance_count=2,
                 train_seconds=3.5,
                 train_steps=4,
+                continue_from_previous_round=True,
                 precision=0.5,
                 recall=1.0,
                 f1=2 / 3,

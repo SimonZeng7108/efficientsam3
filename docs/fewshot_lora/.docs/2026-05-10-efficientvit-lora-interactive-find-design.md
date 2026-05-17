@@ -468,3 +468,25 @@ python -m compileall -q fewshot_lora tests\fewshot_lora
 
 同时确认 `fewshot_lora/sam3_integration` 内不再 import `runtime.*`，并清理 compileall 生成的
 `__pycache__`，避免生成物进入 git 状态。
+
+## 2026-05-17 LoRA checkpoint 使用语义
+
+LoRA adapter 的保存、恢复和跨轮训练语义已明确：
+
+- 每轮训练结束后，`save_lora_adapter()` 只保存 LoRA 参数，也就是包含 `.lora_down.` 或 `.lora_up.` 的
+  state dict key，不保存完整 EfficientSAM3 base model 权重。
+- `evaluation.reload_adapter_for_eval` 默认 `True`。评估时会重新构建 fresh base EfficientSAM3 model，
+  注入同样的 LoRA 结构，再调用 `load_lora_adapter(eval_model, adapter_path)`，最后执行
+  `evaluate_images()`。这样 smoke test 和正式评估都会验证磁盘 adapter 是否可加载。
+- 若调试性能需要，可把 `evaluation.reload_adapter_for_eval=False`，此时评估使用当前内存中的训练模型，
+  但正式结果建议保持默认恢复路径。
+- 训练策略选择内存连续训练：同一子数据集内只构建一次训练模型，每轮在上一轮 LoRA 权重基础上继续优化。
+  该语义通过 `training.continue_from_previous_round=True` 写入配置，并在每轮 summary 中记录
+  `continue_from_previous_round` 字段。
+
+新增测试覆盖：
+
+- adapter checkpoint 只包含 LoRA 参数。
+- runner 的评估回调会使用 `adapter_path` 加载 LoRA。
+- 关闭恢复评估时仍可使用内存模型。
+- 第 1 轮训练开始前能看到第 0 轮训练后的 LoRA 状态，证明跨轮复用同一个 model 对象。

@@ -24,6 +24,10 @@
 `fewshot_lora/sam3_integration/factory.py::build_trainable_model()`；共享训练轮次 DTO
 放在 `fewshot_lora/types.py`，避免 `sam3_integration` 反向依赖 `runtime`。
 
+checkpoint 语义：训练模型在同一子数据集内跨轮连续优化 LoRA，`save_lora_adapter()`
+只保存 LoRA 参数；默认评估会重新构建 base model、注入 LoRA、从 `adapter.pt`
+加载权重后再推理，以验证磁盘 adapter 可恢复。
+
 ## 1. LoRA 最佳注入点
 
 ### 1.1 EfficientSAM3 主模型构建入口

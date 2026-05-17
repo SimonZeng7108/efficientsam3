@@ -33,6 +33,7 @@ class RoundSummary:
     train_instance_count: int
     train_seconds: float
     train_steps: int
+    continue_from_previous_round: bool
     precision: float
     recall: float
     f1: float
@@ -97,6 +98,7 @@ def run_dataset_loop(
                 train_instance_count=train_output.train_instance_count,
                 train_seconds=train_output.train_seconds,
                 train_steps=train_output.train_steps,
+                continue_from_previous_round=config.training.continue_from_previous_round,
                 precision=aggregate.precision,
                 recall=aggregate.recall,
                 f1=aggregate.f1,
