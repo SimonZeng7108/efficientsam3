@@ -26,6 +26,7 @@ Run the SAM3 Stage 1 image encoder distillation pipeline end to end on one GPU, 
 - Student epochs: `3`
 - Student specs: `es_rv_s`, `es_rv_m`, `es_rv_l`
 - Runner: `scripts/run_image_encoder_distill_smoke.sh`
+- Preflight: `scripts/preflight_image_encoder_distill.sh`
 - Slurm script: `scripts/slurm_l40s_image_distill_smoke.sbatch`
 
 ## Scratch Layout
@@ -83,6 +84,38 @@ Check run logs after the job starts:
 ls -lt /storage/scratch1/9/eliu354/efficientsam3_distill_smoke/run_*.log
 tail -f /storage/scratch1/9/eliu354/efficientsam3_distill_smoke/run_*.log
 ```
+
+Scratch environment preflight:
+
+```bash
+bash scripts/preflight_image_encoder_distill.sh
+PREFLIGHT_INSTALL_DEPS=0 bash scripts/preflight_image_encoder_distill.sh
+ls -lt /storage/scratch1/9/eliu354/efficientsam3_distill_smoke/preflight_*.log
+```
+
+## Preflight Result
+
+Completed on 2026-06-02 before the L40S allocation started.
+
+Logs:
+
+```text
+/storage/scratch1/9/eliu354/efficientsam3_distill_smoke/preflight_20260602_185803.log
+/storage/scratch1/9/eliu354/efficientsam3_distill_smoke/preflight_20260602_190650.log
+```
+
+Evidence:
+
+- Scratch conda env created at `/storage/scratch1/9/eliu354/efficientsam3_distill_smoke/conda_env`.
+- Full `.[stage1]` install attempted first and failed at `mmcv` metadata build; fallback image-distillation dependency set completed successfully.
+- PyTorch import works in the scratch env: `torch 2.12.0+cu130`; login shell reports `cuda_available False`, expected outside a GPU allocation.
+- Core imports passed: `torchvision 0.27.0+cu130`, `timm 1.0.27`, `cv2 4.13.0`, `mmengine 0.10.7`.
+- Teacher smoke config parsed with `samples=1120`, `random_sample=False`, `batch=1`.
+- ES-RV-S config parsed and model construction passed: `repvit_m0_9`, `batch=4`, `epochs=3`, `params=14551264`.
+- ES-RV-M config parsed and model construction passed: `repvit_m1_1`, `batch=4`, `epochs=3`, `params=17739408`.
+- ES-RV-L config parsed and model construction passed: `repvit_m2_3`, `batch=2`, `epochs=3`, `params=32499848`.
+- Scratch usage after preflight: about `7.8G`.
+- Slurm job `9400333` was still `PENDING (Priority)` after preflight; no teacher embeddings, training logs, or merged checkpoints exist yet.
 
 Expected final artifacts:
 

@@ -47,7 +47,30 @@ All heavy artifacts are written under:
 
 The runner sets `CLEAN_INTERMEDIATE=1` by default, so after creating `SA-1B-0.01P`, it removes the downloaded 1% tar directory and the temporary 1% reorganized dataset inside the run root. The retained dataset is the deterministic 1120-image subset plus teacher embeddings and checkpoints.
 
-## 2. Manual Environment
+## 2. Scratch Environment Preflight
+
+Before a GPU allocation starts, the same scratch conda environment can be created and checked without downloading SA-1B or running CUDA:
+
+```bash
+cd /storage/project/r-agarg35-0/eliu354/projects/EfficientSam3-Distillation
+bash scripts/preflight_image_encoder_distill.sh
+```
+
+After dependencies are already installed, rerun only the checks with:
+
+```bash
+PREFLIGHT_INSTALL_DEPS=0 bash scripts/preflight_image_encoder_distill.sh
+```
+
+The preflight writes logs to:
+
+```text
+/storage/scratch1/9/eliu354/efficientsam3_distill_smoke/preflight_*.log
+```
+
+It validates dependency installation, PyTorch/core package imports, YAML parsing, config resolution for the teacher plus ES-RV-S/M/L smoke configs, and CPU construction of the three RepViT student image encoders.
+
+## 3. Manual Environment
 
 Create the environment from scratch:
 
@@ -72,7 +95,7 @@ print(torch.cuda.get_device_properties(0).total_memory / 1024**3, "GiB")
 PY
 ```
 
-## 3. Checkpoint
+## 4. Checkpoint
 
 Download the official SAM3 checkpoint into scratch:
 
@@ -89,7 +112,7 @@ If the checkpoint is downloaded manually, place it at:
 /storage/scratch1/9/eliu354/efficientsam3_distill_smoke/sam3_checkpoints/sam3.pt
 ```
 
-## 4. Data
+## 5. Data
 
 For the first RTX 5090 reproduction, use the official SA-1B data source but only download the repo-provided 1% shard list. The helper then materializes 1120 randomly selected images from that available subset, matching approximately 0.01% of full SA-1B.
 
@@ -133,7 +156,7 @@ Expected storage for the smoke run:
 - Teacher embeddings for 1120 images: about 11.3 GiB, because each embedding is `1024 x 72 x 72` fp16.
 - Checkpoints and logs: usually a few GB for the smoke run.
 
-## 5. Export Teacher Image Embeddings
+## 6. Export Teacher Image Embeddings
 
 Start conservatively on the RTX 5090 with `BATCH_SIZE=1`. Increase to `2` only after confirming memory headroom.
 
@@ -182,7 +205,7 @@ bash stage1/scripts/save_image_embeddings.sh \
   --check-saved-embed
 ```
 
-## 6. Train Student Image Encoders
+## 7. Train Student Image Encoders
 
 The one-command runner trains all three RepViT sizes by default. To run one student manually, use ES-RV-M / RepViT-M1.1 as the balanced first check:
 
@@ -217,7 +240,7 @@ ES-RV-S: CFG=stage1/configs/es_rv_s_5090_smoke.yaml, OUTPUT=.../stage1/es_rv_s, 
 ES-RV-L: CFG=stage1/configs/es_rv_l_5090_smoke.yaml, OUTPUT=.../stage1/es_rv_l, BATCH_SIZE=2
 ```
 
-## 7. Merge Student Encoder with SAM3 Heads
+## 8. Merge Student Encoder with SAM3 Heads
 
 After a smoke training run finishes:
 
@@ -238,7 +261,7 @@ The one-command runner writes:
 /storage/scratch1/9/eliu354/efficientsam3_distill_smoke/output/efficient_sam3_repvit_l_smoke.pt
 ```
 
-## 8. Move from Smoke Run to Larger Run
+## 9. Move from Smoke Run to Larger Run
 
 Once the smoke run succeeds, keep the same architecture and increase training scale:
 
@@ -260,7 +283,7 @@ For a larger random subset, override both teacher export and student training wi
 
 The teacher embedding export must be rerun whenever `DATA.NUM_SAMPLES`, `DATA.RANDOM_SAMPLE`, `DATA.SAMPLE_SEED`, image size, or embedding shape changes.
 
-## 9. Reporting Expected Time
+## 10. Reporting Expected Time
 
 Use the first 50-100 logged steps as the reliable estimate. The code reports `throughput` and `total_eta` directly in:
 
