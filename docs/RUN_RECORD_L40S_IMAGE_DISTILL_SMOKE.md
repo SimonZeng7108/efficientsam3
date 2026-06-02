@@ -2,6 +2,8 @@
 
 Date: 2026-06-02
 Repo: `/storage/project/r-agarg35-0/eliu354/projects/EfficientSam3-Distillation`
+Branch: `image-encoder-distill-pipeline`
+Pipeline commit: `8abc6e3` (`Add scratch image encoder distillation smoke pipeline`)
 Scratch root: `/storage/scratch1/9/eliu354/efficientsam3_distill_smoke`
 
 ## Objective
