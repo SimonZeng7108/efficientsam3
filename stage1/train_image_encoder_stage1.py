@@ -51,8 +51,24 @@ def parse_option():
 # - Weight Decay: Set to 0.01.
 # - Epochs: Default set to 50.
 
+
+def format_duration(seconds):
+    return str(datetime.timedelta(seconds=int(max(0, seconds))))
+
+
 def main(args, config):
     dataset_train, _, data_loader_train, _ = build_loader(config, build_val=False)
+    if dist.get_rank() == 0:
+        logger.info(
+            "Student image encoder training plan: "
+            f"samples={len(dataset_train)}, "
+            f"steps_per_epoch={len(data_loader_train)}, "
+            f"epochs={config.TRAIN.EPOCHS}, "
+            f"batch_size_per_gpu={config.DATA.BATCH_SIZE}, "
+            f"world_size={dist.get_world_size()}, "
+            f"effective_batch_size="
+            f"{config.DATA.BATCH_SIZE * dist.get_world_size() * config.TRAIN.ACCUMULATION_STEPS}"
+        )
 
     logger.info(f"Creating model: {config.MODEL.BACKBONE}")
     model = build_image_student_model(config)
@@ -129,6 +145,7 @@ def main(args, config):
             lr_scheduler,
             loss_scaler,
             loss_writer,
+            start_time,
         )
 
         if dist.get_rank() == 0 and (
@@ -161,6 +178,7 @@ def train_one_epoch(
     lr_scheduler,
     loss_scaler,
     loss_writer,
+    run_start_time,
 ):
     model.train()
     set_bn_state(config, model)
@@ -243,9 +261,22 @@ def train_one_epoch(
                 torch.cuda.max_memory_allocated() / (1024.0 * 1024.0)
             )
             eta = batch_time.avg * (num_steps - idx)
+            total_steps = max(1, (config.TRAIN.EPOCHS - config.TRAIN.START_EPOCH) * num_steps)
+            completed_steps = (epoch - config.TRAIN.START_EPOCH) * num_steps + idx + 1
+            elapsed_total = time.time() - run_start_time
+            avg_step_time = elapsed_total / max(completed_steps, 1)
+            total_eta = avg_step_time * max(total_steps - completed_steps, 0)
+            samples_done = (
+                completed_steps
+                * config.DATA.BATCH_SIZE
+                * dist.get_world_size()
+            )
+            throughput = samples_done / max(elapsed_total, 1e-6)
             logger.info(
                 f"Train: [{epoch}/{config.TRAIN.EPOCHS}][{idx}/{num_steps}]  "
                 f"eta {datetime.timedelta(seconds=int(eta))}  "
+                f"total_eta {format_duration(total_eta)}  "
+                f"throughput {throughput:.2f} img/s  "
                 f"lr {lr:.6f}  time {batch_time.val:.4f} ({batch_time.avg:.4f})  "
                 f"loss {loss_meter.val:.4f} ({loss_meter.avg:.4f})  "
                 f"grad_norm {norm_meter.val:.4f} ({norm_meter.avg:.4f})  "
@@ -400,5 +431,4 @@ if __name__ == "__main__":
     logger.info(config.dump())
 
     main(args, config)
-
 

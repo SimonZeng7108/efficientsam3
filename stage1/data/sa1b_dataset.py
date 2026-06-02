@@ -18,6 +18,7 @@ from PIL import ImageFile
 
 class SA1BDataset(torch.utils.data.Dataset):
     def __init__(self, data_root, img_size=1024, split='train', num_samples=-1,
+                 random_sample=False, sample_seed=0,
                  sort_by_area=False, filter_by_area=None,
                  pixel_mean=[123.675, 116.28, 103.53], pixel_std=[58.395, 57.12, 57.375],
                  load_gt_mask=False, max_allowed_prompts=-1, fix_seed=False, mask_nms_thresh=-1.,
@@ -37,28 +38,33 @@ class SA1BDataset(torch.utils.data.Dataset):
         self.box_jitter = box_jitter
 
         self.num_samples = num_samples
+        self.random_sample = random_sample
+        self.sample_seed = sample_seed
         self.split = split
         self.prepare_data()
         ImageFile.LOAD_TRUNCATED_IMAGES = True
 
     def prepare_data(self):
-        self.data = []
-        self.keys = []
-
-        counter = 0
-        for img_path in list(glob.glob(f'{self.data_root}/images/{self.split}/*.jpg')):
+        records = []
+        for img_path in sorted(glob.glob(f'{self.data_root}/images/{self.split}/*.jpg')):
             name = Path(img_path).stem
             anno_path = f'{self.data_root}/annotations/{self.split}/{name}.json'
             if not os.path.exists(anno_path):
                 continue
 
-            self.data.append((img_path, anno_path))
-            self.keys.append(name)
+            records.append((name, img_path, anno_path))
 
-            counter += 1
-            if self.num_samples > 0:
-                if counter == self.num_samples:
-                    break
+        if self.num_samples > 0 and self.num_samples < len(records):
+            if self.random_sample:
+                rng = np.random.default_rng(self.sample_seed)
+                selected = rng.choice(len(records), size=self.num_samples, replace=False)
+                selected.sort()
+                records = [records[i] for i in selected]
+            else:
+                records = records[:self.num_samples]
+
+        self.data = [(img_path, anno_path) for _, img_path, anno_path in records]
+        self.keys = [name for name, _, _ in records]
 
     def __len__(self):
         return len(self.data)

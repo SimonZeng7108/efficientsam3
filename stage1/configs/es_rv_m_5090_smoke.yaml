@@ -1,0 +1,22 @@
+BASE: ['es_rv_m.yaml']
+
+MODEL:
+  NAME: ES-RV-M-5090-Smoke
+
+TRAIN:
+  EPOCHS: 3
+  WARMUP_EPOCHS: 1
+  AUTO_RESUME: False
+
+DATA:
+  BATCH_SIZE: 4
+  NUM_WORKERS: 8
+  NUM_SAMPLES: 1120
+  RANDOM_SAMPLE: False
+  SAMPLE_SEED: 5090
+
+DISTILL:
+  TEACHER_EMBED_PATH: output/rtx5090_smoke/stage1_teacher/embeddings
+
+OUTPUT: output/rtx5090_smoke/stage1/es_rv_m
+TAG: rtx5090_smoke

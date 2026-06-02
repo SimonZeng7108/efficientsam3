@@ -24,6 +24,8 @@ _C.DATA.PIN_MEMORY = True
 _C.DATA.NUM_WORKERS = 8
 _C.DATA.DEBUG = False
 _C.DATA.NUM_SAMPLES = -1
+_C.DATA.RANDOM_SAMPLE = False
+_C.DATA.SAMPLE_SEED = 0
 _C.DATA.FILTER_BY_AREA = [None, None]
 _C.DATA.SORT_BY_AREA = False
 _C.DATA.LOAD_GT_MASK = False
@@ -166,4 +168,3 @@ def get_config(args=None):
     if args is not None:
         update_config(config, args)
     return config
-

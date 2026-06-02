@@ -1,0 +1,14 @@
+BASE: ['sam_vit_huge_sa1b.yaml']
+
+DATA:
+  BATCH_SIZE: 1
+  NUM_WORKERS: 8
+  NUM_SAMPLES: 1120
+  RANDOM_SAMPLE: False
+  SAMPLE_SEED: 5090
+
+DISTILL:
+  TEACHER_EMBED_PATH: output/rtx5090_smoke/stage1_teacher/embeddings
+
+OUTPUT: output/rtx5090_smoke/stage1_teacher
+TAG: rtx5090_smoke

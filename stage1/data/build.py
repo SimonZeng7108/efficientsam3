@@ -84,6 +84,8 @@ def build_dataset(is_train, config):
             split='train' if is_train else 'val',
             img_size=config.DATA.IMG_SIZE,
             num_samples=num_samples,
+            random_sample=config.DATA.RANDOM_SAMPLE,
+            sample_seed=config.DATA.SAMPLE_SEED,
             sort_by_area=config.DATA.SORT_BY_AREA,
             filter_by_area=config.DATA.FILTER_BY_AREA,
             pixel_mean=config.DATA.MEAN,

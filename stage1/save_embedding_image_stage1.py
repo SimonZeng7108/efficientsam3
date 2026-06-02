@@ -33,8 +33,36 @@ def parse_option():
     return args, config
 
 
+def format_duration(seconds):
+    return str(datetime.timedelta(seconds=int(max(0, seconds))))
+
+
+def format_bytes(num_bytes):
+    units = ("B", "KiB", "MiB", "GiB", "TiB")
+    value = float(num_bytes)
+    for unit in units:
+        if value < 1024.0 or unit == units[-1]:
+            return f"{value:.2f} {unit}"
+        value /= 1024.0
+
+
 def main(config, args):
     dataset_train, _, data_loader_train, _ = build_loader(config, build_val=False)
+    if dist.get_rank() == 0:
+        embed_bytes = (
+            len(dataset_train)
+            * config.DISTILL.EMBED_DIM
+            * config.DISTILL.EMBED_SIZE
+            * config.DISTILL.EMBED_SIZE
+            * 2
+        )
+        logger.info(
+            "Teacher image embedding export plan: "
+            f"samples={len(dataset_train)}, "
+            f"embedding_shape=({config.DISTILL.EMBED_DIM}, "
+            f"{config.DISTILL.EMBED_SIZE}, {config.DISTILL.EMBED_SIZE}), "
+            f"estimated_embedding_storage={format_bytes(embed_bytes)}"
+        )
 
     logger.info("Building SAM3 teacher encoder")
     model = build_image_teacher_model(config)
@@ -108,6 +136,13 @@ def save_embeddings_one_epoch(config, model, data_loader, epoch):
             memory_used = (
                 torch.cuda.max_memory_allocated() / (1024.0 * 1024.0)
             )
+            completed_steps = idx + 1
+            elapsed = time.time() - start
+            samples_done = min(
+                completed_steps * config.DATA.BATCH_SIZE * dist.get_world_size(),
+                len(data_loader.dataset),
+            )
+            throughput = samples_done / max(elapsed, 1e-6)
             eta = batch_time.avg * (num_steps - idx)
             extra = "  ".join(
                 f"{k} {v.val:.4f} ({v.avg:.4f})" for k, v in meters.items()
@@ -115,6 +150,8 @@ def save_embeddings_one_epoch(config, model, data_loader, epoch):
             logger.info(
                 f"Save: [{epoch}/{config.TRAIN.EPOCHS}][{idx}/{num_steps}]  "
                 f"eta {datetime.timedelta(seconds=int(eta))}  "
+                f"total_eta {format_duration(eta)}  "
+                f"throughput {throughput:.2f} img/s  "
                 f"time {batch_time.val:.4f} ({batch_time.avg:.4f})  "
                 f"{extra}  mem {memory_used:.0f}MB"
             )
@@ -241,5 +278,3 @@ if __name__ == "__main__":
     
     if torch.distributed.is_initialized():
         torch.distributed.destroy_process_group()
-
-

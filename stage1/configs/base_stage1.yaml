@@ -49,6 +49,9 @@ DATA:
   DATA_PATH: data/sa-1b/
   BATCH_SIZE: 64
   NUM_WORKERS: 8
+  NUM_SAMPLES: -1
+  RANDOM_SAMPLE: False
+  SAMPLE_SEED: 0
 
 DISTILL:
   ENABLED: True
@@ -68,5 +71,4 @@ DISTILL:
 OUTPUT: output/stage1
 TAG: default
 AMP_ENABLE: True
-
 
