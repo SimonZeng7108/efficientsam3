@@ -46,6 +46,16 @@ export ENV_DIR="${RUN_ROOT}/conda_env"
 mkdir -p "$(dirname "${REPO_DIR}")" "${RUN_ROOT}"
 ```
 
+Check the local machine before starting the long run:
+
+```bash
+nvidia-smi
+command -v conda
+df -h "$(dirname "${RUN_ROOT}")"
+```
+
+The workstation needs enough free local disk for the 1120-image subset, the 11.9 GB teacher embedding file, the conda environment/cache, logs, and three merged checkpoints. If `nvidia-smi` does not show the RTX 5090 or `conda` is missing, fix that before running this pipeline.
+
 Clone or copy the repo to the workstation. If cloning from the remote, check out the branch that contains the smoke pipeline:
 
 ```bash
@@ -56,6 +66,16 @@ git checkout image-encoder-distill-pipeline
 ```
 
 If the latest branch commits have not been pushed to GitHub yet, either push them first or copy the repo from PACE to the workstation with `rsync`, then set `REPO_DIR` to that local copy and `cd` there.
+
+The SAM3 checkpoint is gated on Hugging Face. If the workstation is not already logged in with an approved token, run preflight first to create `${ENV_DIR}`, then authenticate the run-local Hugging Face cache:
+
+```bash
+cd "${REPO_DIR}"
+REPO_DIR="${REPO_DIR}" RUN_ROOT="${RUN_ROOT}" ENV_DIR="${ENV_DIR}" \
+  bash scripts/preflight_image_encoder_distill.sh
+HF_HOME="${RUN_ROOT}/cache/huggingface" "${ENV_DIR}/bin/hf" auth login
+HF_HOME="${RUN_ROOT}/cache/huggingface" "${ENV_DIR}/bin/hf" auth whoami
+```
 
 Run the full local smoke pipeline:
 
