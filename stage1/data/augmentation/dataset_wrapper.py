@@ -51,7 +51,7 @@ class DatasetWrapper(torch.utils.data.Dataset):
         manager = self.get_manager()
         bstr: bytes = manager.read(key)
         # parse the augmentation seed
-        seed = int(np.frombuffer(bstr[:4], dtype=np.int32))
+        seed = int(np.frombuffer(bstr[:4], dtype=np.int32)[0])
         # parse the embeddings
         # copy embeddings and logits_value to avoid warning of written flag from PyTorch
         bstr = bstr[4:]
@@ -64,7 +64,7 @@ class DatasetWrapper(torch.utils.data.Dataset):
         manager = self.get_manager()
         bstr: bytes = manager.read(key)
         # parse the augmentation seed
-        seed = int(np.frombuffer(bstr[:4], dtype=np.int32))
+        seed = int(np.frombuffer(bstr[:4], dtype=np.int32)[0])
         # parse the logits index and value
         # copy logits_index and logits_value to avoid warning of written flag from PyTorch
         bstr = bstr[4:]
