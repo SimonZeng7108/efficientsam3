@@ -286,6 +286,51 @@ QOS: embers
 State at submission: PENDING (Priority)
 ```
 
+## 2026-06-02 Second GPU Retry: Teacher Pass, Student Failure
+
+Job `9402450` started on `atl1-1-03-007-31-0` and verified the repaired CUDA stack:
+
+```text
+torch 2.11.0+cu128
+cuda_available True
+cuda_device NVIDIA L40S
+cuda_mem_gib 44.39215087890625
+```
+
+Teacher embedding export completed successfully:
+
+```text
+Scratch log: /storage/scratch1/9/eliu354/efficientsam3_distill_smoke/run_20260602_231856.log
+Teacher log: /storage/scratch1/9/eliu354/efficientsam3_distill_smoke/output/stage1_teacher/log_rank0.txt
+Samples: 1120
+Embedding shape: 1024 x 72 x 72 fp16
+Elapsed: 0:02:08
+Final throughput: about 8.68 img/s
+Peak GPU memory: 2144 MB
+Embedding values: /storage/scratch1/9/eliu354/efficientsam3_distill_smoke/output/stage1_teacher/embeddings/rank0-values.bin
+Embedding keys: /storage/scratch1/9/eliu354/efficientsam3_distill_smoke/output/stage1_teacher/embeddings/rank0-keys.txt
+```
+
+The run then failed at the first ES-RV-S training step:
+
+```text
+Job ID: 9402450
+State: FAILED
+ExitCode: 1:0
+Elapsed: 00:04:24
+Failure point: ES-RV-S DataLoader reading saved teacher embeddings
+```
+
+Root cause:
+
+- `stage1/data/augmentation/dataset_wrapper.py` used `int(np.frombuffer(...))`.
+- With the current NumPy stack this returns a one-element array, and converting that array directly to `int` raises `TypeError: only 0-dimensional arrays can be converted to Python scalars`.
+
+Fix:
+
+- Seed parsing now indexes the scalar explicitly: `np.frombuffer(...)[0]`.
+- Verified against the generated teacher embedding package: key `sa_307767`, integer seed `1861567313`, fp16 embedding vector shape `(5308416,)`.
+
 Expected final artifacts:
 
 ```text
