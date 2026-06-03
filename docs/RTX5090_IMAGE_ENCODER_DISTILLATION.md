@@ -11,15 +11,14 @@ This runbook describes how to reproduce the Stage 1 SAM3 image encoder distillat
 - Dataset for smoke run: 1120 randomly sampled SA-1B training images, approximately 0.01% of full SA-1B. The subset is materialized once with seed `5090`; teacher export and all student runs read that same subset without a second random sampling pass.
 - Loss: masked feature MSE plus masked channel-wise cosine loss.
 - Output target: a merged EfficientSAM3 checkpoint with the distilled image encoder and original SAM3 heads.
-- Scratch run root: `/storage/scratch1/9/eliu354/efficientsam3_distill_smoke`.
+- PACE scratch baseline: `/storage/scratch1/9/eliu354/efficientsam3_distill_smoke`.
+- Workstation run root: choose a large local SSD path, for example `/data/efficientsam3_distill_smoke` or `$HOME/efficientsam3_distill_smoke`.
 
 The subset manifest at `data/SA-1B-0.01P/subset_manifest.json` records the selected keys. The smoke configs use `DATA.RANDOM_SAMPLE=False` when pointed at the materialized subset, so teacher embedding export and student training use exactly the same image keys.
 
-## 1. One-Command L40S Run
+## 1. PACE Baseline
 
-The repo includes a scratch-based runner that creates the environment, downloads data/checkpoints, builds the deterministic 0.01% subset, exports teacher embeddings, trains ES-RV-S, ES-RV-M, and ES-RV-L for 3 smoke epochs each, and merges one checkpoint per student size.
-
-Submit to one L40S GPU:
+The PACE Phoenix validation used Slurm only for the cluster run. Submit cluster jobs with `embers`, never `inferno`:
 
 ```bash
 cd /storage/project/r-agarg35-0/eliu354/projects/EfficientSam3-Distillation
@@ -34,17 +33,46 @@ The verified PACE smoke run produced:
 /storage/scratch1/9/eliu354/efficientsam3_distill_smoke/output/efficient_sam3_repvit_l_smoke.pt
 ```
 
-For an RTX 5090 workstation, use the same runner from a CUDA-visible shell:
+## 2. Local RTX 5090 One-Command Run
+
+On the workstation, do not use `sbatch`, PACE partitions, or `/storage/project` paths. Start in a normal local shell where the NVIDIA driver is installed and CUDA is visible.
+
+Choose local paths first:
 
 ```bash
-cd /storage/project/r-agarg35-0/eliu354/projects/EfficientSam3-Distillation
+export REPO_DIR="$HOME/src/EfficientSam3-Distillation"
+export RUN_ROOT="/data/efficientsam3_distill_smoke"
+export ENV_DIR="${RUN_ROOT}/conda_env"
+mkdir -p "$(dirname "${REPO_DIR}")" "${RUN_ROOT}"
+```
+
+Clone or copy the repo to the workstation. If cloning from the remote, check out the branch that contains the smoke pipeline:
+
+```bash
+cd "$(dirname "${REPO_DIR}")"
+git clone <REPO_URL> "$(basename "${REPO_DIR}")"
+cd "${REPO_DIR}"
+git checkout image-encoder-distill-pipeline
+```
+
+If the repo was copied manually from PACE, set `REPO_DIR` to that local copy and `cd` there.
+
+Run the full local smoke pipeline:
+
+```bash
+cd "${REPO_DIR}"
+REPO_DIR="${REPO_DIR}" \
+RUN_ROOT="${RUN_ROOT}" \
+ENV_DIR="${ENV_DIR}" \
 bash scripts/run_image_encoder_distill_smoke.sh
 ```
 
-All heavy artifacts are written under:
+The runner creates the environment, downloads data/checkpoints, builds the deterministic 0.01% subset, exports teacher embeddings, trains ES-RV-S, ES-RV-M, and ES-RV-L for 3 smoke epochs each, and merges one checkpoint per student size.
+
+All heavy artifacts are written under the local `RUN_ROOT`:
 
 ```text
-/storage/scratch1/9/eliu354/efficientsam3_distill_smoke/
+${RUN_ROOT}/
 ├── conda_env/
 ├── conda_pkgs/
 ├── cache/
@@ -56,63 +84,60 @@ All heavy artifacts are written under:
 
 The runner sets `CLEAN_INTERMEDIATE=1` by default, so after creating `SA-1B-0.01P`, it removes the downloaded 1% tar directory and the temporary 1% reorganized dataset inside the run root. The retained dataset is the deterministic 1120-image subset plus teacher embeddings and checkpoints.
 
-## 2. Scratch Environment Preflight
+## 3. Local Environment Preflight
 
-Before a GPU allocation starts, the same scratch conda environment can be created and checked without downloading SA-1B or running CUDA:
+Before the full workstation run, the same local conda environment can be created and checked without downloading SA-1B:
 
 ```bash
-cd /storage/project/r-agarg35-0/eliu354/projects/EfficientSam3-Distillation
-bash scripts/preflight_image_encoder_distill.sh
+cd "${REPO_DIR}"
+REPO_DIR="${REPO_DIR}" RUN_ROOT="${RUN_ROOT}" ENV_DIR="${ENV_DIR}" \
+  bash scripts/preflight_image_encoder_distill.sh
 ```
 
 After dependencies are already installed, rerun only the checks with:
 
 ```bash
-PREFLIGHT_INSTALL_DEPS=0 bash scripts/preflight_image_encoder_distill.sh
+REPO_DIR="${REPO_DIR}" RUN_ROOT="${RUN_ROOT}" ENV_DIR="${ENV_DIR}" \
+  PREFLIGHT_INSTALL_DEPS=0 bash scripts/preflight_image_encoder_distill.sh
 ```
 
 The preflight writes logs to:
 
 ```text
-/storage/scratch1/9/eliu354/efficientsam3_distill_smoke/preflight_*.log
+${RUN_ROOT}/preflight_*.log
 ```
 
 It validates dependency installation, PyTorch/core package imports, YAML parsing, config resolution for the teacher plus ES-RV-S/M/L smoke configs, and CPU construction of the three RepViT student image encoders.
 
-## 3. CPU Asset Preparation
+## 4. Local CPU Asset Preparation
 
-While the single-GPU job is pending, checkpoint and dataset preparation can run on CPU:
-
-```bash
-cd /storage/project/r-agarg35-0/eliu354/projects/EfficientSam3-Distillation
-sbatch scripts/slurm_prepare_image_encoder_assets.sbatch
-```
-
-Or run it directly:
+On PACE this step was submitted as a CPU Slurm job while the GPU job was pending. On the workstation, run it directly from a local shell:
 
 ```bash
-bash scripts/prepare_image_encoder_distill_assets.sh
+cd "${REPO_DIR}"
+REPO_DIR="${REPO_DIR}" RUN_ROOT="${RUN_ROOT}" ENV_DIR="${ENV_DIR}" \
+  bash scripts/prepare_image_encoder_distill_assets.sh
 ```
 
-This uses the same scratch root, downloads `sam3.pt`, downloads the repo-provided SA-1B shard list, reorganizes it with a bounded worker count, materializes the deterministic 1120-image subset, and removes intermediate tar/reorganized data when `CLEAN_INTERMEDIATE=1`.
+This uses the same local run root, downloads `sam3.pt`, downloads the repo-provided SA-1B shard list, reorganizes it with a bounded worker count, materializes the deterministic 1120-image subset, and removes intermediate tar/reorganized data when `CLEAN_INTERMEDIATE=1`.
 
 Logs are written to:
 
 ```text
-/storage/scratch1/9/eliu354/efficientsam3_distill_smoke/prepare_assets_*.log
+${RUN_ROOT}/prepare_assets_*.log
 ```
 
 The GPU runner reuses these assets and skips checkpoint/data preparation if they already exist.
 
-## 4. Manual Environment
+## 5. Manual Local Environment
 
-The one-command runner creates and repairs the scratch environment automatically. If creating a workstation environment manually, start with the normal Stage 1 extra:
+The one-command runner creates and repairs the local environment automatically. If creating a workstation environment manually, start with the normal Stage 1 extra:
 
 ```bash
 conda create -n efficientsam3 python=3.12 -y
 conda activate efficientsam3
 
-cd /storage/project/r-agarg35-0/eliu354/projects/EfficientSam3-Distillation
+cd "${REPO_DIR}"
 pip install -U pip
 pip install -e ".[stage1]"
 ```
@@ -149,14 +174,14 @@ PY
 
 Do not continue if `torch.cuda.is_available()` is `False`; fix the NVIDIA driver, CUDA-compatible PyTorch wheel, or shell environment first.
 
-## 5. Checkpoint
+## 6. Checkpoint
 
-Download the official SAM3 checkpoint into scratch:
+Download the official SAM3 checkpoint into the local run root:
 
 ```bash
-mkdir -p /storage/scratch1/9/eliu354/efficientsam3_distill_smoke/sam3_checkpoints
+mkdir -p "${RUN_ROOT}/sam3_checkpoints"
 hf download facebook/sam3 sam3.pt \
-  --local-dir /storage/scratch1/9/eliu354/efficientsam3_distill_smoke/sam3_checkpoints
+  --local-dir "${RUN_ROOT}/sam3_checkpoints"
 ```
 
 `facebook/sam3` is a gated Hugging Face repository. If `HF_HOME` is pointed at a scratch cache that has not been logged in, either run `hf auth login` for that cache or export `HF_TOKEN_PATH` to an already approved token file before downloading.
@@ -164,15 +189,15 @@ hf download facebook/sam3 sam3.pt \
 If the checkpoint is downloaded manually, place it at:
 
 ```text
-/storage/scratch1/9/eliu354/efficientsam3_distill_smoke/sam3_checkpoints/sam3.pt
+${RUN_ROOT}/sam3_checkpoints/sam3.pt
 ```
 
-## 6. Data
+## 7. Data
 
 For the first RTX 5090 reproduction, use the official SA-1B data source but only download the repo-provided 1% shard list. The helper then materializes 1120 randomly selected images from that available subset, matching approximately 0.01% of full SA-1B.
 
 ```bash
-RUN_ROOT=/storage/scratch1/9/eliu354/efficientsam3_distill_smoke
+cd "${REPO_DIR}"
 mkdir -p "${RUN_ROOT}/data"
 bash data/download_sa1b.sh data/sa-1b-1p.txt "${RUN_ROOT}/data/sa-1b-1p" 4
 ```
@@ -180,7 +205,7 @@ bash data/download_sa1b.sh data/sa-1b-1p.txt "${RUN_ROOT}/data/sa-1b-1p" 4
 As of 2026-06-02 on PACE Phoenix, the checked-in official CDN links returned HTTP `403 Forbidden`. The scratch runners therefore default to downloading the same shard names from the Hugging Face dataset mirror `ssbai/sa1b`:
 
 ```bash
-RUN_ROOT=/storage/scratch1/9/eliu354/efficientsam3_distill_smoke
+cd "${REPO_DIR}"
 bash data/download_sa1b_hf.sh \
   data/sa-1b-1p.txt \
   "${RUN_ROOT}/data/sa-1b-1p" \
@@ -190,14 +215,16 @@ bash data/download_sa1b_hf.sh \
 To force the original TSV/CDN downloader after refreshing `data/sa-1b-1p.txt`, run the one-command scripts with:
 
 ```bash
-SA1B_DOWNLOAD_BACKEND=tsv bash scripts/run_image_encoder_distill_smoke.sh
+cd "${REPO_DIR}"
+REPO_DIR="${REPO_DIR}" RUN_ROOT="${RUN_ROOT}" ENV_DIR="${ENV_DIR}" \
+  SA1B_DOWNLOAD_BACKEND=tsv bash scripts/run_image_encoder_distill_smoke.sh
 ```
 
 Reorganize the downloaded tar files into the layout expected by the Stage 1 dataloader:
 
 ```bash
 cd "${RUN_ROOT}/data"
-python /storage/project/r-agarg35-0/eliu354/projects/EfficientSam3-Distillation/data/reorg_sa1b.py
+python "${REPO_DIR}/data/reorg_sa1b.py"
 ```
 
 The training data path must contain:
@@ -212,7 +239,7 @@ annotations/val/*.json
 Create the deterministic 0.01% subset:
 
 ```bash
-cd /storage/project/r-agarg35-0/eliu354/projects/EfficientSam3-Distillation
+cd "${REPO_DIR}"
 python data/create_sa1b_subset.py \
   --source "${RUN_ROOT}/data/SA-1B-1P" \
   --output "${RUN_ROOT}/data/SA-1B-0.01P" \
@@ -227,21 +254,22 @@ Expected storage for the smoke run:
 - Teacher embeddings for 1120 images: about 11.3 GiB, because each embedding is `1024 x 72 x 72` fp16.
 - Checkpoints and logs: usually a few GB for the smoke run.
 
-## 7. Export Teacher Image Embeddings
+## 8. Export Teacher Image Embeddings
 
 Start conservatively on the RTX 5090 with `BATCH_SIZE=1`. Increase to `2` only after confirming memory headroom.
 
 ```bash
+cd "${REPO_DIR}"
 bash stage1/scripts/save_image_embeddings.sh \
   CFG=stage1/configs/teacher/sam_vit_huge_sa1b_5090_smoke.yaml \
-  DATA_PATH=/storage/scratch1/9/eliu354/efficientsam3_distill_smoke/data/SA-1B-0.01P \
-  OUTPUT=/storage/scratch1/9/eliu354/efficientsam3_distill_smoke/output/stage1_teacher \
+  DATA_PATH="${RUN_ROOT}/data/SA-1B-0.01P" \
+  OUTPUT="${RUN_ROOT}/output/stage1_teacher" \
   BATCH_SIZE=1 \
   GPUS=1 \
   --opts \
-    MODEL.RESUME /storage/scratch1/9/eliu354/efficientsam3_distill_smoke/sam3_checkpoints/sam3.pt \
+    MODEL.RESUME "${RUN_ROOT}/sam3_checkpoints/sam3.pt" \
     DATA.RANDOM_SAMPLE False \
-    DISTILL.TEACHER_EMBED_PATH /storage/scratch1/9/eliu354/efficientsam3_distill_smoke/output/stage1_teacher/embeddings
+    DISTILL.TEACHER_EMBED_PATH "${RUN_ROOT}/output/stage1_teacher/embeddings"
 ```
 
 The log now reports:
@@ -256,7 +284,7 @@ The log now reports:
 Expected output:
 
 ```text
-/storage/scratch1/9/eliu354/efficientsam3_distill_smoke/output/stage1_teacher/
+${RUN_ROOT}/output/stage1_teacher/
 ├── config.json
 ├── log_rank0.txt
 └── embeddings/
@@ -267,29 +295,31 @@ Expected output:
 Optional integrity check:
 
 ```bash
+cd "${REPO_DIR}"
 bash stage1/scripts/save_image_embeddings.sh \
   CFG=stage1/configs/teacher/sam_vit_huge_sa1b_5090_smoke.yaml \
-  DATA_PATH=data/sa-1b \
-  OUTPUT=output/rtx5090_smoke/stage1_teacher_check \
+  DATA_PATH="${RUN_ROOT}/data/SA-1B-0.01P" \
+  OUTPUT="${RUN_ROOT}/output/stage1_teacher_check" \
   BATCH_SIZE=1 \
   GPUS=1 \
   --check-saved-embed
 ```
 
-## 8. Train Student Image Encoders
+## 9. Train Student Image Encoders
 
 The one-command runner trains all three RepViT sizes by default. To run one student manually, use ES-RV-M / RepViT-M1.1 as the balanced first check:
 
 ```bash
+cd "${REPO_DIR}"
 bash stage1/scripts/train_image_student.sh \
   CFG=stage1/configs/es_rv_m_5090_smoke.yaml \
-  DATA_PATH=/storage/scratch1/9/eliu354/efficientsam3_distill_smoke/data/SA-1B-0.01P \
-  OUTPUT=/storage/scratch1/9/eliu354/efficientsam3_distill_smoke/output/stage1/es_rv_m \
+  DATA_PATH="${RUN_ROOT}/data/SA-1B-0.01P" \
+  OUTPUT="${RUN_ROOT}/output/stage1/es_rv_m" \
   BATCH_SIZE=4 \
   GPUS=1 \
   --opts \
     DATA.RANDOM_SAMPLE False \
-    DISTILL.TEACHER_EMBED_PATH /storage/scratch1/9/eliu354/efficientsam3_distill_smoke/output/stage1_teacher/embeddings
+    DISTILL.TEACHER_EMBED_PATH "${RUN_ROOT}/output/stage1_teacher/embeddings"
 ```
 
 The smoke config trains for 3 epochs. The log now reports:
@@ -311,15 +341,16 @@ ES-RV-S: CFG=stage1/configs/es_rv_s_5090_smoke.yaml, OUTPUT=.../stage1/es_rv_s, 
 ES-RV-L: CFG=stage1/configs/es_rv_l_5090_smoke.yaml, OUTPUT=.../stage1/es_rv_l, BATCH_SIZE=2
 ```
 
-## 9. Merge Student Encoder with SAM3 Heads
+## 10. Merge Student Encoder with SAM3 Heads
 
 After a smoke training run finishes:
 
 ```bash
+cd "${REPO_DIR}"
 python stage1/convert_image_encoder_weights_stage1.py \
-  --student-ckpt /storage/scratch1/9/eliu354/efficientsam3_distill_smoke/output/stage1/es_rv_m/ckpt_epoch_2.pth \
-  --sam3-ckpt /storage/scratch1/9/eliu354/efficientsam3_distill_smoke/sam3_checkpoints/sam3.pt \
-  --output /storage/scratch1/9/eliu354/efficientsam3_distill_smoke/output/efficient_sam3_repvit_m_smoke.pt
+  --student-ckpt "${RUN_ROOT}/output/stage1/es_rv_m/ckpt_epoch_2.pth" \
+  --sam3-ckpt "${RUN_ROOT}/sam3_checkpoints/sam3.pt" \
+  --output "${RUN_ROOT}/output/efficient_sam3_repvit_m_smoke.pt"
 ```
 
 This checkpoint keeps the original SAM3 prompt and mask heads, and replaces only the image encoder trunk with the distilled ES-RV-M student.
@@ -327,20 +358,21 @@ This checkpoint keeps the original SAM3 prompt and mask heads, and replaces only
 The one-command runner writes:
 
 ```text
-/storage/scratch1/9/eliu354/efficientsam3_distill_smoke/output/efficient_sam3_repvit_s_smoke.pt
-/storage/scratch1/9/eliu354/efficientsam3_distill_smoke/output/efficient_sam3_repvit_m_smoke.pt
-/storage/scratch1/9/eliu354/efficientsam3_distill_smoke/output/efficient_sam3_repvit_l_smoke.pt
+${RUN_ROOT}/output/efficient_sam3_repvit_s_smoke.pt
+${RUN_ROOT}/output/efficient_sam3_repvit_m_smoke.pt
+${RUN_ROOT}/output/efficient_sam3_repvit_l_smoke.pt
 ```
 
-## 10. Move from Smoke Run to Larger Run
+## 11. Move from Smoke Run to Larger Run
 
 Once the smoke run succeeds, keep the same architecture and increase training scale:
 
 ```bash
+cd "${REPO_DIR}"
 bash stage1/scripts/train_image_student.sh \
   CFG=stage1/configs/es_rv_m_5090_smoke.yaml \
-  DATA_PATH=/storage/scratch1/9/eliu354/efficientsam3_distill_smoke/data/SA-1B-0.01P \
-  OUTPUT=/storage/scratch1/9/eliu354/efficientsam3_distill_smoke/output/stage1/es_rv_m_1120_50ep \
+  DATA_PATH="${RUN_ROOT}/data/SA-1B-0.01P" \
+  OUTPUT="${RUN_ROOT}/output/stage1/es_rv_m_1120_50ep" \
   BATCH_SIZE=4 \
   GPUS=1 \
   --opts TRAIN.EPOCHS 50 TRAIN.WARMUP_EPOCHS 5
@@ -354,12 +386,11 @@ For a larger random subset, override both teacher export and student training wi
 
 The teacher embedding export must be rerun whenever `DATA.NUM_SAMPLES`, `DATA.RANDOM_SAMPLE`, `DATA.SAMPLE_SEED`, image size, or embedding shape changes.
 
-## 11. Completion Checks
+## 12. Completion Checks
 
 After the one-command RTX 5090 run, verify the same artifacts that the L40S baseline produced:
 
 ```bash
-RUN_ROOT=/storage/scratch1/9/eliu354/efficientsam3_distill_smoke
 wc -l "${RUN_ROOT}/output/stage1_teacher/embeddings/rank0-keys.txt"
 ls -lh \
   "${RUN_ROOT}/output/stage1_teacher/embeddings/rank0-values.bin" \
@@ -381,15 +412,15 @@ ES-RV-L merged size: 1786850967 bytes
 
 The exact checkpoint byte sizes may differ if package versions, PyTorch serialization, or training settings change. The required completion signal is that all three `efficient_sam3_repvit_*_smoke.pt` files exist, each corresponding `stage1/es_rv_*/log_rank0.txt` reaches the final configured epoch, and the latest run log ends with all three merged checkpoint paths and `Done.`
 
-## 12. Reporting Expected Time
+## 13. Reporting Expected Time
 
 Use the first 50-100 logged steps as the reliable estimate. The code reports `throughput` and `total_eta` directly in:
 
 ```text
-/storage/scratch1/9/eliu354/efficientsam3_distill_smoke/output/stage1_teacher/log_rank0.txt
-/storage/scratch1/9/eliu354/efficientsam3_distill_smoke/output/stage1/es_rv_s/log_rank0.txt
-/storage/scratch1/9/eliu354/efficientsam3_distill_smoke/output/stage1/es_rv_m/log_rank0.txt
-/storage/scratch1/9/eliu354/efficientsam3_distill_smoke/output/stage1/es_rv_l/log_rank0.txt
+${RUN_ROOT}/output/stage1_teacher/log_rank0.txt
+${RUN_ROOT}/output/stage1/es_rv_s/log_rank0.txt
+${RUN_ROOT}/output/stage1/es_rv_m/log_rank0.txt
+${RUN_ROOT}/output/stage1/es_rv_l/log_rank0.txt
 ```
 
 For manager reporting:
