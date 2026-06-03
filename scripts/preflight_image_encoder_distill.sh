@@ -14,6 +14,10 @@ if [ -z "${HF_TOKEN:-}" ] && [ -z "${HF_TOKEN_PATH:-}" ] && \
   HF_TOKEN_PATH="${AMBIENT_HF_HOME}/token"
 fi
 PREFLIGHT_INSTALL_DEPS="${PREFLIGHT_INSTALL_DEPS:-1}"
+PYTORCH_INDEX_URL="${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cu128}"
+PYPI_INDEX_URL="${PYPI_INDEX_URL:-https://pypi.org/simple}"
+TORCH_SPEC="${TORCH_SPEC:-torch==2.11.0+cu128}"
+TORCHVISION_SPEC="${TORCHVISION_SPEC:-torchvision==0.26.0+cu128}"
 
 export CONDA_PKGS_DIRS PIP_CACHE_DIR HF_HOME HF_TOKEN_PATH
 
@@ -55,8 +59,9 @@ if [ "${PREFLIGHT_INSTALL_DEPS}" = "1" ]; then
   if ! "${PIP}" install -e "${REPO_DIR}[stage1]"; then
     echo "Full stage1 extra install failed; retrying without mmcv-heavy optional dependency resolution."
     "${PIP}" install -e "${REPO_DIR}" --no-deps
+    "${PIP}" install --index-url "${PYTORCH_INDEX_URL}" --extra-index-url "${PYPI_INDEX_URL}" \
+      "${TORCH_SPEC}" "${TORCHVISION_SPEC}"
     "${PIP}" install \
-      "torch>=2.7.0" "torchvision>=0.18.0" \
       "timm>=1.0.17" "numpy>=1.26.4" tqdm "ftfy==6.1.1" regex \
       "iopath>=0.1.10" typing_extensions huggingface_hub psutil \
       "decord>=0.6.0" "mmengine>=0.10.4" "pycocotools>=2.0.7" \
@@ -64,7 +69,7 @@ if [ "${PREFLIGHT_INSTALL_DEPS}" = "1" ]; then
       "scipy>=1.10.0" "scikit-image>=0.21.0" "scikit-learn>=1.3.0" \
       "tensorboard>=2.12.0" "einops>=0.7.0" "hydra-core>=1.3.2" \
       "submitit>=1.5.1" "fvcore>=0.1.5.post20221221" \
-      "fairscale>=0.4.13" pyyaml segment-anything
+      "fairscale>=0.4.13" pandas pyyaml segment-anything
   fi
 else
   echo "Skipping dependency installation."
