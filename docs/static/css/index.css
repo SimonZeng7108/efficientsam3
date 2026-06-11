@@ -1,0 +1,69 @@
+body {
+  font-family: 'Noto Sans', sans-serif;
+}
+
+.footer .icon-link {
+  font-size: 25px;
+  color: #000;
+  margin: 0 10px;
+}
+
+.link-block a {
+  margin-top: 5px;
+  margin-bottom: 5px;
+}
+
+.hero .tag {
+  margin-bottom: 1.5rem;
+}
+
+section.section.is-light {
+  background-color: #f7f7f7;
+}
+
+figure.image img {
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+}
+
+pre {
+  background: #1e1e1e;
+  color: #f8f8f2;
+  padding: 1rem;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+code {
+  background: rgba(0,0,0,0.05);
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+}
+
+.table-container {
+  margin-top: 1.5rem;
+}
+
+.tag.is-info.is-light {
+  color: #276cda;
+}
+
+.tag.is-warning.is-light {
+  color: #946c00;
+}
+
+.tag.is-success.is-light {
+  color: #237804;
+}
+
+.huggingface-icon {
+  font-size: 1.1em;
+  line-height: 1;
+}
+
+.stage-box-title {
+  font-size: 0.85rem;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}

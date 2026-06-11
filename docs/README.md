@@ -1,45 +1,24 @@
-# GitHub Pages
+# EfficientSAM3 Project Subpage
 
-This folder contains the source for the EfficientSAM3 GitHub Pages site.
+This folder contains the standalone EfficientSAM3 project page that you can host as a subpage of your personal website.
 
-## Setup
+## Local Preview
 
-The site is built with Jekyll and deployed via GitHub Pages.
-
-## Structure
+Open `index.html` directly in a browser, or serve it locally:
 
 ```
-docs/
-├── _config.yml          # Jekyll configuration
-├── _layouts/           # Page layouts
-├── _includes/          # Reusable components
-├── assets/             # CSS, images, JS
-├── index.md           # Home page
-├── models.md          # Model zoo
-└── documentation.md   # Documentation
+cd personal-site/efficientsam3
+python -m http.server 8000
 ```
 
-## Local Development
+Visit `http://localhost:8000/efficientsam3/` when previewing alongside your main site, or `http://localhost:8000/` if you serve this folder alone.
 
-To preview locally:
+## Deploy under `simonzeng7108.github.io`
 
-```bash
-cd docs
-bundle install
-bundle exec jekyll serve
-```
+1. In your personal site repository, copy this directory to `efficientsam3/` at the root.
+2. Commit and push. GitHub Pages will serve it at `https://simonzeng7108.github.io/efficientsam3/`.
+3. Add a link from your main navigation or posts to the new subpage.
 
-Visit http://localhost:4000/efficientsam3/
+## License & Attribution
 
-## Deployment
-
-Push to the `main` branch. GitHub Pages will automatically build and deploy.
-
-The site will be available at: https://simonzeng7108.github.io/efficientsam3/
-
-## Enabling GitHub Pages
-
-1. Go to repository Settings > Pages
-2. Select Source: Deploy from a branch
-3. Select Branch: main, Folder: /docs
-4. Click Save
+The layout originates from [nerfies.github.io](https://github.com/nerfies/nerfies.github.io) and remains under the [Creative Commons Attribution-ShareAlike 4.0 International License](http://creativecommons.org/licenses/by-sa/4.0/). Please keep attribution when reusing the template.
