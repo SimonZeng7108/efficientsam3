@@ -158,7 +158,6 @@ masks = state["masks"]
 
 **Training:**
 - **Stage 1:** Encoder distillation training details in [README_stage1.md](README_stage1.md)
-- **Stage 1 Geometry Fine-tuning:** Check the `stage1_geometry_finetune` branch
 - **Stage 3:** Full fine-tuning details in [README_stage3.md](README_stage3.md)
 
 **Evaluation:**
@@ -185,28 +184,8 @@ For dataset setup and download scripts (`data/download_*.sh`) covering COCO, DAV
 
 - [README_dataset.md](README_dataset.md)
 
----
-
-## Examples
-
-See [sam3/examples/](sam3/examples/) for interactive Jupyter notebooks:
-
-- `sam3_image_interactive.ipynb` - Interactive image segmentation
-- `sam3_video_predictor_example.ipynb` - Video segmentation
-- `sam3_agent.ipynb` - SAM3 as an agent for complex tasks
 
 ---
-
-## Development
-
-### Active Branches
-
-| Branch | Purpose |
-|--------|---------|
-| `main` | Stable release (EfficientSAM3 + SAM3-LiteText) |
-| `stage1_sam3.1` | SAM3.1 image encoder models |
-| `data_engine` | Stage 3 data engine and training |
-| `sam3_litetext` | SAM3-LiteText development |
 
 ### To-Do List
 
@@ -289,6 +268,6 @@ Organizations and projects using EfficientSAM3:
 
 | Organization | Description |
 |-------------|-------------|
-| ![ESA](https://github.com/SimonZeng7108/simonzeng7108.github.io/blob/main/efficientsam3/static/images/esa.png) | [European Space Agency](https://www.esa.int/Applications/Observing_the_Earth/Phsat-2/Introducing_Phsat-2) |
+| <img src="https://github.com/SimonZeng7108/simonzeng7108.github.io/blob/main/efficientsam3/static/images/esa.png?raw=true" width="80"> | [European Space Agency](https://www.esa.int/Applications/Observing_the_Earth/Phsat-2/Introducing_Phsat-2) |
 
 > **Note:** If you're using EfficientSAM3 in your work, please acknowledge us in your publications or projects. We're happy to promote your work here! Contact us to be featured in this section.
