@@ -152,8 +152,9 @@ masks = state["masks"]
 ## Training and Evaluation
 
 **Training:**
-- For Stage 1 encoder distillation training details, see [README_stage1.md](README_stage1.md). For Stage 1 geometry fine-tuning, check the `stage1_geometry_finetune` branch.
-- Stage 2 and Stage 3 training details coming soon.
+- **Stage 1:** Encoder distillation training details in [README_stage1.md](README_stage1.md)
+- **Stage 1 Geometry Fine-tuning:** Check the `stage1_geometry_finetune` branch
+- **Stage 3:** Full fine-tuning details in [README_stage3.md](README_stage3.md)
 
 **Evaluation:**
 - To evaluate models on COCO dataset:
@@ -204,6 +205,8 @@ See [sam3/examples/](sam3/examples/) for interactive Jupyter notebooks:
 
 ### TODO
 
+- [x] Stage 1 encoder distillation training
+- [x] Stage 1 geometry fine-tuning
 - [x] Stage 3 full fine-tuning on downstream benchmarks
 - [ ] Video segmentation optimization
 - [ ] ONNX/TensorRT export
