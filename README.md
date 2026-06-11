@@ -78,28 +78,30 @@ pip install -e ".[stage1]"
 
 ## Quick Start
 
-### Image Segmentation with EfficientSAM3
+### EfficientSAM3 Full Models
 
 ```python
-import torch
-from sam3.model_builder import build_sam3_image_model
+from sam3.model_builder import build_efficientsam3_image_model
 from sam3.model.sam3_image_processor import Sam3Processor
 from PIL import Image
 
-# Load model
-model = build_sam3_image_model(
-    checkpoint_path="efficient_sam3_tvm_m_mobileclip_s0_ctx16_5p_full.pt",
-    enable_segmentation=True,
-    device="cuda" if torch.cuda.is_available() else "cpu",
+# Load model (EV-M example)
+model = build_efficientsam3_image_model(
+    checkpoint_path="efficientsam3_efficientvit_b1_mobileclip_s0_ctx16_5p_full.pt",
+    backbone_type="efficientvit",
+    model_name="b1",
+    text_encoder_type="MobileCLIP-S0",
+    text_encoder_context_length=16,
+    load_from_HF=False,
 )
 
-# Load and process image
+# Process image
 processor = Sam3Processor(model)
 image = Image.open("your_image.jpg").convert("RGB")
 state = processor.set_image(image)
 
 # Text prompt segmentation
-state = processor.set_text_prompt(state, "dog")
+state = processor.set_text_prompt("dog", state)
 
 # Get masks
 masks = state["masks"]
@@ -107,41 +109,53 @@ scores = state["scores"]
 print(f"Found {len(masks)} masks")
 ```
 
-### Text Encoder Replacement with SAM3-LiteText
+### SAM3-LiteText
 
 ```python
-from sam3.model_builder import build_sam3_image_model
+from sam3.model_builder import build_efficientsam3_image_model
 from sam3.model.sam3_image_processor import Sam3Processor
+from PIL import Image
 
 # Build model with LiteText encoder
-model = build_sam3_image_model(
+model = build_efficientsam3_image_model(
     checkpoint_path="sam3_litetext_mobileclip_s0_ctx16.pt",
+    backbone_type="tinyvit",
+    model_name="11m",
     text_encoder_type="MobileCLIP-S0",
     text_encoder_context_length=16,
-    enable_segmentation=True,
+    load_from_HF=False,
 )
 
 # Use as normal
 processor = Sam3Processor(model)
+image = Image.open("your_image.jpg").convert("RGB")
+state = processor.set_image(image)
+state = processor.set_text_prompt("person", state)
+masks = state["masks"]
 ```
 
 ---
 
-## Directory Structure
+## Examples
 
-```
-efficientsam3/
-├── sam3/                    # SAM3 model code
-│   ├── model_builder.py     # Model building utilities
-│   ├── model/               # Model components
-│   └── assets/              # BPE vocab, sample images
-├── stage1/                  # Stage 1: Encoder distillation
-├── stage2/                  # Stage 2: Text encoder distillation
-├── stage3/                  # Stage 3: Joint fine-tuning
-├── scripts/                  # Training and evaluation scripts
-└── data/                    # Dataset utilities
-```
+See [sam3/examples/](sam3/examples/) for interactive Jupyter notebooks:
 
+- `sam3_image_interactive.ipynb` - Interactive image segmentation
+- `sam3_video_predictor_example.ipynb` - Video segmentation
+- `sam3_agent.ipynb` - SAM3 as an agent for complex tasks
+
+---
+
+## Development
+
+### Active Branches
+
+| Branch | Purpose |
+|--------|---------|
+| `main` | Stable release (EfficientSAM3 + SAM3-LiteText) |
+| `stage1_sam3.1` | SAM3.1 image encoder models |
+| `data_engine` | Stage 3 data engine and training |
+| `sam3_litetext` | SAM3-LiteText development |
 
 ### TODO
 
