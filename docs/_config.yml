@@ -1,6 +1,6 @@
 title: EfficientSAM3
 description: Progressive Hierarchical Knowledge Distillation from SAM1, 2 and 3
 baseurl: "/efficientsam3"
-url: "https://simonzeng7108.github.io"
+url: "https://SimonZeng7108.github.io"
 markdown: kramdown
 theme: minima
