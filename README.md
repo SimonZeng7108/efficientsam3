@@ -40,9 +40,9 @@ EfficientSAM3 compresses both SAM3's vision encoder and text encoder into lightw
 
 | Model | Vision | Text | Decoder | Total | vs SAM3 (1.4B) | Download |
 |-------|--------|------|---------|-------|-----------------|----------|
-| **EV-M** | 4.6M | 4.07M | ~605M | **~614M** | **56% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/tree/main/efficientsam3_ft/efficientsam3_efficientvit) |
-| **RV-M** | 7.8M | 4.07M | ~605M | **~617M** | **56% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/tree/main/efficientsam3_ft/efficientsam3_repvit) |
-| **TV-M** | 10.6M | 4.07M | ~605M | **~620M** | **56% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/tree/main/efficientsam3_ft/efficientsam3_tinyvit) |
+| **EV-M** | 4.6M | 4.07M | ~605M | **~614M** | **56% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_efficientvit.pt?download=true) |
+| **RV-M** | 7.8M | 4.07M | ~605M | **~617M** | **56% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_repvit.pt?download=true) |
+| **TV-M** | 10.6M | 4.07M | ~605M | **~620M** | **56% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_tinyvit.pt?download=true) |
 
 > **SAM3 Teacher**: 1.4B total (Vision: 461M + Text: 354M + Decoder/Heads: ~600M)
 
@@ -78,7 +78,7 @@ pip install -e ".[stage1]"
 
 ## Quick Start
 
-### EfficientSAM3 Full Models
+### EfficientSAM3
 
 EfficientSAM3 replaces both the SAM3 vision encoder and text encoder with lightweight student models.
 
@@ -89,7 +89,7 @@ from PIL import Image
 
 # Load model (TV-M example - student vision + student text)
 model = build_sam3_image_model(
-    checkpoint_path="efficientsam3_efficientvit.pt",
+    checkpoint_path="efficientsam3_tinyvit_11m_mobileclip_s0_ctx16_5p_full.pt",
     load_from_HF=False,
 )
 
@@ -118,7 +118,7 @@ from PIL import Image
 
 # Build model with LiteText encoder (keeps SAM3 ViT, replaces text encoder)
 model = build_sam3_image_model(
-    checkpoint_path="sam3_litetext_mobileclip2_l_ctx16.pt",
+    checkpoint_path="sam3_litetext_mobileclip_s0_ctx16.pt",
     text_encoder_type="MobileCLIP-S0",
     text_encoder_context_length=16,
     load_from_HF=False,
@@ -133,44 +133,6 @@ masks = state["masks"]
 ```
 
 ---
-
-## Examples
-
-See [sam3/examples/](sam3/examples/) for interactive Jupyter notebooks:
-
-- `sam3_image_interactive.ipynb` - Interactive image segmentation
-- `sam3_video_predictor_example.ipynb` - Video segmentation
-- `sam3_agent.ipynb` - SAM3 as an agent for complex tasks
-
----
-
-## Development
-
-### Active Branches
-
-| Branch | Purpose |
-|--------|---------|
-| `main` | Stable release (EfficientSAM3 + SAM3-LiteText) |
-| `stage1_sam3.1` | SAM3.1 image encoder models |
-| `data_engine` | Stage 3 data engine and training |
-| `sam3_litetext` | SAM3-LiteText development |
-
-### TODO
-
-- [x] Stage 3 full fine-tuning on downstream benchmarks
-- [ ] Video segmentation optimization
-- [ ] ONNX/TensorRT export
-- [ ] Web demo deployment
-- [ ] Additional backbone support (EfficientNet, etc.)
-- [ ] Benchmark evaluation on standard datasets
-
----
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-For major changes, please open an issue first to discuss what you would like to change.
 
 ---
 
