@@ -1,0 +1,15 @@
+# @package _global_
+# EfficientViT-B1 / MobileCLIP-S0 image-encoder + FPN finetune.
+# 99/1 split, 20 epochs.
+defaults:
+  - stage3_mixed_sacap_sa1b_tvm_mcs0_seg_img_fpn_99_1_20ep
+  - _self_
+
+paths:
+  experiment_log_dir: /home/b5cz/simonz.b5cz/program/stage2/efficientsam3/output/stage3/sacap_sa1b_evm_mcs0_ctx16_seg_img_fpn_99_1_20ep
+  merged_checkpoint_path: /home/b5cz/simonz.b5cz/program/stage2/efficientsam3/output/sam3_stage1_image_5p/efficient_sam3_ev_m_mobileclip_s0_ctx16_5p_highmse.pt
+
+trainer:
+  model:
+    backbone_type: efficientvit
+    model_name: b1

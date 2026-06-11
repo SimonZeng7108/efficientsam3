@@ -1,0 +1,42 @@
+# @package _global_
+# TinyViT-11M / MobileCLIP-S0 image-encoder + FPN finetune.
+# Variant of img_fpn for the 3-backbone comparison sweep:
+#   * 20 data epochs (instead of 30)
+#   * 99/1 train/val split (instead of 95/5)
+defaults:
+  - stage3_mixed_sacap_sa1b_tvm_mcs0_seg_img_fpn
+  - _self_
+
+paths:
+  experiment_log_dir: /home/b5cz/simonz.b5cz/program/stage2/efficientsam3/output/stage3/sacap_sa1b_tvm_mcs0_ctx16_seg_img_fpn_99_1_20ep
+
+scratch:
+  max_data_epochs: 20
+
+stage3_mixed_train:
+  train_sources:
+    - kind: sacap_sa1b
+      name: sacap_sa1b_train
+      parquet_path: ${paths.sacap_parquet}
+      image_root: ${paths.sacap_image_root}
+      annotation_root: ${paths.sacap_annotation_root}
+      require_masks: true
+      use_prompt_boxes: false
+      val_holdout_frac: 0.01
+      val_is_holdout: false
+      split_seed: 123
+      max_segments_per_image: 32
+      max_samples: null
+  val_sources:
+    - kind: sacap_sa1b
+      name: sacap_sa1b_val
+      parquet_path: ${paths.sacap_parquet}
+      image_root: ${paths.sacap_image_root}
+      annotation_root: ${paths.sacap_annotation_root}
+      require_masks: true
+      use_prompt_boxes: false
+      val_holdout_frac: 0.01
+      val_is_holdout: true
+      split_seed: 123
+      max_segments_per_image: 32
+      max_samples: 1024

@@ -1,0 +1,140 @@
+# @package _global_
+# SACap-annotated SA-1B-5P, image encoder + projector + FPN fine-tuning.
+#
+# Reuses the proven Stage 3 segmentation training stack (TinyViT-11M,
+# MobileCLIP-S0, ctx16, 1008^2 inputs, Masks loss, frozen text/transformer/
+# scoring head). Uses `sacap_sa1b` data source which pairs SACap per-segment
+# captions with SA-1B per-segment masks loaded lazily from per-image JSON.
+#
+# Train: 95% of the parquet via val_holdout_frac=0.05, val_is_holdout=false
+# (deterministic 95/5 split with split_seed=123).
+# Val:   the other 5% with val_is_holdout=true (only used to provide a
+# val source for the trainer; primary eval is on downstream benchmarks).
+defaults:
+  - stage3_mixed_local_train
+  - _self_
+
+paths:
+  experiment_log_dir: /home/b5cz/simonz.b5cz/program/stage2/efficientsam3/output/stage3/sacap_sa1b_tvm_mcs0_ctx16_seg_img_fpn
+  bpe_path: /home/b5cz/simonz.b5cz/program/stage2/efficientsam3/sam3/assets/bpe_simple_vocab_16e6.txt.gz
+  merged_checkpoint_path: /home/b5cz/simonz.b5cz/program/stage2/efficientsam3/output/sam3_stage1_image_5p/efficient_sam3_tv_m_mobileclip_s0_ctx16_5p_highmse.pt
+  sacap_parquet: /home/b5cz/simonz.b5cz/program/stage2/efficientsam3/data/sa-1b-5p-sacap/anno.parquet
+  sacap_image_root: /home/b5cz/simonz.b5cz/program/stage2/efficientsam3/data/SA-1B-5P/images
+  sacap_annotation_root: /home/b5cz/simonz.b5cz/program/stage2/efficientsam3/data/SA-1B-5P/annotations
+
+scratch:
+  enable_segmentation: true
+  max_data_epochs: 30
+  train_batch_size: 1
+  val_batch_size: 1
+  num_train_workers: 8
+  num_val_workers: 2
+  max_find_queries_per_img: 32
+  max_ann_per_img: 80
+  lr_scale: 0.1
+  resolution: 1008
+
+stage3_mixed_train:
+  train_sources:
+    - kind: sacap_sa1b
+      name: sacap_sa1b_train
+      parquet_path: ${paths.sacap_parquet}
+      image_root: ${paths.sacap_image_root}
+      annotation_root: ${paths.sacap_annotation_root}
+      require_masks: true
+      use_prompt_boxes: false
+      val_holdout_frac: 0.05
+      val_is_holdout: false
+      split_seed: 123
+      max_segments_per_image: 32
+      max_samples: null
+  val_sources:
+    - kind: sacap_sa1b
+      name: sacap_sa1b_val
+      parquet_path: ${paths.sacap_parquet}
+      image_root: ${paths.sacap_image_root}
+      annotation_root: ${paths.sacap_annotation_root}
+      require_masks: true
+      use_prompt_boxes: false
+      val_holdout_frac: 0.05
+      val_is_holdout: true
+      split_seed: 123
+      max_segments_per_image: 32
+      max_samples: 1024
+  loss:
+    _target_: sam3.train.loss.sam3_loss.Sam3LossWrapper
+    matcher: ${scratch.matcher}
+    o2m_weight: 2.0
+    o2m_matcher:
+      _target_: sam3.train.matcher.BinaryOneToManyMatcher
+      alpha: 0.3
+      threshold: 0.4
+      topk: 4
+    use_o2m_matcher_on_o2m_aux: false
+    loss_fns_find:
+      - _target_: sam3.train.loss.loss_fns.Boxes
+        weight_dict:
+          loss_bbox: 5.0
+          loss_giou: 2.0
+      - _target_: sam3.train.loss.loss_fns.IABCEMdetr
+        weak_loss: false
+        weight_dict:
+          loss_ce: 20.0
+          presence_loss: 20.0
+        pos_weight: 10.0
+        alpha: 0.25
+        gamma: 2
+        use_presence: true
+        pos_focal: false
+        pad_n_queries: 128
+        pad_scale_pos: 1.0
+      - _target_: sam3.train.loss.loss_fns.Masks
+        focal_alpha: 0.25
+        focal_gamma: 2.0
+        weight_dict:
+          loss_mask: 200.0
+          loss_dice: 10.0
+        compute_aux: false
+    loss_fn_semantic_seg: null
+    scale_by_find_batch_size: ${scratch.scale_by_find_batch_size}
+
+trainer:
+  mode: train_only
+  max_epochs: ${scratch.max_data_epochs}
+  val_epoch_freq: 9999
+  skip_first_val: true
+  distributed:
+    find_unused_parameters: true
+    gradient_as_bucket_view: false
+  model:
+    checkpoint_path: ${paths.merged_checkpoint_path}
+    enable_segmentation: ${scratch.enable_segmentation}
+    backbone_type: tinyvit
+    model_name: 11m
+    text_encoder_type: MobileCLIP-S0
+    text_encoder_context_length: 16
+    text_encoder_pos_embed_table_size: 16
+    interpolate_pos_embed: false
+    train_vision_encoder: true
+    train_vision_fpn: true
+    train_text_encoder: false
+    freeze_non_encoder_parameters: true
+    keep_frozen_modules_eval: true
+    freeze_vision_batchnorm: true
+  data:
+    train:
+      dataset:
+        sources: ${stage3_mixed_train.train_sources}
+        load_segmentation: true
+      collate_fn:
+        with_seg_masks: true
+    val:
+      dataset:
+        sources: ${stage3_mixed_train.val_sources}
+        load_segmentation: true
+      collate_fn:
+        with_seg_masks: true
+  checkpoint:
+    save_freq: 1
+    resume_from: null
+    skip_saving_parameters: []

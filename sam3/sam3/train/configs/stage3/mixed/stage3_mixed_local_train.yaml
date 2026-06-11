@@ -1,0 +1,69 @@
+# @package _global_
+# Base Stage 3 training config with all common hyperparameters.
+# Individual configs inherit from this via defaults.
+defaults:
+  - /sam3/sam3/train/configs/base_train
+  - _self_
+
+paths:
+  bpe_path: null
+  merged_checkpoint_path: null
+  experiment_log_dir: null
+
+scratch:
+  enable_segmentation: false
+  max_data_epochs: 30
+  train_batch_size: 1
+  val_batch_size: 1
+  num_train_workers: 4
+  num_val_workers: 2
+  max_find_queries_per_img: 32
+  max_ann_per_img: 80
+  lr_scale: 0.1
+  resolution: 1008
+
+stage3_mixed_train:
+  train_vision_backbone_trainable: true
+  train_vision_projector_trainable: true
+  train_language_backbone_trainable: true
+  train_geometry_encoder_trainable: false
+  train_vision_fpn_trainable: true
+  train_transformer_trainable: false
+  train_dot_prod_scoring_trainable: false
+  train_seg_head_trainable: false
+  kd_enabled: false
+  kd_target: trunk
+  kd_loss_weight: 0.0
+  max_rows: null
+
+trainer:
+  mode: train_only
+  distributed:
+    find_unused_parameters: true
+    gradient_as_bucket_view: false
+  model:
+    enable_segmentation: ${scratch.enable_segmentation}
+    interpolate_pos_embed: false
+    train_vision_encoder: true
+    train_vision_fpn: true
+    train_text_encoder: false
+    freeze_non_encoder_parameters: true
+    keep_frozen_modules_eval: true
+    freeze_vision_batchnorm: true
+  data:
+    train:
+      dataset:
+        sources: []
+        load_segmentation: true
+      collate_fn:
+        with_seg_masks: true
+    val:
+      dataset:
+        sources: []
+        load_segmentation: true
+      collate_fn:
+        with_seg_masks: true
+  checkpoint:
+    save_freq: 1
+    resume_from: null
+    skip_saving_parameters: []
