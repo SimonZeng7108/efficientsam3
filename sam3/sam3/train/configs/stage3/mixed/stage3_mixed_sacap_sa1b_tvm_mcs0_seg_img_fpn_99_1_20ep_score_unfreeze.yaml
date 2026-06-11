@@ -1,0 +1,86 @@
+# @package _global_
+# E-SACap-S: Setting A trainable scope + UNFREEZE the DotProductScoring head
+# (~1.18M params: prompt_mlp 256->2048->256 + prompt_proj 256->256 + hs_proj 256->256).
+#
+# Motivation (see experiments.md "Diagnostic: per-query inference comparison
+# on dog_person.jpeg"): Baseline A's per-query top-1/top-2 score margin on
+# distinct prompts is only 1.4-3.2x (vs SAM3's 14-17x). The same query
+# fires for both prompts, because the frozen DotProductScoring projection
+# layers cannot adjust the text<->query alignment learned at SAM3 pre-training
+# scale. Unfreezing the scoring head is the cheapest possible perturbation
+# (29.42M trainable, +4.2% vs 28.23M) that directly addresses this failure mode.
+#
+# Recipe vs Baseline A:
+#  - Warm-start from Baseline A checkpoint (sacap_sa1b_tvm_mcs0_ctx16_seg_img_fpn_99_1_20ep).
+#  - Same data: SACap+SA-1B-5P, 99/1 split, 16 ctx tokens.
+#  - SAME trainable: vision encoder + FPN convs (~28.23M).
+#  - ADD trainable: full dot_prod_scoring submodule (~1.18M).
+#  - Discriminative LR for the scoring head (1/100x of vision LR) so its
+#    well-trained warm-started values are nudged, not wiped.
+#  - 10 epochs (warm-start, focused finetune).
+#  - save_freq=1 (per-epoch checkpoints, auto-resume safe).
+defaults:
+  - stage3_mixed_sacap_sa1b_tvm_mcs0_seg_img_fpn_99_1_20ep
+  - _self_
+
+paths:
+  experiment_log_dir: /home/b5cz/simonz.b5cz/program/stage2/efficientsam3/output/stage3/sacap_sa1b_tvm_mcs0_ctx16_seg_img_fpn_99_1_20ep_score_unfreeze
+  # Warm-start from Baseline A's final checkpoint.
+  merged_checkpoint_path: /home/b5cz/simonz.b5cz/program/stage2/efficientsam3/output/stage3/sacap_sa1b_tvm_mcs0_ctx16_seg_img_fpn_99_1_20ep/checkpoints/checkpoint.pt
+
+scratch:
+  max_data_epochs: 10
+  # Discriminative LR for the newly-unfrozen dot_prod_scoring head.
+  # lr_vision_backbone at lr_scale=0.1 is 2.5e-5; we use 1/100x so the
+  # well-trained warm-started values nudge instead of jump.
+  lr_dot_prod_scoring: 2.5e-7
+
+trainer:
+  model:
+    train_dot_prod_scoring: true
+  optim:
+    options:
+      lr:
+        # Default group: catches any unmatched trainable params (none expected).
+        - scheduler:
+            _target_: sam3.train.optim.schedulers.InverseSquareRootParamScheduler
+            base_lr: ${scratch.lr_transformer}
+            timescale: ${scratch.scheduler_timescale}
+            warmup_steps: ${scratch.scheduler_warmup}
+            cooldown_steps: ${scratch.scheduler_cooldown}
+        # Vision backbone (trunk + FPN convs) — same LR as Baseline A.
+        - scheduler:
+            _target_: sam3.train.optim.schedulers.InverseSquareRootParamScheduler
+            base_lr: ${scratch.lr_vision_backbone}
+            timescale: ${scratch.scheduler_timescale}
+            warmup_steps: ${scratch.scheduler_warmup}
+            cooldown_steps: ${scratch.scheduler_cooldown}
+          param_names:
+            - backbone.vision_backbone.*
+        # Newly-unfrozen dot-product scoring head (1/100x vision LR).
+        - scheduler:
+            _target_: sam3.train.optim.schedulers.InverseSquareRootParamScheduler
+            base_lr: ${scratch.lr_dot_prod_scoring}
+            timescale: ${scratch.scheduler_timescale}
+            warmup_steps: ${scratch.scheduler_warmup}
+            cooldown_steps: ${scratch.scheduler_cooldown}
+          param_names:
+            - dot_prod_scoring.*
+      weight_decay:
+        - scheduler:
+            _target_: fvcore.common.param_scheduler.ConstantParamScheduler
+            value: ${scratch.wd}
+        - scheduler:
+            _target_: fvcore.common.param_scheduler.ConstantParamScheduler
+            value: 0.0
+          param_names:
+            - '*bias*'
+          module_cls_names:
+            - torch.nn.LayerNorm
+  checkpoint:
+    save_freq: 1
+    resume_from: null
+    # Persist the newly-trainable scoring head; skip the still-frozen
+    # geometry encoder / transformer body to keep checkpoint size manageable.
+    skip_saving_parameters:
+      - geometry_encoder.*

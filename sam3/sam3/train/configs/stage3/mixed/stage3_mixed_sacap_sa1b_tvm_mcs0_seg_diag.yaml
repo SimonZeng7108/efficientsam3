@@ -1,0 +1,41 @@
+# @package _global_
+# Diagnostic micro-run for the SACap+SA-1B Stage 3 pipeline. Mirrors
+# `stage3_mixed_sacap_sa1b_tvm_mcs0_seg_img_fpn.yaml` but runs 1 epoch on a
+# small slice. Use as an `afterok` gate before submitting full training.
+defaults:
+  - stage3_mixed_sacap_sa1b_tvm_mcs0_seg_img_fpn
+  - _self_
+
+paths:
+  experiment_log_dir: /home/b5cz/simonz.b5cz/program/stage2/efficientsam3/output/stage3/sacap_sa1b_tvm_mcs0_ctx16_seg_img_fpn_diag
+
+scratch:
+  max_data_epochs: 1
+
+stage3_mixed_train:
+  train_sources:
+    - kind: sacap_sa1b
+      name: sacap_sa1b_train_diag
+      parquet_path: ${paths.sacap_parquet}
+      image_root: ${paths.sacap_image_root}
+      annotation_root: ${paths.sacap_annotation_root}
+      require_masks: true
+      use_prompt_boxes: false
+      val_holdout_frac: 0.05
+      val_is_holdout: false
+      split_seed: 123
+      max_segments_per_image: 32
+      max_samples: 256
+  val_sources:
+    - kind: sacap_sa1b
+      name: sacap_sa1b_val_diag
+      parquet_path: ${paths.sacap_parquet}
+      image_root: ${paths.sacap_image_root}
+      annotation_root: ${paths.sacap_annotation_root}
+      require_masks: true
+      use_prompt_boxes: false
+      val_holdout_frac: 0.05
+      val_is_holdout: true
+      split_seed: 123
+      max_segments_per_image: 32
+      max_samples: 64
