@@ -12,6 +12,8 @@ Progressive Hierarchical Knowledge Distillation from SAM1, 2 and 3
 
 **SAM3-LiteText** reduces the text encoder by 88% with similar performance.
 
+![Segmentation Example](https://raw.githubusercontent.com/SimonZeng7108/efficientsam3/main/images/dog_person_example_dog.png)
+
 ## Quick Start
 
 ```bash
