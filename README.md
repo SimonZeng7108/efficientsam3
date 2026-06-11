@@ -12,15 +12,16 @@
 
 ## Updates
 
-<details>
-<summary><b>Click to expand all updates</b></summary>
+- **[2026/06/11]** **Stage 3 Fine-tuned Models Released!** EfficientSAM3 full models (EV-M, RV-M, TV-M) fine-tuned on 5% SA1B data & SACap labels. Checkpoints on [HuggingFace](https://huggingface.co/Simon7108528/EfficientSAM3/tree/main/efficientsam3_ft). See [README_stage3.md](README_stage3.md).
+- **[2026/04/19]** **SAM3-LiteText** live on HuggingFace, accepted by [ICMR2026](https://icmr2026.org/)! [[Docs](https://huggingface.co/docs/transformers/main/en/model_doc/sam3_lite_text)] [[Demo](https://huggingface.co/spaces/nielsr/sam-3-lite-text-vs-sam-3)] Thanks @NielsRogge, @yonigozlan!
 
-- **[2026/06/11]** **Stage 3 Fine-tuned Models Released!** EfficientSAM3 full models (EV-M, RV-M, TV-M) fine-tuned on SA-Co Gold+Silver with SACap data. Checkpoints available on [HuggingFace](https://huggingface.co/Simon7108528/EfficientSAM3/tree/main/efficientsam3_ft). See [README_stage3.md](README_stage3.md) for training details.
-- **[2026/04/19]** **SAM3-LiteText** is live on HuggingFace main branch, [[Docs](https://huggingface.co/docs/transformers/main/en/model_doc/sam3_lite_text)], [[Model](https://huggingface.co/yonigozlan/sam3-litetext-s0)], [[Demo](https://huggingface.co/spaces/nielsr/sam-3-lite-text-vs-sam-3)], and accepted by [ICMR2026](https://icmr2026.org/). Same performance to SAM3 but much smaller! Thanks to @NielsRogge, @yonigozlan and HF integration team.
-- **[2026/02/18]** **SAM3-LiteText** released! Reduces text encoder parameters by up to 88% with similar performance. [Paper](https://arxiv.org/abs/2602.12173) on arXiv.
-- **[2026/01/11]** Stage 1 geometry-prompt fine-tuned weights released (image encoders on 1% SA-1B; text encoders on SA-Co Gold+Silver).
-- **[2025/12/08]** Stage 1 text encoder weights released for all 3 variants (MobileCLIP S0, S1, MobileCLIP2 L).
-- **[2025/12/02]** Stage 1 image encoder weights released for all 9 variants (RepViT, TinyViT, EfficientViT).
+<details>
+<summary><b>Older updates</b></summary>
+
+- **[2026/02/18]** **SAM3-LiteText** released! Reduces text encoder by 88% with similar performance. [Paper](https://arxiv.org/abs/2602.12173)
+- **[2026/01/11]** Stage 1 geometry-prompt fine-tuned weights released.
+- **[2025/12/08]** Stage 1 text encoder weights released (MobileCLIP S0, S1, MobileCLIP2 L).
+- **[2025/12/02]** Stage 1 image encoder weights released (RepViT, TinyViT, EfficientViT).
 
 </details>
 
@@ -37,17 +38,17 @@ EfficientSAM3 compresses both SAM3's vision encoder and text encoder into lightw
   <img src="https://raw.githubusercontent.com/SimonZeng7108/efficientsam3/main/images/dog_person_example_person.png" width="45%">
 </p>
 
-| Model | Image Encoder | Text Encoder | Total Params | vs SAM3 (1.4B) | Download |
-|-------|---------------|--------------|---------------|------------------|----------|
-| **EV-M** | EfficientViT-B1 (4.6M) | MobileCLIP-S0 (4.07M) | **~10M** | **99.3% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_efficientvit/efficientsam3_efficientvit_b1_mobileclip_s0_ctx16_5p_full.pt) |
-| **RV-M** | RepViT-M1.1 (7.8M) | MobileCLIP-S0 (4.07M) | **~12M** | **99.1% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_repvit/efficientsam3_repvit_m1_1_mobileclip_s0_ctx16_5p_full.pt) |
-| **TV-M** | TinyViT-11M (10.6M) | MobileCLIP-S0 (4.07M) | **~15M** | **98.9% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_tinyvit/efficientsam3_tinyvit_11m_mobileclip_s0_ctx16_5p_full.pt) |
+| Model | Vision | Text | Decoder | Total | vs SAM3 (1.4B) | Download |
+|-------|--------|------|---------|-------|-----------------|----------|
+| **EV-M** | 4.6M | 4.07M | ~605M | **~614M** | **56% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_efficientvit/efficientsam3_efficientvit_b1_mobileclip_s0_ctx16_5p_full.pt) |
+| **RV-M** | 7.8M | 4.07M | ~605M | **~617M** | **56% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_repvit/efficientsam3_repvit_m1_1_mobileclip_s0_ctx16_5p_full.pt) |
+| **TV-M** | 10.6M | 4.07M | ~605M | **~620M** | **56% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_tinyvit/efficientsam3_tinyvit_11m_mobileclip_s0_ctx16_5p_full.pt) |
 
-> **SAM3 Teacher**: 1.4B total params (Vision: 461M, Text: 354M, Decoder/Heads: ~600M)
+> **SAM3 Teacher**: 1.4B total (Vision: 461M + Text: 354M + Decoder/Heads: ~600M)
 
 ### SAM3-LiteText Models (Text Encoder Only)
 
-SAM3-LiteText replaces the heavy SAM3 text encoder (~354M params) with lightweight MobileCLIP variants, reducing text encoder parameters by up to **88%** while maintaining similar text-query segmentation performance.
+SAM3-LiteText replaces only the SAM3 text encoder with lightweight MobileCLIP variants. Use with SAM3 image encoder or EfficientSAM3.
 
 | Model | Text Encoder | Context | Params | vs SAM3 Text (354M) | Download |
 |-------|-------------|---------|--------|---------------------|----------|
@@ -141,28 +142,6 @@ efficientsam3/
 └── data/                    # Dataset utilities
 ```
 
----
-
-## Examples
-
-See [sam3/examples/](sam3/examples/) for interactive Jupyter notebooks:
-
-- `sam3_image_interactive.ipynb` - Interactive image segmentation
-- `sam3_video_predictor_example.ipynb` - Video segmentation
-- `sam3_agent.ipynb` - SAM3 as an agent for complex tasks
-
----
-
-## Development
-
-### Active Development Branches
-
-| Branch | Purpose |
-|--------|---------|
-| `main` | Stable release (EfficientSAM3 + SAM3-LiteText) |
-| `stage1_sam3.1` | SAM3.1 image encoder models |
-| `data_engine` | Stage 3 data engine and training |
-| `sam3_litetext` | SAM3-LiteText development |
 
 ### TODO
 
