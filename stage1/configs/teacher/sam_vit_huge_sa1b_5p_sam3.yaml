@@ -1,0 +1,17 @@
+MODEL:
+  NAME: SAM3-Teacher-SA1B-5P
+  BACKBONE: vit_h
+  RESUME: sam3_checkpoints/sam3.pt
+
+TRAIN:
+  EPOCHS: 1
+
+DATA:
+  IMG_SIZE: 1008
+  DATASET: sa1b
+  DATA_PATH: data/SA-1B-5P
+
+DISTILL:
+  EMBED_DIM: 1024
+  EMBED_SIZE: 72
+  SAVE_TEACHER_EMBED: True

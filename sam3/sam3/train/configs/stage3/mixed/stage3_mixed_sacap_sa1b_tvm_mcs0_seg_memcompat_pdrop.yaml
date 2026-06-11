@@ -1,0 +1,44 @@
+# @package _global_
+# E-SACap-F: SACap+SA-1B-5P, **memory-bank-compatible** finetune.
+#
+# Motivation:
+#   The pretrained SAM3 video memory-attention layers were trained against
+#   features produced by the original (unmodified) vision trunk. If we mutate
+#   the trunk during stage-3 (as A/B/C/D do), the features fed into memory
+#   attention drift out of distribution and the video tracker degrades.
+#   This config keeps the trunk **frozen** so its output features stay
+#   distribution-compatible with the pretrained memory bank, while still
+#   allowing the FPN, text encoder, and geometry encoder to adapt.
+#
+# Trainable scope:
+#   - vision trunk (TinyViT-11M):  FROZEN  (memory-bank compatible)
+#   - FPN convs:                   trainable
+#   - text encoder (MobileCLIP-S0): trainable
+#   - geometry encoder:            trainable
+#   - transformer / scoring head:  frozen
+#   - segmentation head:           frozen
+#
+# Prompt regime: per-sample geometric-prompt dropout (p=0.5), same as
+#   E-SACap-E, to keep the text path discriminative.
+#
+# This is the recommended setting if downstream video tracking matters.
+defaults:
+  - stage3_mixed_sacap_sa1b_tvm_mcs0_seg_geo_text_enc_pdrop
+  - _self_
+
+paths:
+  experiment_log_dir: /home/b5cz/simonz.b5cz/program/stage2/efficientsam3/output/stage3/sacap_sa1b_tvm_mcs0_ctx16_seg_memcompat_pdrop
+
+trainer:
+  model:
+    # Trunk frozen → outputs of the vision encoder remain in the same
+    # distribution that the pretrained memory-attention layers expect.
+    train_vision_encoder: false
+    train_vision_fpn: true
+    train_text_encoder: true
+    train_geometry_encoder: true
+    freeze_non_encoder_parameters: true
+    keep_frozen_modules_eval: true
+    # No BN to worry about when the trunk is frozen, but keep the flag for
+    # symmetry with parent configs.
+    freeze_vision_batchnorm: true
