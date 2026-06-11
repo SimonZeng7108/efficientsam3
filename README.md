@@ -48,7 +48,7 @@ EfficientSAM3 compresses both SAM3's vision encoder and text encoder into lightw
 
 ### SAM3-LiteText Models (Text Encoder Only)
 
-SAM3-LiteText replaces only the SAM3 text encoder with lightweight MobileCLIP variants. Use with SAM3 image encoder or EfficientSAM3.
+SAM3-LiteText keeps the SAM3 vision encoder but replaces the text encoder with lightweight MobileCLIP variants.
 
 | Model | Text Encoder | Context | Params | vs SAM3 Text (354M) | Download |
 |-------|-------------|---------|--------|---------------------|----------|
@@ -80,18 +80,16 @@ pip install -e ".[stage1]"
 
 ### EfficientSAM3 Full Models
 
+EfficientSAM3 replaces both the SAM3 vision encoder and text encoder with lightweight student models.
+
 ```python
-from sam3.model_builder import build_efficientsam3_image_model
+from sam3.model_builder import build_sam3_image_model
 from sam3.model.sam3_image_processor import Sam3Processor
 from PIL import Image
 
-# Load model (EV-M example)
-model = build_efficientsam3_image_model(
-    checkpoint_path="efficientsam3_efficientvit_b1_mobileclip_s0_ctx16_5p_full.pt",
-    backbone_type="efficientvit",
-    model_name="b1",
-    text_encoder_type="MobileCLIP-S0",
-    text_encoder_context_length=16,
+# Load model (TV-M example - student vision + student text)
+model = build_sam3_image_model(
+    checkpoint_path="efficientsam3_tinyvit_11m_mobileclip_s0_ctx16_5p_full.pt",
     load_from_HF=False,
 )
 
@@ -111,16 +109,16 @@ print(f"Found {len(masks)} masks")
 
 ### SAM3-LiteText
 
+SAM3-LiteText keeps the SAM3 vision encoder but replaces the heavy text encoder with a lightweight MobileCLIP variant.
+
 ```python
-from sam3.model_builder import build_efficientsam3_image_model
+from sam3.model_builder import build_sam3_image_model
 from sam3.model.sam3_image_processor import Sam3Processor
 from PIL import Image
 
-# Build model with LiteText encoder
-model = build_efficientsam3_image_model(
+# Build model with LiteText encoder (keeps SAM3 ViT, replaces text encoder)
+model = build_sam3_image_model(
     checkpoint_path="sam3_litetext_mobileclip_s0_ctx16.pt",
-    backbone_type="tinyvit",
-    model_name="11m",
     text_encoder_type="MobileCLIP-S0",
     text_encoder_context_length=16,
     load_from_HF=False,
