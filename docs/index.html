@@ -49,7 +49,7 @@
     <div class="container is-max-desktop">
       <div class="columns is-centered">
         <div class="column has-text-centered">
-          <span class="tag is-success is-light">✓ SAM3-LiteText released! (88% fewer text params)</span>
+          <span class="tag is-success is-light">✓ Stage 3 Fine-tuned Models Released! (56% smaller than SAM3)</span>
           <h1 class="title is-1 publication-title">EfficientSAM3: Progressive Hierarchical Knowledge Distillation from SAM1, SAM2 &amp; SAM3</h1>
           <p class="is-size-5">Chengxi Simon Zeng, Yuxuan Jiang, Gao Ge, Shuai Wang, Fan Aaron Zhang · Visual Information Lab, University of Bristol; MultiX lab, University of Amsterdam</p>
           <div class="buttons is-centered mt-5">
@@ -97,7 +97,7 @@
     <div class="columns is-centered">
       <div class="column is-three-quarters">
         <figure class="image">
-          <img src="./static/images/efficientsam3_full.svg?v=2" alt="EfficientSAM3 architecture diagram">
+          <img src="https://raw.githubusercontent.com/SimonZeng7108/efficientsam3/main/images/efficientsam3.svg" alt="EfficientSAM3 architecture diagram">
         </figure>
       </div>
     </div>
@@ -227,285 +227,128 @@ print(f"Found {len(masks)} masks")</code></pre>
 <section class="section is-light" id="model-zoo">
   <div class="container is-max-desktop">
     <h2 class="title is-3">EfficientSAM3 Model Zoo &amp; Weight Release</h2>
-    <p>Stage 1 image encoder weights (distilled from SAM3 image encoder) and text encoder weights (distilled from SAM3 text encoder) are available via Google Drive and Hugging Face. Stage 1 <strong>fine-tuned (ft)</strong> weights and Stage 3 fine-tuned models are also available. Stage 2 weights coming soon.</p>
     
     <h3 class="title is-4 mt-5">EfficientSAM3 Full Models (Lightweight Image + Text Encoders) <span class="tag is-success is-light ml-2">New</span></h3>
-    <p class="mb-3">EfficientSAM3 compresses both SAM3's vision encoder and text encoder into lightweight student models. Full models fine-tuned on 5% SA1B data & SACap labels with complete PCS (Promptable Concept Segmentation) capabilities.</p>
+    <p class="mb-3">EfficientSAM3 compresses both SAM3's vision encoder and text encoder into lightweight student models while maintaining competitive performance on downstream benchmarks.</p>
     <div class="table-container">
       <table class="table is-striped is-fullwidth">
         <thead>
           <tr>
             <th>Model</th>
-            <th>Vision Encoder</th>
-            <th>Text Encoder</th>
+            <th>Vision</th>
+            <th>Text</th>
             <th>Decoder</th>
-            <th>Total Params</th>
+            <th>Total</th>
             <th>vs SAM3 (1.4B)</th>
-            <th>Stage 3 Weights</th>
+            <th>Download</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td><strong>EV-M</strong></td>
-            <td>EfficientViT-B1 (4.6M)</td>
-            <td>MobileCLIP-S0 (4.07M)</td>
+            <td>4.6M</td>
+            <td>4.07M</td>
             <td>~605M</td>
             <td><strong>~614M</strong></td>
             <td><span class="tag is-success">56% smaller</span></td>
-            <td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_efficientvit.pt">HF</a></td>
+            <td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_efficientvit.pt?download=true">HF</a></td>
           </tr>
           <tr>
             <td><strong>RV-M</strong></td>
-            <td>RepViT-M1.1 (7.8M)</td>
-            <td>MobileCLIP-S0 (4.07M)</td>
+            <td>7.8M</td>
+            <td>4.07M</td>
             <td>~605M</td>
             <td><strong>~617M</strong></td>
             <td><span class="tag is-success">56% smaller</span></td>
-            <td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_repvit.pt">HF</a></td>
+            <td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_repvit.pt?download=true">HF</a></td>
           </tr>
           <tr>
             <td><strong>TV-M</strong></td>
-            <td>TinyViT-11M (10.6M)</td>
-            <td>MobileCLIP-S0 (4.07M)</td>
+            <td>10.6M</td>
+            <td>4.07M</td>
             <td>~605M</td>
             <td><strong>~620M</strong></td>
             <td><span class="tag is-success">56% smaller</span></td>
-            <td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_tinyvit.pt">HF</a></td>
+            <td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_tinyvit.pt?download=true">HF</a></td>
           </tr>
         </tbody>
       </table>
     </div>
-    <p class="notification is-info is-light mt-3"><strong>Note:</strong> SAM3 Teacher has 1.4B total parameters (Vision: 461M + Text: 354M + Decoder/Heads: ~600M). Full model weights include the decoder for end-to-end inference.</p>
-    
-    <h3 class="title is-4 mt-5">Image Encoder Models</h3>
-    <div class="table-container">
-      <table class="table is-striped is-fullwidth">
-        <thead>
-          <tr>
-            <th>Model</th>
-            <th>Backbone</th>
-            <th>Parameters</th>
-            <th>Stage 1</th>
-            <th>Stage 2</th>
-            <th>Stage 3</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><strong>ES-RV-S</strong></td>
-            <td>RepViT-M0.9</td>
-            <td>4.72M</td>
-            <td><a href="https://drive.google.com/file/d/1lVvPPoIVDhCFGte-1E_dr4X5EKbE5xKq/view?usp=drive_link">GDrive</a> / <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_repvit_s.pt">HF</a></td>
-            <td>Planned</td>
-            <td>Planned</td>
-          </tr>
-          <tr>
-            <td><strong>ES-RV-M</strong></td>
-            <td>RepViT-M1.1</td>
-            <td>7.77M</td>
-            <td><a href="https://drive.google.com/file/d/1JW3KiTnYF2r8nIijf8UXrKXJwf5D5s-5/view?usp=drive_link">GDrive</a> / <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_repvit_m.pt">HF</a> (ft: <a href="https://drive.google.com/file/d/1FYpWqSOY_iZcfk_Q07s4laUZXgFUK5tZ/view?usp=sharing">GDrive</a>, <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_repvit_m_geo_ft.pt">HF</a>)</td>
-            <td>Planned</td>
-            <td>Planned</td>
-          </tr>
-          <tr>
-            <td><strong>ES-RV-L</strong></td>
-            <td>RepViT-M2.3</td>
-            <td>22.40M</td>
-            <td><a href="https://drive.google.com/file/d/1ocAkz6DgkaKCKpLdalq2Ya8X6VIMrLLI/view?usp=drive_link">GDrive</a> / <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_repvit_l.pt">HF</a></td>
-            <td>Planned</td>
-            <td>Planned</td>
-          </tr>
-          <tr>
-            <td><strong>ES-TV-S</strong></td>
-            <td>TinyViT-5M</td>
-            <td>5.07M</td>
-            <td><a href="https://drive.google.com/file/d/1CDfJTd2fTKJTV5nsfYLAV_CGMfQ-AWXS/view?usp=drive_link">GDrive</a> / <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_tinyvit_s.pt">HF</a></td>
-            <td>Planned</td>
-            <td>Planned</td>
-          </tr>
-          <tr>
-            <td><strong>ES-TV-M</strong></td>
-            <td>TinyViT-11M</td>
-            <td>10.55M</td>
-            <td><a href="https://drive.google.com/file/d/1TX70zw7SduQRZP6hce6MIxEOsdoooZFB/view?usp=drive_link">GDrive</a> / <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_tinyvit_m.pt">HF</a> (ft: <a href="https://drive.google.com/file/d/1NgctD7y_ylE1P6ULjXXywcfmNZPJ_lA1/view?usp=sharing">GDrive</a>, <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_tinyvit_m_geo_ft.pt">HF</a>)</td>
-            <td>Planned</td>
-            <td>Planned</td>
-          </tr>
-          <tr>
-            <td><strong>ES-TV-L</strong></td>
-            <td>TinyViT-21M</td>
-            <td>20.62M</td>
-            <td><a href="https://drive.google.com/file/d/19hyKjjZ4_8ldmxIAm6D8e8z89xX-M3hZ/view?usp=drive_link">GDrive</a> / <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_tinyvit_l.pt">HF</a></td>
-            <td>Planned</td>
-            <td>Planned</td>
-          </tr>
-          <tr>
-            <td><strong>ES-EV-S</strong></td>
-            <td>EfficientViT-B0</td>
-            <td>0.68M</td>
-            <td><a href="https://drive.google.com/file/d/1EnA581iSExZRRWlI6oY-wXTgX4gESijG/view?usp=drive_link">GDrive</a> / <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_efficientvit_s.pt">HF</a></td>
-            <td>Planned</td>
-            <td>Planned</td>
-          </tr>
-          <tr>
-            <td><strong>ES-EV-M</strong></td>
-            <td>EfficientViT-B1</td>
-            <td>4.64M</td>
-            <td><a href="https://drive.google.com/file/d/14CRA3LhquUkf8prrKfI1INyHtCw6buvm/view?usp=sharing">GDrive</a> / <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_efficientvit_m.pt">HF</a> (ft: <a href="https://drive.google.com/file/d/1cNF1mB2of7tyP32vs5M2kS8DfW1NkTAG/view?usp=sharing">GDrive</a>, <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_efficientvit_m_geo_ft.pt">HF</a>)</td>
-            <td>Planned</td>
-            <td>Planned</td>
-          </tr>
-          <tr>
-            <td><strong>ES-EV-L</strong></td>
-            <td>EfficientViT-B2</td>
-            <td>14.98M</td>
-            <td><a href="https://drive.google.com/file/d/1Zg0Er0LwYYNCFJezSUSlQ8L645cR1OhN/view?usp=drive_link">GDrive</a> / <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_efficientvit_l.pt">HF</a></td>
-            <td>Planned</td>
-            <td>Planned</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <p class="notification is-info is-light mt-3"><strong>Note (2025/12/02):</strong> The current Stage 1 image encoder weights are distilled on 1% of the SA-1B dataset.</p>
-    <p class="notification is-info is-light mt-3"><strong>Note (2026/01/11):</strong> The fine-tuned (<strong>ft</strong>) image models use geometry-prompt fine-tuning on the same 1% subset of SA-1B.</p>
+    <p class="notification is-info is-light mt-3"><strong>Note:</strong> SAM3 Teacher: 1.4B total (Vision: 461M + Text: 354M + Decoder/Heads: ~600M)</p>
 
-    <h3 class="title is-4 mt-5">EfficientSAM3 Text Encoder + Image Encoder Models</h3>
-    <div class="table-container">
-      <table class="table is-striped is-fullwidth">
-        <thead>
-          <tr>
-            <th>Model</th>
-            <th>Backbone</th>
-            <th>Parameters</th>
-            <th>Stage 1</th>
-            <th>Stage 2</th>
-            <th>Stage 3</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><strong>ES-RV-S-MC-S1</strong></td>
-            <td>RepViT-M0.9 & MobileCLIP-S1</td>
-            <td>4.72M + 63.56M</td>
-            <td><a href="https://drive.google.com/file/d/1SvBPDqeEYCKpOui79tCIl3c1nMnQijL-/view?usp=sharing">GDrive</a> / <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_repvit-m0_9_mobileclip_s1.pth">HF</a></td>
-            <td>Planned</td>
-            <td>Planned</td>
-          </tr>
-          <tr>
-            <td><strong>ES-RV-M-MC-S1</strong></td>
-            <td>RepViT-M1.1 & MobileCLIP-S1</td>
-            <td>7.77M + 63.56M</td>
-            <td><a href="https://drive.google.com/file/d/10VB-1IYAO3iqGq3U63xcM9uGyrqGGvAi/view?usp=sharing">GDrive</a> / <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_repvit-m1_1_mobileclip_s1.pth">HF</a> (ft: <a href="https://drive.google.com/file/d/1HL0qSgB8Z5NjJJHdSfdZUaLCKJPCZR_x/view?usp=sharing">GDrive</a>, <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_repvit_m1.1_mobileclip_s1_ft.pth">HF</a>)</td>
-            <td>Planned</td>
-            <td>Planned</td>
-          </tr>
-          <tr>
-            <td><strong>ES-RV-L-MC-S1</strong></td>
-            <td>RepViT-M2.3 & MobileCLIP-S1</td>
-            <td>22.40M + 63.56M</td>
-            <td><a href="https://drive.google.com/file/d/1IxcVq1BBlMF2LNJ2uljQ8ajLpOWKFpUr/view?usp=sharing">GDrive</a> / <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_repvit-m2_3_mobileclip_s1.pth">HF</a></td>
-            <td>Planned</td>
-            <td>Planned</td>
-          </tr>
-          <tr>
-            <td><strong>ES-TV-S-MC-S1</strong></td>
-            <td>TinyViT-5M & MobileCLIP-S1</td>
-            <td>5.07M + 63.56M</td>
-            <td><a href="https://drive.google.com/file/d/1EtG6j3pGtaf-taxo5NLGCqZ8QvOgdLAn/view?usp=sharing">GDrive</a> / <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_tinyvit_5m_mobileclip_s1.pth">HF</a></td>
-            <td>Planned</td>
-            <td>Planned</td>
-          </tr>
-          <tr>
-            <td><strong>ES-TV-M-MC-S1</strong></td>
-            <td>TinyViT-11M & MobileCLIP-S1</td>
-            <td>10.55M + 63.56M</td>
-            <td><a href="https://drive.google.com/file/d/1dz5bl0RkCbEUjeK54azREbkEQA-hW_IG/view?usp=sharing">GDrive</a> / <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_tinyvit_11m_mobileclip_s1.pth">HF</a> (ft: <a href="https://drive.google.com/file/d/1rH-tAKNfhrIPCGDbdLPdWWxxx2GHnaaS/view?usp=sharing">GDrive</a>, <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_tiny_vit_11m_mobileclip_s1_ft.pth">HF</a>)</td>
-            <td>Planned</td>
-            <td>Planned</td>
-          </tr>
-          <tr>
-            <td><strong>ES-TV-L-MC-S1</strong></td>
-            <td>TinyViT-21M & MobileCLIP-S1</td>
-            <td>20.62M + 63.56M</td>
-            <td><a href="https://drive.google.com/file/d/1DIeJmFle_tHAUKWbycxrNQAW0peZAuy4/view?usp=sharing">GDrive</a> / <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_tinyvit_21m_mobileclip_s1.pth">HF</a></td>
-            <td>Planned</td>
-            <td>Planned</td>
-          </tr>
-          <tr>
-            <td><strong>ES-EV-S-MC-S1</strong></td>
-            <td>EfficientViT-B0 & MobileCLIP-S1</td>
-            <td>0.68M + 63.56M</td>
-            <td><a href="https://drive.google.com/file/d/1pa4wKJysp2dUVkUMTrJ7Rs8ZVPIHntFL/view?usp=sharing">GDrive</a> / <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_efficientvit-b0_mobileclip_s1.pth">HF</a></td>
-            <td>Planned</td>
-            <td>Planned</td>
-          </tr>
-          <tr>
-            <td><strong>ES-EV-M-MC-S1</strong></td>
-            <td>EfficientViT-B1 & MobileCLIP-S1</td>
-            <td>4.64M + 63.56M</td>
-            <td><a href="https://drive.google.com/file/d/1Ds8AMZIw3DkWw4J3ml82Ke1RKBpFGT8T/view?usp=sharing">GDrive</a> / <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_efficientvit-b1_mobileclip_s1.pth">HF</a> (ft: <a href="https://drive.google.com/file/d/1jMiRuMj6aHDg7mncHxNT3I1URD4-H9el/view?usp=sharing">GDrive</a>, <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_efficientvit_b1_mobileclip_s1_ft.pth">HF</a>)</td>
-            <td>Planned</td>
-            <td>Planned</td>
-          </tr>
-          <tr>
-            <td><strong>ES-EV-L-MC-S1</strong></td>
-            <td>EfficientViT-B2 & MobileCLIP-S1</td>
-            <td>14.98M + 63.56M</td>
-            <td><a href="https://drive.google.com/file/d/1d_dqJvaAm8rYYoYQIrpSpi9iWpDeDS2q/view?usp=sharing">GDrive</a> / <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/stage1_all_converted/efficient_sam3_efficientvit-b2_mobileclip_s1.pth">HF</a></td>
-            <td>Planned</td>
-            <td>Planned</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <p class="notification is-info is-light mt-3"><strong>Note (2025/12/08):</strong> The current Stage 1 text encoder weights are distilled on 1% of the Recap-DataComp-1B dataset.</p>
-    <p class="notification is-info is-light mt-3"><strong>Note (2026/01/11):</strong> Fine-tuned (<strong>ft</strong>) text encoder models are fine-tuned on SA-Co Gold+Silver text annotations. Standalone fine-tuned text encoder weights: <a href="https://drive.google.com/file/d/1JtbqC2d_F0i9pN-skGuUfSnJx50aAKsd/view?usp=sharing">MobileCLIP-S0</a>, <a href="https://drive.google.com/file/d/14x9iwLnVq282fGPy8JypnCWsB9da_1Mh/view?usp=sharing">MobileCLIP-S1</a>, and <a href="https://drive.google.com/file/d/1xdyDkGaBwUYALZ1u7U7sGS7yq-gIEnDz/view?usp=sharing">MobileCLIP2-L</a>.</p>
-
-    <h3 class="title is-4 mt-5">SAM3-LiteText Models</h3>
-    <p class="mb-3">
-      SAM3-LiteText replaces the SAM3 text encoder with a lightweight distilled text encoder, reducing text encoder parameters by up to <strong>88%</strong> with comparable performance. See the <a href="https://arxiv.org/abs/2602.12173">SAM3-LiteText paper</a> for details.
-    </p>
+    <h3 class="title is-4 mt-5">SAM3-LiteText Models (Lightweight Text Encoder Only)</h3>
+    <p class="mb-3">SAM3-LiteText keeps the SAM3 vision encoder but replaces the text encoder with lightweight MobileCLIP variants.</p>
     <div class="table-container">
       <table class="table is-striped is-fullwidth">
         <thead>
           <tr>
             <th>Model</th>
             <th>Text Encoder</th>
-            <th>Ctx</th>
-            <th>Text Params</th>
-            <th>Weights</th>
+            <th>Context</th>
+            <th>Full Model</th>
+            <th>vs SAM3 (1.4B)</th>
+            <th>Download</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td><strong>SAM3-LiteText-S0-16</strong></td>
+            <td><strong>LiteText-S0-16</strong></td>
             <td>MobileCLIP-S0</td>
-            <td>16</td>
-            <td>42.54M</td>
-            <td><a href="https://drive.google.com/file/d/1Eo81WYzfozFSvgvwlScGorUAIfMVPAFm/view?usp=sharing">GDrive</a> / <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/efficient_sam3_image_encoder_mobileclip_s0_ctx16.pt">HF</a></td>
+            <td>ctx16</td>
+            <td>~1050M</td>
+            <td><span class="tag is-success">25% smaller</span></td>
+            <td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip_s0_ctx16.pt">HF</a></td>
           </tr>
           <tr>
-            <td><strong>SAM3-LiteText-S1-16</strong></td>
+            <td><strong>LiteText-S0-32</strong></td>
+            <td>MobileCLIP-S0</td>
+            <td>ctx32</td>
+            <td>~1050M</td>
+            <td><span class="tag is-success">25% smaller</span></td>
+            <td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip_s0_ctx32.pt">HF</a></td>
+          </tr>
+          <tr>
+            <td><strong>LiteText-S1-16</strong></td>
             <td>MobileCLIP-S1</td>
-            <td>16</td>
-            <td>63.53M</td>
-            <td><a href="https://drive.google.com/file/d/1zL6x91PzvupHtZdA68jYip6yAUel8MMV/view?usp=sharing">GDrive</a> / <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/efficient_sam3_image_encoder_mobileclip_s1_ctx16.pt">HF</a></td>
+            <td>ctx16</td>
+            <td>~1051M</td>
+            <td><span class="tag is-success">25% smaller</span></td>
+            <td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip_s1_ctx16.pt">HF</a></td>
           </tr>
           <tr>
-            <td><strong>SAM3-LiteText-L-16</strong></td>
+            <td><strong>LiteText-S1-32</strong></td>
+            <td>MobileCLIP-S1</td>
+            <td>ctx32</td>
+            <td>~1051M</td>
+            <td><span class="tag is-success">25% smaller</span></td>
+            <td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip_s1_ctx32.pt">HF</a></td>
+          </tr>
+          <tr>
+            <td><strong>LiteText-L-16</strong></td>
             <td>MobileCLIP2-L</td>
-            <td>16</td>
-            <td>123.80M</td>
-            <td><a href="https://drive.google.com/file/d/1Mc4pk0FNCWwPTGoj1CCdAhkkNz02CUyY/view?usp=sharing">GDrive</a> / <a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/efficient_sam3_image_encoder_mobileclip2_l_ctx16.pt">HF</a></td>
+            <td>ctx16</td>
+            <td>~1088M</td>
+            <td><span class="tag is-info">22% smaller</span></td>
+            <td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip2_l_ctx16.pt">HF</a></td>
+          </tr>
+          <tr>
+            <td><strong>LiteText-L-32</strong></td>
+            <td>MobileCLIP2-L</td>
+            <td>ctx32</td>
+            <td>~1088M</td>
+            <td><span class="tag is-info">22% smaller</span></td>
+            <td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip2_l_ctx32.pt">HF</a></td>
           </tr>
         </tbody>
       </table>
     </div>
-    <p class="notification is-info is-light mt-3"><strong>Note:</strong> All SAM3-LiteText models use the <strong>SAM3 ViT-H image encoder</strong> (353.72M vision params). The text encoder parameters shown represent the distilled student replacing the original 353.72M text encoder.</p>
-    <p class="notification is-info is-light mt-3"><strong>Note (2026/02/18):</strong> <strong>SAM3-LiteText</strong> released! SAM3-LiteText reduces text encoder parameters by up to 88% with similar performance to the original text encoder. <a href="https://arxiv.org/abs/2602.12173">Paper</a> available on arXiv.</p>
+    <p class="notification is-info is-light mt-3"><strong>Note:</strong> Full model = Vision (~1050M) + Text encoder + Decoder (~600M). Text encoder: 4.07M (S0), 4.69M (S1), 42.38M (L) replaces 354M SAM3 text encoder.</p>
+
+    <h3 class="title is-4 mt-5">Stage 1 Encoder Weights (for training)</h3>
+    <p class="mb-3">Stage 1 distilled image encoder and text encoder weights for training. See <a href="https://github.com/SimonZeng7108/efficientsam3/blob/main/README_stage1.md">README_stage1.md</a> for details.</p>
+    <p class="notification is-info is-light"><a href="https://huggingface.co/Simon7108528/EfficientSAM3/tree/main/stage1_all_converted">Browse all Stage 1 weights on HuggingFace</a> | <a href="https://github.com/SimonZeng7108/efficientsam3/blob/main/README_stage1.md">Training guide</a></p>
   </div>
 </section>
-
 <section class="section">
   <div class="container is-max-desktop">
     <div class="columns">
