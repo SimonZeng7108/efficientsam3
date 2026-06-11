@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Models - EfficientSAM3</title>
+    <style>
+/* EfficientSAM3 GitHub Pages Styles */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+    line-height: 1.6;
+    color: #333;
+    background-color: #f5f5f5;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+/* Header */
+header {
+    background-color: #2c3e50;
+    color: white;
+    padding: 1rem 0;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+header nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+header .logo {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: white;
+    text-decoration: none;
+}
+
+header .nav-links {
+    list-style: none;
+    display: flex;
+    gap: 2rem;
+}
+
+header .nav-links a {
+    color: white;
+    text-decoration: none;
+    transition: opacity 0.3s;
+}
+
+header .nav-links a:hover {
+    opacity: 0.8;
+}
+
+/* Main Content */
+main {
+    background-color: white;
+    padding: 2rem;
+    margin: 2rem auto;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    min-height: calc(100vh - 200px);
+}
+
+.content h1 {
+    font-size: 2rem;
+    margin-bottom: 1rem;
+    color: #2c3e50;
+}
+
+.content h2 {
+    font-size: 1.5rem;
+    margin: 1.5rem 0 1rem;
+    color: #34495e;
+}
+
+.content h3 {
+    font-size: 1.2rem;
+    margin: 1rem 0 0.5rem;
+    color: #555;
+}
+
+.content p {
+    margin-bottom: 1rem;
+}
+
+/* Tables */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+
+th, td {
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+}
+
+th {
+    background-color: #f8f9fa;
+    font-weight: 600;
+}
+
+tr:hover {
+    background-color: #f8f9fa;
+}
+
+/* Code */
+code {
+    background-color: #f4f4f4;
+    padding: 0.2rem 0.4rem;
+    border-radius: 3px;
+    font-size: 0.9em;
+}
+
+pre {
+    background-color: #2c3e50;
+    color: #f8f8f2;
+    padding: 1rem;
+    border-radius: 5px;
+    overflow-x: auto;
+    margin: 1rem 0;
+}
+
+pre code {
+    background: none;
+    padding: 0;
+    color: inherit;
+}
+
+/* Links */
+a {
+    color: #3498db;
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+/* Footer */
+footer {
+    background-color: #2c3e50;
+    color: white;
+    text-align: center;
+    padding: 1.5rem 0;
+    margin-top: 2rem;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    header .nav-links {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    
+    main {
+        padding: 1rem;
+    }
+    
+    table {
+        font-size: 0.9rem;
+    }
+}
+
+/* Badges */
+.badge {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    margin-right: 0.5rem;
+}
+
+.badge-primary {
+    background-color: #3498db;
+    color: white;
+}
+
+.badge-success {
+    background-color: #27ae60;
+    color: white;
+}
+
+/* Image Grid */
+.image-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1rem;
+    margin: 1rem 0;
+}
+
+.image-grid img {
+    width: 100%;
+    border-radius: 8px;
+}
+
+    </style>
+</head>
+<body>
+    <header>
+        <nav>
+            <div class="container">
+                <a href="index.html" class="logo">EfficientSAM3</a>
+                <ul class="nav-links">
+    <li><a href="index.html">Home</a></li>
+    <li><a href="models.html">Models</a></li>
+    <li><a href="documentation.html">Docs</a></li>
+</ul>
+            </div>
+        </nav>
+    </header>
+    <main class="container">
+        <div class="content">
+            <h1>Model Zoo</h1>
+<h2>EfficientSAM3 Full Models (Lightweight Image + Text Encoders)</h2>
+<p>EfficientSAM3 compresses both SAM3's vision encoder and text encoder into lightweight student models while maintaining competitive performance on downstream benchmarks.</p>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Vision</th>
+<th>Text</th>
+<th>Decoder</th>
+<th>Total</th>
+<th>vs SAM3 (1.4B)</th>
+<th>Download</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>EV-M</strong></td>
+<td>4.6M</td>
+<td>4.07M</td>
+<td>~605M</td>
+<td>~614M</td>
+<td><strong>56% smaller</strong></td>
+<td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_efficientvit.pt">HF</a></td>
+</tr>
+<tr>
+<td><strong>RV-M</strong></td>
+<td>7.8M</td>
+<td>4.07M</td>
+<td>~605M</td>
+<td>~617M</td>
+<td><strong>56% smaller</strong></td>
+<td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_repvit.pt">HF</a></td>
+</tr>
+<tr>
+<td><strong>TV-M</strong></td>
+<td>10.6M</td>
+<td>4.07M</td>
+<td>~605M</td>
+<td>~620M</td>
+<td><strong>56% smaller</strong></td>
+<td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_tinyvit.pt">HF</a></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>SAM3 Teacher</strong>: 1.4B total (Vision: 461M + Text: 354M + Decoder/Heads: ~600M)</p>
+</blockquote>
+<h2>SAM3-LiteText Models (Lightweight Text Encoder Only)</h2>
+<p>SAM3-LiteText keeps the SAM3 vision encoder but replaces the text encoder with lightweight MobileCLIP variants.</p>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Text Encoder</th>
+<th>Context</th>
+<th>Full Model</th>
+<th>vs SAM3 (1.4B)</th>
+<th>Download</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>LiteText-S0-16</strong></td>
+<td>MobileCLIP-S0</td>
+<td>ctx16</td>
+<td>~1050M</td>
+<td><strong>25% smaller</strong></td>
+<td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip_s0_ctx16.pt">HF</a></td>
+</tr>
+<tr>
+<td><strong>LiteText-S0-32</strong></td>
+<td>MobileCLIP-S0</td>
+<td>ctx32</td>
+<td>~1050M</td>
+<td><strong>25% smaller</strong></td>
+<td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip_s0_ctx32.pt">HF</a></td>
+</tr>
+<tr>
+<td><strong>LiteText-S1-16</strong></td>
+<td>MobileCLIP-S1</td>
+<td>ctx16</td>
+<td>~1051M</td>
+<td><strong>25% smaller</strong></td>
+<td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip_s1_ctx16.pt">HF</a></td>
+</tr>
+<tr>
+<td><strong>LiteText-S1-32</strong></td>
+<td>MobileCLIP-S1</td>
+<td>ctx32</td>
+<td>~1051M</td>
+<td><strong>25% smaller</strong></td>
+<td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip_s1_ctx32.pt">HF</a></td>
+</tr>
+<tr>
+<td><strong>LiteText-L-16</strong></td>
+<td>MobileCLIP2-L</td>
+<td>ctx16</td>
+<td>~1088M</td>
+<td><strong>22% smaller</strong></td>
+<td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip2_l_ctx16.pt">HF</a></td>
+</tr>
+<tr>
+<td><strong>LiteText-L-32</strong></td>
+<td>MobileCLIP2-L</td>
+<td>ctx32</td>
+<td>~1088M</td>
+<td><strong>22% smaller</strong></td>
+<td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip2_l_ctx32.pt">HF</a></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Full model = Vision (~1050M) + Text encoder + Decoder (~600M). Text encoder: 4.07M (S0), 4.69M (S1), 42.38M (L) replaces 354M SAM3 text encoder.</p>
+</blockquote>
+<h2>Comparison with SAM3</h2>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Vision Encoder</th>
+<th>Text Encoder</th>
+<th>Decoder/Heads</th>
+<th>Total Params</th>
+<th>vs SAM3 (1.4B)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>SAM3 Teacher</strong></td>
+<td>ViT-H (461M)</td>
+<td>SAM3 Text (354M)</td>
+<td>~600M</td>
+<td>~1.4B</td>
+<td>-</td>
+</tr>
+<tr>
+<td><strong>EfficientSAM3 EV-M</strong></td>
+<td>EfficientViT (4.6M)</td>
+<td>MobileCLIP-S0 (4.07M)</td>
+<td>~605M</td>
+<td>~614M</td>
+<td><strong>56% smaller</strong></td>
+</tr>
+<tr>
+<td><strong>SAM3-LiteText S0</strong></td>
+<td>ViT-H (461M)</td>
+<td>MobileCLIP-S0 (4.07M)</td>
+<td>~600M</td>
+<td>~1050M</td>
+<td><strong>25% smaller</strong></td>
+</tr>
+</tbody>
+</table>
+        </div>
+    </main>
+    <footer>
+        <div class="container">
+            <p>&copy; 2025-2026 EfficientSAM3. Built with GitHub Pages.</p>
+        </div>
+    </footer>
+</body>
+</html>
