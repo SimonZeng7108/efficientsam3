@@ -10,6 +10,21 @@
 
 ---
 
+## Table of Contents
+
+- [Updates](#updates)
+- [Model Zoo](#model-zoo)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Training and Evaluation](#training-and-evaluation)
+- [Datasets](#datasets)
+- [Examples](#examples)
+- [Development](#development)
+- [Citation](#citation)
+- [License](#license)
+
+---
+
 ## Updates
 
 - **[2026/06/11]** **Stage 3 Fine-tuned Models Released!** EfficientSAM3 full models (EV-M, RV-M, TV-M) fine-tuned on 5% SA1B data & SACap labels. Checkpoints on [HuggingFace](https://huggingface.co/Simon7108528/EfficientSAM3/tree/main/efficientsam3_ft). See [README_stage3.md](README_stage3.md).
@@ -133,6 +148,68 @@ masks = state["masks"]
 ```
 
 ---
+
+## Training and Evaluation
+
+**Training:**
+- For Stage 1 encoder distillation training details, see [README_stage1.md](README_stage1.md). For Stage 1 geometry fine-tuning, check the `stage1_geometry_finetune` branch.
+- Stage 2 and Stage 3 training details coming soon.
+
+**Evaluation:**
+- To evaluate models on COCO dataset:
+  ```bash
+  python eval/eval_coco.py --coco_root data/coco --output_dir output
+  ```
+
+- To evaluate text encoder quality (token-level cosine similarity vs SAM3 teacher):
+  ```bash
+  python eval/eval_text_encoder_similarity.py \
+    --student-ckpt /path/to/student_text_encoder_1.pth /path/to/student_text_encoder_2.pth \
+    --np-json data/sa-v-text/sa-co-veval/saco_veval_noun_phrases.json \
+    --device cuda
+  # Optional: override teacher checkpoint
+  #   --teacher-ckpt /path/to/sam3_teacher_checkpoint.pt
+  ```
+
+---
+
+## Datasets
+
+For dataset setup and download scripts (`data/download_*.sh`) covering COCO, DAVIS, LVIS, SA-1B, SA-V, LVOS, MOSE, and YouTube-VOS, see:
+
+- [README_dataset.md](README_dataset.md)
+
+---
+
+## Examples
+
+See [sam3/examples/](sam3/examples/) for interactive Jupyter notebooks:
+
+- `sam3_image_interactive.ipynb` - Interactive image segmentation
+- `sam3_video_predictor_example.ipynb` - Video segmentation
+- `sam3_agent.ipynb` - SAM3 as an agent for complex tasks
+
+---
+
+## Development
+
+### Active Branches
+
+| Branch | Purpose |
+|--------|---------|
+| `main` | Stable release (EfficientSAM3 + SAM3-LiteText) |
+| `stage1_sam3.1` | SAM3.1 image encoder models |
+| `data_engine` | Stage 3 data engine and training |
+| `sam3_litetext` | SAM3-LiteText development |
+
+### TODO
+
+- [x] Stage 3 full fine-tuning on downstream benchmarks
+- [ ] Video segmentation optimization
+- [ ] ONNX/TensorRT export
+- [ ] Web demo deployment
+- [ ] Additional backbone support (EfficientNet, etc.)
+- [ ] Benchmark evaluation on standard datasets
 
 ---
 
