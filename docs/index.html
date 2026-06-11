@@ -109,15 +109,37 @@
     <div class="columns">
       <div class="column">
         <h3 class="title is-4">Updates</h3>
-        <ul>
-          <li><strong>2026-06-11:</strong> <span class="tag is-success is-light">New</span> <strong>Stage 3 Fine-tuned Models Released!</strong> EfficientSAM3 full models (EV-M, RV-M, TV-M) fine-tuned on 5% SA1B data & SACap labels. Checkpoints on <a href="https://huggingface.co/Simon7108528/EfficientSAM3/tree/main/efficientsam3_ft">HuggingFace</a>.</li>
-          <li><strong>2026-04-19:</strong> <span class="tag is-success is-light">New</span> <strong>SAM3-LiteText</strong> accepted by <a href="https://icmr2026.org/">ICMR2026</a>! (<a href="https://huggingface.co/docs/transformers/main/en/model_doc/sam3_lite_text">Docs</a>, <a href="https://huggingface.co/spaces/nielsr/sam-3-lite-text-vs-sam-3">Demo</a>)</li>
-          <li><strong>2026-02-18:</strong> <strong>SAM3-LiteText</strong> released! Reduces text encoder by 88% with similar performance. <a href="https://arxiv.org/abs/2602.12173">Paper</a>.</li>
-          <li><strong>2026-01-11:</strong> Stage 1 geometry-prompt fine-tuned (<strong>ft</strong>) weights released/updated (image encoders on 1% SA-1B; text encoders fine-tuned on SA-Co Gold+Silver).</li>
-          <li><strong>2025-12-08:</strong> Stage 1 text encoder weights released for all 3 variants (MobileCLIP S0, S1, and MobileCLIP2 L) - distilled on 1% Recap-DataComp-1B dataset.</li>
-          <li><strong>2025-12-02:</strong> Stage 1 image encoder weights released for all 9 variants (RepViT, TinyViT, EfficientViT) - distilled on 1% of SA-1B dataset. Available via Google Drive and Hugging Face.</li>
-          <li><strong>2025-10-18:</strong> Project announced.</li>
+        
+        <!-- v0.4.0 Release -->
+        <div class="box" style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border-left: 4px solid #0ea5e9;">
+          <p><strong>v0.4.0 — Stage 3 Fine-Tuned PCS Models</strong> (2026-06-11)</p>
+          <p style="font-size: 0.9em;">EfficientSAM3 full models (EV-M, RV-M, TV-M) fine-tuned on 5% SA1B data with complete PCS capabilities.</p>
+          <p><a href="https://huggingface.co/Simon7108528/EfficientSAM3/tree/main/efficientsam3_ft">HuggingFace</a> · <a href="https://github.com/SimonZeng7108/efficientsam3/blob/main/README_stage3.md">Stage 3 Guide</a></p>
+        </div>
+        
+        <!-- v0.3.0 Release -->
+        <div class="box" style="background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); border-left: 4px solid #22c55e;">
+          <p><strong>v0.3.0 — SAM3.1 & HuggingFace Integration</strong> (2026-04-13)</p>
+          <p style="font-size: 0.9em;">EfficientSAM3.1 & SAM3.1-LiteText released with official HuggingFace Transformers support.</p>
+          <p><a href="https://huggingface.co/docs/transformers/main/en/model_doc/sam3_lite_text">HF Docs</a> · <a href="https://huggingface.co/spaces/nielsr/sam-3-lite-text-vs-sam-3">Demo</a></p>
+        </div>
+        
+        <!-- v0.2.0 Release -->
+        <div class="box" style="background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%); border-left: 4px solid #a855f7;">
+          <p><strong>v0.2.0 — SAM3-LiteText</strong> (2026-02-18)</p>
+          <p style="font-size: 0.9em;">88% text encoder reduction with similar performance. Accepted by ICMR2026!</p>
+          <p><a href="https://arxiv.org/abs/2602.12173">Paper</a> · <a href="https://icmr2026.org/">ICMR2026</a></p>
+        </div>
+        
+        <details>
+        <summary><strong>Older updates</strong></summary>
+        <ul style="margin-top: 0.5em; font-size: 0.85em;">
+          <li><strong>2026/01/11:</strong> Stage 1 geometry-prompt fine-tuned weights released.</li>
+          <li><strong>2025/12/08:</strong> Stage 1 text encoder weights released (MobileCLIP S0, S1, MobileCLIP2 L).</li>
+          <li><strong>2025/12/02:</strong> Stage 1 image encoder weights released (RepViT, TinyViT, EfficientViT).</li>
+          <li><strong>2025/10/18:</strong> EfficientSAM3 project announced.</li>
         </ul>
+        </details>
       </div>
       <div class="column">
         <h3 class="title is-4">Highlights</h3>
