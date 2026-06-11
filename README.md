@@ -153,7 +153,6 @@ masks = state["masks"]
 
 **Training:**
 - **Stage 1:** Encoder distillation training details in [README_stage1.md](README_stage1.md)
-- **Stage 1 Geometry Fine-tuning:** Check the `stage1_geometry_finetune` branch
 - **Stage 3:** Full fine-tuning details in [README_stage3.md](README_stage3.md)
 
 **Evaluation:**
@@ -203,36 +202,64 @@ See [sam3/examples/](sam3/examples/) for interactive Jupyter notebooks:
 | `data_engine` | Stage 3 data engine and training |
 | `sam3_litetext` | SAM3-LiteText development |
 
-### TODO
+### To-Do List
 
-- [x] Stage 1 encoder distillation training
-- [x] Stage 1 geometry fine-tuning
-- [x] Stage 3 full fine-tuning on downstream benchmarks
-- [ ] Video segmentation optimization
-- [ ] ONNX/TensorRT export
-- [ ] Web demo deployment
-- [ ] Additional backbone support (EfficientNet, etc.)
-- [ ] Benchmark evaluation on standard datasets
+- [x] **Release Stage 1 Image Encoder Weights**: Distilled image encoder weights from SAM3 image encoder for all 9 variants (RepViT, TinyViT, EfficientViT)
+- [x] **Release Stage 1 Text Encoder Weights**: Distill SAM3 text encoder weights to MobileCLIP-S1 combined with all 9 image encoder variants
+- [x] **Release Stage 1+ Fine-Tuned Encoder Weights**: Prompt-in-the-loop supervised fine-tuning for improved encoder performance
+- [x] **Release SAM3-LiteText Weights**: Distilled a lightweight MobileCLIP text encoder that is competitive to the SAM3 text encoder for efficient vision-language segmentation
+- [ ] **Release Stage 2 Memory Bank Aligned Model Weights**: Models with Perceiver-based memory compression trained on SA-V dataset
+- [x] **Release Stage 3 Fine-Tuned Model Weights**: End-to-end fine-tuned models on SAM3 dataset with full PCS capabilities
+- [ ] **ONNX/CoreML Export**: Export models to ONNX and CoreML formats for cross-platform deployment
+- [ ] **Web Demo**: Interactive web demonstration for real-time concept segmentation and tracking
+
+---
+
+## Call for Pull Requests
+
+The idea for this repository originated from my work on SAM2 at Amazon, particularly as part of the research described in [this paper](https://ieeexplore.ieee.org/abstract/document/11084428). Since company policy, I cannot share the codebase. This year I am super excited to work on making SAM3 more efficient and accessible to the community.
+
+We welcome contributions to EfficientSAM3! Please feel free to submit pull requests to improve the codebase, add new features, or fix bugs. Particularly, we are looking for:
+
+- Efficient MedSAM3 integration (see [MedSAM2 by Bo Wang Lab](https://github.com/bowang-lab/MedSAM2))
+- A Gradio demo (e.g. [EfficientTAM on Hugging Face Spaces](https://huggingface.co/spaces/yunyangx/EfficientTAM))
+- A web demo deployed with Vercel (e.g. [Segment Anything Web UI](https://segment-anything-webui.vercel.app/))
+- Annotation tools, such as [X-AnyLabeling](https://github.com/CVHub520/X-AnyLabeling) and [AnyLabeling](https://github.com/vietanhdev/anylabeling)
+- An iOS or Android app (e.g. [Cutcha Photo on the App Store](https://apps.apple.com/us/app/cutcha-photo/id6478521132))
+- An NVCC-based desktop application
+- Anything else that you think is cool!
+
+---
+
+All meaningful contributions will be acknowledged and integrated into both the repository and the associated paper. We warmly welcome all contributors to the repository and happily offer co-authorship to those whose work merits inclusion in the paper.
 
 ---
 
 ## Citation
 
-If you use EfficientSAM3 or SAM3-LiteText in your research, please cite:
+If you use EfficientSAM3 in your research, please cite:
 
 ```bibtex
-@article{zeng2025efficientsam3,
-  title={EfficientSAM3: Progressive Hierarchical Knowledge Distillation from SAM1, 2 and 3},
-  author={Zeng, Chengxi and Jiang, Yuxuan and Ge, Gao and others},
-  journal={arXiv preprint arXiv:2511.15833},
-  year={2025}
+@misc{zeng2025efficientsam3progressivehierarchicaldistillation,
+  title={EfficientSAM3: Progressive Hierarchical Distillation for Video Concept Segmentation from SAM1, 2, and 3},
+  author={Chengxi Zeng and Yuxuan Jiang and Aaron Zhang},
+  year={2025},
+  eprint={2511.15833},
+  archivePrefix={arXiv},
+  primaryClass={cs.CV},
+  url={https://arxiv.org/abs/2511.15833},
 }
+```
 
-@article{zeng2025sam3litetext,
-  title={SAM3-LiteText: An Anatomical Study of the SAM3 Text Encoder for Efficient Vision-Language Segmentation},
-  author={Zeng, Chengxi and Jiang, Yuxuan and Ge, Gao and others},
-  journal={arXiv preprint arXiv:2602.12173},
-  year={2025}
+```bibtex
+@misc{zeng2026sam3litetextanatomicalstudysam3,
+      title={SAM3-LiteText: An Anatomical Study of the SAM3 Text Encoder for Efficient Vision-Language Segmentation},
+      author={Chengxi Zeng and Yuxuan Jiang and Ge Gao and Shuai Wang and Duolikun Danier and Bin Zhu and Stevan Rudinac and David Bull and Fan Zhang},
+      year={2026},
+      eprint={2602.12173},
+      archivePrefix={arXiv},
+      primaryClass={cs.AI},
+      url={https://arxiv.org/abs/2602.12173},
 }
 ```
 
@@ -240,4 +267,24 @@ If you use EfficientSAM3 or SAM3-LiteText in your research, please cite:
 
 ## License
 
-This project is licensed under the terms specified by the original SAM3 model and Meta AI research.
+This repository is licensed under the [Apache 2.0 License](https://www.apache.org/licenses/LICENSE-2.0).
+
+This project builds upon [SAM](https://github.com/facebookresearch/segment-anything), [SAM2](https://github.com/facebookresearch/sam2), [SAM3](https://github.com/facebookresearch/sam3), [EdgeSAM](https://github.com/chongzhou96/EdgeSAM), [EdgeTAM](https://github.com/facebookresearch/EdgeTAM), [EfficientTAM](https://github.com/yformer/EfficientTAM), [RepViT](https://github.com/THU-MIG/RepViT), [TinyViT](https://github.com/wkcn/TinyViT), [EfficientViT](https://github.com/mit-han-lab/efficientvit), and [MobileCLIP](https://github.com/apple/ml-mobileclip). Please refer to their respective licenses for usage terms.
+
+---
+
+## Acknowledgments
+
+We gratefully acknowledge the [University of Bristol Isambard-AI supercomputer cluster](https://www.bristol.ac.uk/research/centres/bristol-supercomputing/articles/2025/isambard-ai-is-11th-fastest-supercomputer-in-the-world.html) for providing computational resources to this project. Special thanks to [Dr. Fan Aaron Zhang](https://fan-aaron-zhang.github.io/) for allocating resources and supporting this research.
+
+---
+
+## Users
+
+Organizations and projects using EfficientSAM3:
+
+| Organization | Description |
+|-------------|-------------|
+| ![ESA](https://github.com/SimonZeng7108/simonzeng7108.github.io/blob/main/efficientsam3/static/images/esa.png) | [European Space Agency](https://www.esa.int/Applications/Observing_the_Earth/Phsat-2/Introducing_Phsat-2) |
+
+> **Note:** If you're using EfficientSAM3 in your work, please acknowledge us in your publications or projects. We're happy to promote your work here! Contact us to be featured in this section.
