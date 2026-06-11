@@ -39,6 +39,7 @@
 
 [SAM3](https://github.com/facebookresearch/sam3) (Segment Anything Model 3) has introduced powerful **Promptable Concept Segmentation (PCS)** capabilities, enabling semantic understanding and temporal object tracking beyond traditional mask generation. However, SAM3's massive vision backbone and dense memory bank make it impractical for real-time, on-device applications where computational resources and latency constraints are critical.
 
+<<<<<<< HEAD
 **EfficientSAM3** addresses this challenge by distilling SAM3's capabilities into lightweight architectures suitable for edge devices, enabling high-quality concept segmentation on mobile phones, embedded systems, and resource-constrained platforms.
 
 <p align="center">
@@ -49,6 +50,10 @@
 ---
 
 
+=======
+- **[2026/06/11]** **Stage 3 Fine-tuned Models Released!** EfficientSAM3 full models (EV-M, RV-M, TV-M) fine-tuned on 5% SA1B data & SACap labels. README cleaned up. Checkpoints on [HuggingFace](https://huggingface.co/Simon7108528/EfficientSAM3/tree/main/efficientsam3_ft).
+- **[2026/04/19]** **SAM3-LiteText** live on HuggingFace, accepted by [ICMR2026](https://icmr2026.org/)! [[Docs](https://huggingface.co/docs/transformers/main/en/model_doc/sam3_lite_text)] [[Demo](https://huggingface.co/spaces/nielsr/sam-3-lite-text-vs-sam-3)] Thanks @NielsRogge, @yonigozlan!
+>>>>>>> 8c925ec (Update README)
 
 <details>
 <summary>Supported Models and Architecture</summary>
@@ -69,6 +74,13 @@
 | | [MobileCLIP](https://github.com/apple/ml-mobileclip) S1 | Balanced text encoder (63.56M params) |
 | | [MobileCLIP2](https://github.com/apple/ml-mobileclip) L | Larger text encoder (123.6M params) |
 
+<<<<<<< HEAD
+=======
+- **[2026/02/18]** **SAM3-LiteText** released! Reduces text encoder by 88% with similar performance. [Paper](https://arxiv.org/abs/2602.12173)
+- **[2026/01/11]** Stage 1 geometry-prompt fine-tuned weights released.
+- **[2025/12/08]** Stage 1 text encoder weights released (MobileCLIP S0, S1, MobileCLIP2 L).
+- **[2025/12/02]** Stage 1 image encoder weights released (RepViT, TinyViT, EfficientViT).
+>>>>>>> 8c925ec (Update README)
 
 </details>
 
@@ -495,6 +507,7 @@ We gratefully acknowledge the [University of Bristol Isambard-AI supercomputer c
 
 Organizations and projects using EfficientSAM3:
 
+<<<<<<< HEAD
 <table>
   <tr>
     <td align="center" width="20%">
@@ -503,6 +516,11 @@ Organizations and projects using EfficientSAM3:
     </td>
   </tr>
 </table>
+=======
+[<img src="https://github.com/SimonZeng7108/simonzeng7108.github.io/blob/main/efficientsam3/static/images/esa.png?raw=true" width="80">](https://www.esa.int/Applications/Observing_the_Earth/Phsat-2/Introducing_Phsat-2)
+
+[European Space Agency](https://www.esa.int/Applications/Observing_the_Earth/Phsat-2/Introducing_Phsat-2)
+>>>>>>> 8c925ec (Update README)
 
 > **Note:** If you're using EfficientSAM3 in your work, please acknowledge us in your publications or projects. We're happy to promote your work here! Contact us to be featured in this section.
 
