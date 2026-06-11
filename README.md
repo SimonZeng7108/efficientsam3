@@ -15,14 +15,12 @@
 <details>
 <summary><b>Click to expand all updates</b></summary>
 
-- **[2026/04/19]** **SAM3-LiteText** is live on HuggingFace main branch, [[Docs](https://huggingface.co/docs/transformers/main/en/model_doc/sam3_lite_text)], [[Model](https://huggingface.co/yonigozlan/sam3-litetext-s0)], [[Demo](https://huggingface.co/spaces/nielsr/sam-3-lite-text-vs-sam-3)], and accepted by [ICMR2026](https://icmr2026.org/)- Same performance to SAM3 but much smaller! Thanks to @NielsRogge, @yonigozlan and HF integration team.
-- **[2026/04/13]** **EfficientSAM3.1** and **SAM3.1-LiteText** image models were released on the [`stage1_sam3.1`](https://github.com/SimonZeng7108/efficientsam3/tree/data_engine) branch. SAM3-LiteText has also been officially merged into [HuggingFace Transformers](https://github.com/huggingface/transformers/pull/44320). Stage 3 data engine support is now available on the [`data_engine`](https://github.com/SimonZeng7108/efficientsam3/tree/data_engine/data_engine) branch.
-- **[2026/02/18]** **SAM3-LiteText** released! SAM3-LiteText reduces text encoder parameters by up to 88% with similar performance to the original text encoder. [Paper](https://arxiv.org/abs/2602.12173) available on arXiv.
-- **[2026/01/11]** Stage 1 geometry-prompt fine-tuned (**ft**) weights released/updated (image encoders on 1% SA-1B; text encoders fine-tuned on SA-Co Gold+Silver).
-- **[2025/12/08]** Stage 1 text encoder weights released for all 3 variants (MobileCLIP S0, S1, and MobileCLIP2 L) - distilled on 1% Recap-DataComp-1B dataset.
-- **[2025/12/02]** Stage 1 image encoder weights released for all 9 variants (RepViT, TinyViT, EfficientViT) - unsupervised distilled on 1% of SA-1B dataset.
-- **[2025/11/25]** Teaser model released. See Above. More models are baking in the oven🔥.
-- **[2025/10/18]** Project announced. Code and weights are not released yet; they will be published once SAM3 code is publicly available.
+- **[2026/06/11]** **Stage 3 Fine-tuned Models Released!** EfficientSAM3 full models (EV-M, RV-M, TV-M) fine-tuned on SA-Co Gold+Silver with SACap data. Checkpoints available on [HuggingFace](https://huggingface.co/Simon7108528/EfficientSAM3/tree/main/efficientsam3_ft). See [README_stage3.md](README_stage3.md) for training details.
+- **[2026/04/19]** **SAM3-LiteText** is live on HuggingFace main branch, [[Docs](https://huggingface.co/docs/transformers/main/en/model_doc/sam3_lite_text)], [[Model](https://huggingface.co/yonigozlan/sam3-litetext-s0)], [[Demo](https://huggingface.co/spaces/nielsr/sam-3-lite-text-vs-sam-3)], and accepted by [ICMR2026](https://icmr2026.org/). Same performance to SAM3 but much smaller! Thanks to @NielsRogge, @yonigozlan and HF integration team.
+- **[2026/02/18]** **SAM3-LiteText** released! Reduces text encoder parameters by up to 88% with similar performance. [Paper](https://arxiv.org/abs/2602.12173) on arXiv.
+- **[2026/01/11]** Stage 1 geometry-prompt fine-tuned weights released (image encoders on 1% SA-1B; text encoders on SA-Co Gold+Silver).
+- **[2025/12/08]** Stage 1 text encoder weights released for all 3 variants (MobileCLIP S0, S1, MobileCLIP2 L).
+- **[2025/12/02]** Stage 1 image encoder weights released for all 9 variants (RepViT, TinyViT, EfficientViT).
 
 </details>
 
@@ -168,11 +166,12 @@ See [sam3/examples/](sam3/examples/) for interactive Jupyter notebooks:
 
 ### TODO
 
-- [ ] Stage 3 full fine-tuning on downstream benchmarks
+- [x] Stage 3 full fine-tuning on downstream benchmarks
 - [ ] Video segmentation optimization
 - [ ] ONNX/TensorRT export
 - [ ] Web demo deployment
 - [ ] Additional backbone support (EfficientNet, etc.)
+- [ ] Benchmark evaluation on standard datasets
 
 ---
 
