@@ -20,8 +20,11 @@
 - [Datasets](#datasets)
 - [Examples](#examples)
 - [Development](#development)
+- [Call for Pull Requests](#call-for-pull-requests)
 - [Citation](#citation)
 - [License](#license)
+- [Acknowledgments](#acknowledgments)
+- [Users](#users)
 
 ---
 
@@ -44,7 +47,7 @@
 
 ## Model Zoo
 
-### EfficientSAM3 Full Models (Image + Text Encoders)
+### EfficientSAM3 Full Models (Lightweight Image + Text Encoders)
 
 EfficientSAM3 compresses both SAM3's vision encoder and text encoder into lightweight student models while maintaining competitive performance on downstream benchmarks.
 
@@ -61,18 +64,20 @@ EfficientSAM3 compresses both SAM3's vision encoder and text encoder into lightw
 
 > **SAM3 Teacher**: 1.4B total (Vision: 461M + Text: 354M + Decoder/Heads: ~600M)
 
-### SAM3-LiteText Models (Text Encoder Only)
+### SAM3-LiteText Models (Lightweight Text Encoder Only)
 
 SAM3-LiteText keeps the SAM3 vision encoder but replaces the text encoder with lightweight MobileCLIP variants.
 
-| Model | Text Encoder | Context | Params | vs SAM3 Text (354M) | Download |
-|-------|-------------|---------|--------|---------------------|----------|
-| **LiteText-S0-16** | MobileCLIP-S0 | ctx16 | **4.07M** | **98.9% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip_s0_ctx16.pt) |
-| **LiteText-S0-32** | MobileCLIP-S0 | ctx32 | **4.07M** | **98.9% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip_s0_ctx32.pt) |
-| **LiteText-S1-16** | MobileCLIP-S1 | ctx16 | **4.69M** | **98.7% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip_s1_ctx16.pt) |
-| **LiteText-S1-32** | MobileCLIP-S1 | ctx32 | **4.69M** | **98.7% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip_s1_ctx32.pt) |
-| **LiteText-L-16** | MobileCLIP2-L | ctx16 | **42.38M** | **88.0% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip2_l_ctx16.pt) |
-| **LiteText-L-32** | MobileCLIP2-L | ctx32 | **42.38M** | **88.0% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip2_l_ctx32.pt) |
+| Model | Text Encoder | Context | Full Model | vs SAM3 (1.4B) | Download |
+|-------|-------------|---------|------------|-----------------|----------|
+| **LiteText-S0-16** | MobileCLIP-S0 | ctx16 | ~1050M | **25% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip_s0_ctx16.pt) |
+| **LiteText-S0-32** | MobileCLIP-S0 | ctx32 | ~1050M | **25% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip_s0_ctx32.pt) |
+| **LiteText-S1-16** | MobileCLIP-S1 | ctx16 | ~1051M | **25% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip_s1_ctx16.pt) |
+| **LiteText-S1-32** | MobileCLIP-S1 | ctx32 | ~1051M | **25% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip_s1_ctx32.pt) |
+| **LiteText-L-16** | MobileCLIP2-L | ctx16 | ~1088M | **22% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip2_l_ctx16.pt) |
+| **LiteText-L-32** | MobileCLIP2-L | ctx32 | ~1088M | **22% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip2_l_ctx32.pt) |
+
+> Full model = Vision (~1050M) + Text encoder + Decoder (~600M). Text encoder: 4.07M (S0), 4.69M (S1), 42.38M (L) replaces 354M SAM3 text encoder.
 
 ---
 
@@ -153,6 +158,7 @@ masks = state["masks"]
 
 **Training:**
 - **Stage 1:** Encoder distillation training details in [README_stage1.md](README_stage1.md)
+- **Stage 1 Geometry Fine-tuning:** Check the `stage1_geometry_finetune` branch
 - **Stage 3:** Full fine-tuning details in [README_stage3.md](README_stage3.md)
 
 **Evaluation:**
@@ -228,8 +234,6 @@ We welcome contributions to EfficientSAM3! Please feel free to submit pull reque
 - An iOS or Android app (e.g. [Cutcha Photo on the App Store](https://apps.apple.com/us/app/cutcha-photo/id6478521132))
 - An NVCC-based desktop application
 - Anything else that you think is cool!
-
----
 
 All meaningful contributions will be acknowledged and integrated into both the repository and the associated paper. We warmly welcome all contributors to the repository and happily offer co-authorship to those whose work merits inclusion in the paper.
 
