@@ -30,7 +30,7 @@ class TextStudentEncoder(nn.Module):
 
     def set_context_length(self, context_length: int):
         """Resize positional embeddings to a new context length.
-
+        
         Call this after checkpoint loading to truncate from the default ctx=77.
         """
         self.context_length = context_length
@@ -43,16 +43,16 @@ class TextStudentEncoder(nn.Module):
         
         # 2. Get input embeddings via student embedding layer
         input_embeds = self.encoder.forward_embedding(tokenized)  # [B, Seq, Dim]
-
+        
         # 3. MobileCLIP Transformer (pass embeddings to skip redundant lookup)
         text_memory = self.encoder(
             input_embeds, return_all_tokens=True, input_is_embeddings=True
         )  # [B, Seq, Dim]
-
+        
         # 4. Post-project to SAM3 d_model
         text_memory = self.projector(text_memory)  # [B, Seq, OutputDim]
-
+        
         # 5. Attention mask: False=valid token, True=padding
         text_attention_mask = (tokenized != 0).bool().ne(1)
-
+        
         return text_attention_mask, text_memory.transpose(0, 1), input_embeds.transpose(0, 1)

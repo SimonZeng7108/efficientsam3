@@ -355,6 +355,7 @@ class MultiHeadAttention(nn.Module):
     ) -> None:
         if output_dim is None:
             output_dim = embed_dim
+
         super().__init__()
         self.qkv_proj = nn.Linear(
             in_features=embed_dim, out_features=3 * embed_dim, bias=bias
@@ -709,7 +710,7 @@ class MobileCLIPTextTransformer(nn.Module):
         """Resize positional embeddings to new context length."""
         if self.positional_embedding is None:
             return
-
+            
         pos_embed = self.positional_embedding.pos_embed.pos_embed
         current_length = pos_embed.shape[2]
         if new_length == current_length:

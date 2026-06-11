@@ -1,0 +1,79 @@
+# Stage 1 Text Encoder Distillation Config - MobileCLIP-S1 (IMPROVED)
+# 
+# Key improvements based on research findings:
+# 1. context_length=16 (vs 32): 4x attention speedup, only 0.04% token loss
+# 2. consistency_loss=0.1: Encourages permutation invariance (prompts are bag-of-concepts)
+# 3. Combined dataset with Recap-DataComp: 536K annotations (vs 203K)
+#
+# Research evidence:
+# - Mean prompt length: 5.6 tokens, 95% <= 10 tokens
+# - Padding at L=32: 82%, at L=16: 65% 
+# - Positional embeddings 8-31 are highly redundant (similarity 0.76-0.79)
+
+MODEL:
+  NAME: EfficientSAM3_Text_S1_Improved
+  BACKBONE: MobileCLIP-S1
+  PRETRAINED: ''
+  RESUME: ''
+
+TRAIN:
+  START_EPOCH: 0
+  EPOCHS: 80
+  WARMUP_EPOCHS: 8
+  WEIGHT_DECAY: 0.05
+  BASE_LR: 3e-3
+  WARMUP_LR: 1e-6
+  MIN_LR: 5e-6
+  CLIP_GRAD: 1.0
+  AUTO_RESUME: True
+  ACCUMULATION_STEPS: 2
+  USE_CHECKPOINT: False
+  LAYER_LR_DECAY: 0.95
+  EVAL_BN_WHEN_TRAINING: False
+  FIND_UNUSED_PARAMETERS: True
+
+  LR_SCHEDULER:
+    NAME: 'cosine'
+    DECAY_EPOCHS: 30
+    DECAY_RATE: 0.1
+
+  OPTIMIZER:
+    NAME: 'adamw'
+    EPS: 1e-8
+    BETAS: (0.9, 0.999)
+    MOMENTUM: 0.9
+
+AMP_ENABLE: True
+OUTPUT: output/stage1_text/mobileclip_s1_improved
+TAG: improved_L16
+SAVE_FREQ: 5
+PRINT_FREQ: 100
+SEED: 0
+EVAL_MODE: False
+THROUGHPUT_MODE: False
+LOCAL_RANK: 0
+
+DATA:
+  IMG_SIZE: 1008
+  DATASET: text_annotations
+  DATA_PATH: data/text_annotations_combined_with_recap.json
+  BATCH_SIZE: 64
+  NUM_WORKERS: 8
+
+DISTILL:
+  ENABLED: True
+  ENCODER_ONLY: True
+  EMBED_DIM: 256
+  EMBED_SIZE: 0
+  NUM_EMBED: 16  # Reduced from 32 to match context_length=16
+  PIXEL_WISE: 1.0
+  CHANNEL_WISE: 0.0
+  CORRELATION: 0.0
+  COSINE: 1.5
+  TEACHER_EMBED_PATH: 'output/stage1_text_teacher/embeddings_improved'
+  SAVE_TEACHER_EMBED: False
+  NO_RAND: True
+  MAX_ALLOWED_PROMPTS: -1
+  MASK_PAD_TOKENS: True
+  CONTEXT_LENGTH: 16  # KEY: Reduced from 32 (4x attention speedup)
+  CONSISTENCY_LOSS: 0.1  # KEY: Permutation invariance loss

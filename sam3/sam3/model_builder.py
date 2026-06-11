@@ -7,7 +7,6 @@ import torch
 import torch.nn as nn
 from huggingface_hub import hf_hub_download
 from iopath.common.file_io import g_pathmgr
-from sam3.device import get_device
 from sam3.model.decoder import (
     TransformerDecoder,
     TransformerDecoderLayer,
@@ -497,12 +496,7 @@ def _create_text_encoder(bpe_path: str) -> VETextEncoder:
     )
 
 
-def _create_student_text_encoder(
-    bpe_path: str,
-    backbone_type: str,
-    context_length: int = 32,
-    pos_embed_table_size: Optional[int] = None,
-) -> TextStudentEncoder:
+def _create_student_text_encoder(bpe_path: str, backbone_type: str, context_length: int = 32) -> TextStudentEncoder:
     """Create Student text encoder."""
     
     # Default config values
@@ -550,45 +544,16 @@ def _create_student_text_encoder(
             "n_heads_per_layer": 12,
             "model_name": "base", 
         })
-
-    if pos_embed_table_size is None:
-        pos_embed_table_size = context_length
-    cfg["context_length"] = pos_embed_table_size
-
-    # `cfg["context_length"]` controls the positional embedding TABLE size, while the
-    # TextStudentEncoder `context_length` controls tokenization / active sequence length.
-    # Keeping them separate lets us reproduce both interpolation-style and fixed-table
-    # checkpoints during inference.
+    
+    # Update context length in config to match requested length
+    cfg["context_length"] = context_length
 
     return TextStudentEncoder(
         cfg=cfg,
-        context_length=context_length,
+        context_length=context_length, # Use provided context length (default 32)
         output_dim=256, # SAM3 d_model
         bpe_path=bpe_path
     )
-
-
-def _resolve_text_pos_embed_table_size(
-    text_encoder_context_length: int,
-    text_encoder_pos_embed_table_size: Optional[int],
-) -> int:
-    if text_encoder_pos_embed_table_size in (None, 0):
-        return text_encoder_context_length
-    return text_encoder_pos_embed_table_size
-
-
-def _apply_text_context_policy(
-    language_backbone,
-    text_encoder_context_length: int,
-    text_encoder_pos_embed_table_size: int,
-    interpolate_pos_embed: bool,
-):
-    if text_encoder_context_length >= text_encoder_pos_embed_table_size:
-        return
-    if interpolate_pos_embed:
-        language_backbone.context_length = text_encoder_context_length
-    else:
-        language_backbone.set_context_length(text_encoder_context_length)
 
 
 def _create_vision_backbone(
@@ -639,7 +604,7 @@ def _load_checkpoint(model, checkpoint_path):
         # e.g., ...backbone.model.student_trunk.head... -> ...backbone.model.head...
         if "student_trunk." in new_k:
             new_k = new_k.replace("student_trunk.", "")
-            
+
         cleaned_ckpt[new_k] = v
         
     sam3_image_ckpt = {
@@ -668,7 +633,8 @@ def _load_checkpoint(model, checkpoint_path):
 
 def _setup_device_and_mode(model, device, eval_mode):
     """Setup model device and evaluation mode."""
-    model = model.to(device)
+    if device == "cuda":
+        model = model.cuda()
     if eval_mode:
         model.eval()
     return model
@@ -676,7 +642,7 @@ def _setup_device_and_mode(model, device, eval_mode):
 
 def build_sam3_image_model(
     bpe_path=None,
-    device=None,
+    device="cuda" if torch.cuda.is_available() else "cpu",
     eval_mode=True,
     checkpoint_path=None,
     load_from_HF=True,
@@ -687,15 +653,13 @@ def build_sam3_image_model(
     enable_vision_encoder=True,
     text_encoder_type=None,
     text_encoder_context_length=77,
-    text_encoder_pos_embed_table_size: Optional[int] = None,
-    interpolate_pos_embed: bool = False,
 ):
     """
     Build SAM3 image model
 
     Args:
         bpe_path: Path to the BPE tokenizer vocabulary
-        device: Device to load the model on ('cuda', 'mps', or 'cpu'). Auto-detected if None.
+        device: Device to load the model on ('cuda' or 'cpu')
         eval_mode: Whether to set the model to evaluation mode
         checkpoint_path: Optional path to model checkpoint
         enable_segmentation: Whether to enable segmentation head
@@ -708,24 +672,14 @@ def build_sam3_image_model(
             If None, uses the standard SAM3 text encoder.
         text_encoder_context_length: Target context length for text encoder (default: 77).
             Only used when text_encoder_type is set. Common values: 16, 32, 77.
-        text_encoder_pos_embed_table_size: Positional embedding table size for the
-            student text encoder. Defaults to `text_encoder_context_length`, which
-            makes fixed-table / slice-based inference the default.
-        interpolate_pos_embed: If True, keep the original positional table and
-            interpolate it at inference. If False, slice to the requested context.
 
     Returns:
         A SAM3 image model
     """
-    if device is None:
-        device = get_device()
     if bpe_path is None:
         bpe_path = os.path.join(
             os.path.dirname(__file__), "..", "assets", "bpe_simple_vocab_16e6.txt.gz"
         )
-    text_encoder_pos_embed_table_size = _resolve_text_pos_embed_table_size(
-        text_encoder_context_length, text_encoder_pos_embed_table_size
-    )
     # Create visual components
     compile_mode = "default" if compile else None
     if enable_vision_encoder:
@@ -738,11 +692,9 @@ def build_sam3_image_model(
     # Create text components
     if enable_text_encoder:
         if text_encoder_type:
+            # LiteText: init at ctx=77 to match checkpoint pos-embed, then truncate after load.
             text_encoder = _create_student_text_encoder(
-                bpe_path,
-                text_encoder_type,
-                context_length=text_encoder_context_length,
-                pos_embed_table_size=text_encoder_pos_embed_table_size,
+                bpe_path, text_encoder_type, context_length=77
             )
         else:
             text_encoder = _create_text_encoder(bpe_path)
@@ -788,15 +740,9 @@ def build_sam3_image_model(
     if checkpoint_path is not None:
         _load_checkpoint(model, checkpoint_path)
 
-    # Truncate text encoder context length after checkpoint loading when the
-    # underlying table is larger than the active tokenization window.
-    if text_encoder_type:
-        _apply_text_context_policy(
-            model.backbone.language_backbone,
-            text_encoder_context_length,
-            text_encoder_pos_embed_table_size,
-            interpolate_pos_embed,
-        )
+    # Truncate text encoder context length after checkpoint loading
+    if text_encoder_type and text_encoder_context_length < 77:
+        model.backbone.language_backbone.set_context_length(text_encoder_context_length)
 
     # Setup device and mode
     model = _setup_device_and_mode(model, device, eval_mode)
@@ -847,12 +793,12 @@ def _create_student_vision_backbone(
     
     # Position encoding
     position_encoding = _create_position_encoding(precompute_resolution=1008)
-
+    
     if backbone_type == "sam3":
         return _create_vision_backbone(
             compile_mode=compile_mode, enable_inst_interactivity=enable_inst_interactivity
         )
-
+    
     if backbone_type == "efficientvit":
         from sam3.backbones.efficientvit.efficientvit.backbone import (
             efficientvit_backbone_b0,
@@ -894,7 +840,7 @@ def _create_student_vision_backbone(
         if model_name not in name_map:
              raise ValueError(f"Unknown RepViT model: {model_name}")
         
-        backbone = name_map[model_name](distillation=False, num_classes=0)
+        backbone = name_map[model_name](distillation=False)
         
         class RepViTTrunkWrapper(nn.Module):
             def __init__(self, model):
@@ -927,13 +873,13 @@ def _create_student_vision_backbone(
         if model_name not in name_map:
              raise ValueError(f"Unknown TinyViT model: {model_name}")
         
-        backbone = name_map[model_name](img_size=1008, num_classes=0)
+        backbone = name_map[model_name](img_size=1008)
 
         class TinyViTTrunkWrapper(nn.Module):
             def __init__(self, model):
                 super().__init__()
                 self.model = model
-                self.channel_list = [model.layers[-1].dim]
+                self.channel_list = [model.norm_head.normalized_shape[0]]
 
             def forward(self, x):
                 x = self.model.patch_embed(x)
@@ -986,7 +932,7 @@ def _create_student_vision_backbone(
 
 def build_efficientsam3_image_model(
     bpe_path=None,
-    device=None,
+    device="cuda" if torch.cuda.is_available() else "cpu",
     eval_mode=True,
     checkpoint_path=None,
     load_from_HF=False,
@@ -999,15 +945,13 @@ def build_efficientsam3_image_model(
     efficientvit_model=None,
     text_encoder_type=None, # e.g. "MobileCLIP-S0"
     text_encoder_context_length=77,
-    text_encoder_pos_embed_table_size: Optional[int] = None,
-    interpolate_pos_embed: bool = False,
 ):
     """
     Build EfficientSAM3 image model with a student backbone
 
     Args:
         bpe_path: Path to the BPE tokenizer vocabulary
-        device: Device to load the model on ('cuda', 'mps', or 'cpu'). Auto-detected if None.
+        device: Device to load the model on ('cuda' or 'cpu')
         eval_mode: Whether to set the model to evaluation mode
         checkpoint_path: Optional path to EfficientSAM3 model checkpoint
         load_from_HF: Whether to load checkpoint from HuggingFace (if available)
@@ -1020,17 +964,10 @@ def build_efficientsam3_image_model(
         text_encoder_type: Type of text encoder (e.g. 'MobileCLIP-S0'). If None, uses standard SAM3 text encoder.
         text_encoder_context_length: Target context length for text encoder (default: 77).
             Only used when text_encoder_type is set. Common values: 16, 32, 77.
-        text_encoder_pos_embed_table_size: Positional embedding table size for the
-            student text encoder. Defaults to `text_encoder_context_length`, which
-            makes fixed-table / slice-based inference the default.
-        interpolate_pos_embed: If True, keep the original positional table and
-            interpolate it at inference. If False, slice to the requested context.
 
     Returns:
         An EfficientSAM3 image model
     """
-    if device is None:
-        device = get_device()
     if efficientvit_model is not None:
         backbone_type = "efficientvit"
         model_name = efficientvit_model
@@ -1039,9 +976,6 @@ def build_efficientsam3_image_model(
         bpe_path = os.path.join(
             os.path.dirname(__file__), "..", "assets", "bpe_simple_vocab_16e6.txt.gz"
         )
-    text_encoder_pos_embed_table_size = _resolve_text_pos_embed_table_size(
-        text_encoder_context_length, text_encoder_pos_embed_table_size
-    )
     # Create visual components with student backbone
     compile_mode = "default" if compile else None
     vision_encoder = _create_student_vision_backbone(
@@ -1053,12 +987,8 @@ def build_efficientsam3_image_model(
 
     # Create text components
     if text_encoder_type:
-        text_encoder = _create_student_text_encoder(
-            bpe_path,
-            text_encoder_type,
-            context_length=text_encoder_context_length,
-            pos_embed_table_size=text_encoder_pos_embed_table_size,
-        )
+        # LiteText: init at ctx=77 to match checkpoint pos-embed, then truncate after load.
+        text_encoder = _create_student_text_encoder(bpe_path, text_encoder_type, context_length=77)
     else:
         text_encoder = _create_text_encoder(bpe_path)
 
@@ -1103,177 +1033,13 @@ def build_efficientsam3_image_model(
     if checkpoint_path is not None:
         _load_checkpoint(model, checkpoint_path)
 
-    # Truncate text encoder context length after checkpoint loading when the
-    # underlying table is larger than the active tokenization window.
-    if text_encoder_type:
-        _apply_text_context_policy(
-            model.backbone.language_backbone,
-            text_encoder_context_length,
-            text_encoder_pos_embed_table_size,
-            interpolate_pos_embed,
-        )
+    # Truncate text encoder context length after checkpoint loading
+    if text_encoder_type and text_encoder_context_length < 77:
+        model.backbone.language_backbone.set_context_length(text_encoder_context_length)
 
     # Setup device and mode
     model = _setup_device_and_mode(model, device, eval_mode)
 
-    return model
-
-
-def build_efficientsam3_video_model(
-    checkpoint_path: Optional[str] = None,
-    load_from_HF: bool = False,
-    bpe_path: Optional[str] = None,
-    has_presence_token: bool = True,
-    strict_state_dict_loading: bool = False,
-    apply_temporal_disambiguation: bool = True,
-    device=None,
-    compile: bool = False,
-    backbone_type: str = "repvit",
-    model_name: str = "m1.1",
-    text_encoder_type: Optional[str] = None,
-    text_encoder_context_length: int = 77,
-    text_encoder_pos_embed_table_size: Optional[int] = None,
-    interpolate_pos_embed: bool = False,
-    enable_inst_interactivity: bool = True,
-) -> Sam3VideoInferenceWithInstanceInteractivity:
-    """Build EfficientSAM3 video model (SAM 2-style interactive VOS API).
-
-    This variant swaps the default SAM3 vision backbone with a student backbone
-    (EfficientViT/RepViT/TinyViT) while keeping the same detector+tracker
-    inference wrapper.
-    """
-    if device is None:
-        device = get_device()
-    if bpe_path is None:
-        bpe_path = os.path.join(
-            os.path.dirname(__file__), "..", "assets", "bpe_simple_vocab_16e6.txt.gz"
-        )
-    text_encoder_pos_embed_table_size = _resolve_text_pos_embed_table_size(
-        text_encoder_context_length, text_encoder_pos_embed_table_size
-    )
-
-    tracker = build_tracker(apply_temporal_disambiguation=apply_temporal_disambiguation)
-
-    compile_mode = "default" if compile else None
-    visual_neck = _create_student_vision_backbone(
-        backbone_type=backbone_type,
-        model_name=model_name,
-        compile_mode=compile_mode,
-        enable_inst_interactivity=enable_inst_interactivity,
-    )
-
-    if text_encoder_type:
-        text_encoder = _create_student_text_encoder(
-            bpe_path,
-            text_encoder_type,
-            context_length=text_encoder_context_length,
-            pos_embed_table_size=text_encoder_pos_embed_table_size,
-        )
-    else:
-        text_encoder = _create_text_encoder(bpe_path)
-
-    backbone = SAM3VLBackbone(scalp=1, visual=visual_neck, text=text_encoder)
-    transformer = _create_sam3_transformer(has_presence_token=has_presence_token)
-    segmentation_head: UniversalSegmentationHead = _create_segmentation_head(
-        compile_mode=compile_mode
-    )
-    input_geometry_encoder = _create_geometry_encoder()
-
-    main_dot_prod_mlp = MLP(
-        input_dim=256,
-        hidden_dim=2048,
-        output_dim=256,
-        num_layers=2,
-        dropout=0.1,
-        residual=True,
-        out_norm=nn.LayerNorm(256),
-    )
-    main_dot_prod_scoring = DotProductScoring(
-        d_model=256, d_proj=256, prompt_mlp=main_dot_prod_mlp
-    )
-
-    detector = Sam3ImageOnVideoMultiGPU(
-        num_feature_levels=1,
-        backbone=backbone,
-        transformer=transformer,
-        segmentation_head=segmentation_head,
-        semantic_segmentation_head=None,
-        input_geometry_encoder=input_geometry_encoder,
-        use_early_fusion=True,
-        use_dot_prod_scoring=True,
-        dot_prod_scoring=main_dot_prod_scoring,
-        supervise_joint_box_scores=has_presence_token,
-    )
-
-    model = Sam3VideoInferenceWithInstanceInteractivity(
-        detector=detector,
-        tracker=tracker,
-        score_threshold_detection=0.5,
-        assoc_iou_thresh=0.1,
-        det_nms_thresh=0.1,
-        new_det_thresh=0.7,
-        hotstart_delay=15 if apply_temporal_disambiguation else 0,
-        hotstart_unmatch_thresh=8 if apply_temporal_disambiguation else 0,
-        hotstart_dup_thresh=8 if apply_temporal_disambiguation else 0,
-        suppress_unmatched_only_within_hotstart=True,
-        min_trk_keep_alive=-1,
-        max_trk_keep_alive=30,
-        init_trk_keep_alive=30,
-        suppress_overlapping_based_on_recent_occlusion_threshold=0.7,
-        suppress_det_close_to_boundary=False,
-        fill_hole_area=16,
-        recondition_every_nth_frame=16 if apply_temporal_disambiguation else 0,
-        masklet_confirmation_enable=False,
-        decrease_trk_keep_alive_for_empty_masklets=False,
-        image_size=1008,
-        image_mean=(0.5, 0.5, 0.5),
-        image_std=(0.5, 0.5, 0.5),
-        compile_model=compile,
-    )
-
-    if load_from_HF and checkpoint_path is None:
-        checkpoint_path = download_ckpt_from_hf()
-
-    if checkpoint_path is not None:
-        with g_pathmgr.open(checkpoint_path, "rb") as f:
-            try:
-                ckpt = torch.load(f, map_location="cpu", weights_only=True)
-            except TypeError:
-                ckpt = torch.load(f, map_location="cpu")
-
-        if "model" in ckpt and isinstance(ckpt["model"], dict):
-            ckpt = ckpt["model"]
-
-        cleaned_ckpt = {}
-        for k, v in ckpt.items():
-            new_k = k.replace("student_trunk.", "")
-            cleaned_ckpt[new_k] = v
-
-        if not any(
-            k.startswith("detector.") or k.startswith("tracker.")
-            for k in cleaned_ckpt.keys()
-        ) and any(k.startswith("backbone.") for k in cleaned_ckpt.keys()):
-            cleaned_ckpt = {f"detector.{k}": v for k, v in cleaned_ckpt.items()}
-
-        missing_keys, unexpected_keys = model.load_state_dict(
-            cleaned_ckpt, strict=strict_state_dict_loading
-        )
-        if missing_keys:
-            print(f"Missing keys: {missing_keys[:10]}")
-        if unexpected_keys:
-            print(f"Unexpected keys: {unexpected_keys[:10]}")
-
-    # Truncate text encoder context length after checkpoint loading when the
-    # underlying table is larger than the active tokenization window.
-    if text_encoder_type:
-        _apply_text_context_policy(
-            model.detector.backbone.language_backbone,
-            text_encoder_context_length,
-            text_encoder_pos_embed_table_size,
-            interpolate_pos_embed,
-        )
-
-    model.to(device=device)
     return model
 
 
@@ -1285,66 +1051,39 @@ def build_sam3_video_model(
     geo_encoder_use_img_cross_attn: bool = True,
     strict_state_dict_loading: bool = True,
     apply_temporal_disambiguation: bool = True,
-    device=None,
+    device="cuda" if torch.cuda.is_available() else "cpu",
     compile=False,
     text_encoder_type: Optional[str] = None,
     text_encoder_context_length: int = 77,
-    text_encoder_pos_embed_table_size: Optional[int] = None,
-    interpolate_pos_embed: bool = False,
-    student_text_encoder_checkpoint: Optional[str] = None,
 ) -> Sam3VideoInferenceWithInstanceInteractivity:
     """
     Build SAM3 dense tracking model.
 
     Args:
-        checkpoint_path: Full video model checkpoint (tracker + detector).
-            With text_encoder_type, this loads the base video weights (e.g. sam3.pt);
-            the student text encoder is overlaid on top.
-        load_from_HF: Whether to download base video checkpoint from HuggingFace
-            (only used when checkpoint_path is None).
-        bpe_path: Path to the BPE tokenizer file.
+        checkpoint_path: Optional path to checkpoint file.
+            When text_encoder_type is set, this should be a fully-merged LiteText
+            video checkpoint containing detector + tracker + student text encoder weights.
+        bpe_path: Path to the BPE tokenizer file
         text_encoder_type: Optional student text encoder type for LiteText models
-            (e.g. 'MobileCLIP-S0'). If None, uses the standard SAM3 text encoder.
-        text_encoder_context_length: Target context length (default: 77).
-            Common values: 16, 32, 77.
-        text_encoder_pos_embed_table_size: Positional embedding table size for the
-            student text encoder. Defaults to `text_encoder_context_length`, which
-            makes fixed-table / slice-based inference the default.
-        interpolate_pos_embed: If True, keep the original positional table and
-            interpolate it at inference. If False, slice to the requested context.
-        student_text_encoder_checkpoint: Path to a LiteText *image* checkpoint
-            (e.g. efficient_sam3_image_encoder_mobileclip_s0_ctx16.pt).
-            Only the language_backbone keys are loaded from this checkpoint.
-            Use alongside checkpoint_path/load_from_HF for the video base weights.
-            If None and text_encoder_type is set, language backbone is randomly initialized.
+            (e.g. 'MobileCLIP-S0', 'MobileCLIP-S1', 'MobileCLIP2-L').
+            If None, uses the standard SAM3 text encoder.
+        text_encoder_context_length: Target context length for text encoder (default: 77).
+            Only used when text_encoder_type is set. Common values: 16, 32, 77.
 
     Returns:
         Sam3VideoInferenceWithInstanceInteractivity: The instantiated dense tracking model
     """
-    if device is None:
-        device = get_device()
     if bpe_path is None:
         bpe_path = os.path.join(
             os.path.dirname(__file__), "..", "assets", "bpe_simple_vocab_16e6.txt.gz"
         )
-    text_encoder_pos_embed_table_size = _resolve_text_pos_embed_table_size(
-        text_encoder_context_length, text_encoder_pos_embed_table_size
-    )
 
     # Build Tracker module
     tracker = build_tracker(apply_temporal_disambiguation=apply_temporal_disambiguation)
 
     # Build Detector components
     visual_neck = _create_vision_backbone()
-    if text_encoder_type:
-        text_encoder = _create_student_text_encoder(
-            bpe_path,
-            text_encoder_type,
-            context_length=text_encoder_context_length,
-            pos_embed_table_size=text_encoder_pos_embed_table_size,
-        )
-    else:
-        text_encoder = _create_text_encoder(bpe_path)
+    text_encoder = _create_text_encoder(bpe_path)
     backbone = SAM3VLBackbone(scalp=1, visual=visual_neck, text=text_encoder)
     transformer = _create_sam3_transformer(has_presence_token=has_presence_token)
     segmentation_head: UniversalSegmentationHead = _create_segmentation_head()
@@ -1436,33 +1175,30 @@ def build_sam3_video_model(
     # Load checkpoint
     if text_encoder_type:
         # LiteText video workflow:
-        # 1. Load the base video checkpoint (tracker + vision backbone)
-        base_ckpt_path = checkpoint_path
-        if base_ckpt_path is None and load_from_HF:
-            base_ckpt_path = download_ckpt_from_hf()
-        if base_ckpt_path is not None:
-            ckpt = _load_state_dict_from_path(base_ckpt_path)
-            cleaned = {k.replace("student_trunk.", ""): v for k, v in ckpt.items()}
-            # strict=False so tracker keys load from base, language keys from student below
-            model.load_state_dict(cleaned, strict=False)
-
-        # 2. Overlay student text encoder weights (language backbone only)
-        lang_ckpt_path = student_text_encoder_checkpoint
-        if lang_ckpt_path is not None:
-            lang_ckpt = _load_state_dict_from_path(lang_ckpt_path)
-            lang_weights = {k: v for k, v in lang_ckpt.items() if "language_backbone" in k}
-            missing, unexpected = model.load_state_dict(lang_weights, strict=False)
-            lang_loaded = len(lang_ckpt) - len([k for k in lang_ckpt if "language_backbone" not in k])
-            print(f"Loaded {len(lang_weights)} student text encoder weights from {lang_ckpt_path}")
-
-        # 3. Truncate context length after all weights are loaded when the
-        # underlying table is larger than the active tokenization window.
-        _apply_text_context_policy(
-            model.detector.backbone.language_backbone,
-            text_encoder_context_length,
-            text_encoder_pos_embed_table_size,
-            interpolate_pos_embed,
+        # 1. Swap text encoder with student variant (init with ctx=77 for ckpt compat)
+        student_text_enc = _create_student_text_encoder(
+            bpe_path, text_encoder_type, context_length=77
         )
+        model.detector.backbone.language_backbone = student_text_enc
+
+        # 2. Load fully-merged LiteText video checkpoint (detector + tracker + student text encoder)
+        if checkpoint_path is not None:
+            ckpt = _load_state_dict_from_path(checkpoint_path)
+            # Clean keys: remove student_trunk. prefix
+            cleaned = {}
+            for k, v in ckpt.items():
+                new_k = k.replace("student_trunk.", "")
+                cleaned[new_k] = v
+
+            missing_keys, unexpected_keys = model.load_state_dict(cleaned, strict=False)
+            if missing_keys:
+                print(f"Missing keys: {missing_keys}")
+            if unexpected_keys:
+                print(f"Unexpected keys: {unexpected_keys}")
+
+        # 3. Truncate context length
+        if text_encoder_context_length < 77:
+            model.detector.backbone.language_backbone.set_context_length(text_encoder_context_length)
     else:
         # Standard SAM3 video model loading
         if load_from_HF and checkpoint_path is None:
@@ -1488,8 +1224,14 @@ def build_sam3_video_model(
     return model
 
 
+def build_sam3_video_predictor(*model_args, gpus_to_use=None, **model_kwargs):
+    return Sam3VideoPredictorMultiGPU(
+        *model_args, gpus_to_use=gpus_to_use, **model_kwargs
+    )
+
+
 def _load_state_dict_from_path(checkpoint_path: str) -> dict:
-    """Load a checkpoint dict from path, unwrapping common wrapper keys.
+    """Load a checkpoint dict from path and return the raw state_dict-like mapping.
 
     Supports checkpoints saved as:
     - {"model": state_dict}
@@ -1510,96 +1252,52 @@ def _load_state_dict_from_path(checkpoint_path: str) -> dict:
     raise TypeError(f"Unsupported checkpoint type at {checkpoint_path}: {type(ckpt)}")
 
 
-def build_sam3_video_predictor(*model_args, gpus_to_use=None, **model_kwargs):
-    return Sam3VideoPredictorMultiGPU(
-        *model_args, gpus_to_use=gpus_to_use, **model_kwargs
-    )
-
-
 def build_efficientsam3_video_model(
     checkpoint_path: Optional[str] = None,
-    load_from_HF=False,
+    load_from_HF: bool = False,
     bpe_path: Optional[str] = None,
     has_presence_token: bool = True,
     strict_state_dict_loading: bool = False,
     apply_temporal_disambiguation: bool = True,
-    device=None,
-    compile=False,
-    backbone_type="efficientvit",
-    model_name="b0",
-    text_encoder_type=None,
+    device: str = "cuda" if torch.cuda.is_available() else "cpu",
+    compile: bool = False,
+    backbone_type: str = "repvit",
+    model_name: str = "m1.1",
+    text_encoder_type: Optional[str] = None,
     text_encoder_context_length: int = 77,
-    text_encoder_pos_embed_table_size: Optional[int] = None,
-    interpolate_pos_embed: bool = False,
-    efficientvit_model=None,
+    enable_inst_interactivity: bool = True,
 ) -> Sam3VideoInferenceWithInstanceInteractivity:
+    """Build EfficientSAM3 video model (main-branch implementation).
+
+    This variant swaps the default SAM3 vision backbone with a student backbone
+    (EfficientViT/RepViT/TinyViT) while keeping the same detector+tracker wrapper.
     """
-    Build EfficientSAM3 dense tracking model.
-
-    Args:
-        checkpoint_path: Optional path to checkpoint file
-        bpe_path: Path to the BPE tokenizer file
-        backbone_type: Type of backbone ('sam3', 'efficientvit', 'repvit', 'tinyvit')
-        model_name: Model variant (e.g. 'b0', 'm1.1', '5m')
-        text_encoder_type: Type of text encoder (e.g. 'MobileCLIP-S0'). If None, uses standard SAM3 text encoder.
-        text_encoder_context_length: Target context length for text encoder (default: 77).
-            Only used when text_encoder_type is set. Common values: 16, 32, 77.
-        text_encoder_pos_embed_table_size: Positional embedding table size for the
-            student text encoder. Defaults to `text_encoder_context_length`, which
-            makes fixed-table / slice-based inference the default.
-        interpolate_pos_embed: If True, keep the original positional table and
-            interpolate it at inference. If False, slice to the requested context.
-
-    Returns:
-        Sam3VideoInferenceWithInstanceInteractivity: The instantiated dense tracking model
-    """
-    if device is None:
-        device = get_device()
-    if efficientvit_model is not None:
-        backbone_type = "efficientvit"
-        model_name = efficientvit_model
-
     if bpe_path is None:
         bpe_path = os.path.join(
             os.path.dirname(__file__), "..", "assets", "bpe_simple_vocab_16e6.txt.gz"
         )
-    text_encoder_pos_embed_table_size = _resolve_text_pos_embed_table_size(
-        text_encoder_context_length, text_encoder_pos_embed_table_size
-    )
 
-    compile_mode = "default" if compile else None
-
-    # Build Tracker module
     tracker = build_tracker(apply_temporal_disambiguation=apply_temporal_disambiguation)
-
-    # Build Detector components
-    # Use Student Vision Backbone
+    compile_mode = "default" if compile else None
     visual_neck = _create_student_vision_backbone(
         backbone_type=backbone_type,
         model_name=model_name,
         compile_mode=compile_mode,
-        enable_inst_interactivity=True,  # Video tracking needs instance interactivity
+        enable_inst_interactivity=enable_inst_interactivity,
     )
-
-    # Use Student Text Encoder if specified
     if text_encoder_type:
-        text_encoder = _create_student_text_encoder(
-            bpe_path,
-            text_encoder_type,
-            context_length=text_encoder_context_length,
-            pos_embed_table_size=text_encoder_pos_embed_table_size,
-        )
+        # LiteText: initialize with context_length=77 for checkpoint weight compatibility
+        text_encoder = _create_student_text_encoder(bpe_path, text_encoder_type, context_length=77)
     else:
         text_encoder = _create_text_encoder(bpe_path)
 
     backbone = SAM3VLBackbone(scalp=1, visual=visual_neck, text=text_encoder)
     transformer = _create_sam3_transformer(has_presence_token=has_presence_token)
-    segmentation_head: UniversalSegmentationHead = (
-        _create_segmentation_head(compile_mode=compile_mode)
+    segmentation_head: UniversalSegmentationHead = _create_segmentation_head(
+        compile_mode=compile_mode
     )
     input_geometry_encoder = _create_geometry_encoder()
 
-    # Create main dot product scoring
     main_dot_prod_mlp = MLP(
         input_dim=256,
         hidden_dim=2048,
@@ -1612,8 +1310,6 @@ def build_efficientsam3_video_model(
     main_dot_prod_scoring = DotProductScoring(
         d_model=256, d_proj=256, prompt_mlp=main_dot_prod_mlp
     )
-
-    # Build Detector module
     detector = Sam3ImageOnVideoMultiGPU(
         num_feature_levels=1,
         backbone=backbone,
@@ -1626,73 +1322,55 @@ def build_efficientsam3_video_model(
         dot_prod_scoring=main_dot_prod_scoring,
         supervise_joint_box_scores=has_presence_token,
     )
+    model = Sam3VideoInferenceWithInstanceInteractivity(
+        detector=detector,
+        tracker=tracker,
+        score_threshold_detection=0.5,
+        assoc_iou_thresh=0.1,
+        det_nms_thresh=0.1,
+        new_det_thresh=0.7,
+        hotstart_delay=15 if apply_temporal_disambiguation else 0,
+        hotstart_unmatch_thresh=8 if apply_temporal_disambiguation else 0,
+        hotstart_dup_thresh=8 if apply_temporal_disambiguation else 0,
+        suppress_unmatched_only_within_hotstart=True,
+        min_trk_keep_alive=-1,
+        max_trk_keep_alive=30,
+        init_trk_keep_alive=30,
+        suppress_overlapping_based_on_recent_occlusion_threshold=0.7,
+        suppress_det_close_to_boundary=False,
+        fill_hole_area=16,
+        recondition_every_nth_frame=16 if apply_temporal_disambiguation else 0,
+        masklet_confirmation_enable=False,
+        decrease_trk_keep_alive_for_empty_masklets=False,
+        image_size=1008,
+        image_mean=(0.5, 0.5, 0.5),
+        image_std=(0.5, 0.5, 0.5),
+        compile_model=compile,
+    )
 
-    # Build the main SAM3 video model
-    if apply_temporal_disambiguation:
-        model = Sam3VideoInferenceWithInstanceInteractivity(
-            detector=detector,
-            tracker=tracker,
-            score_threshold_detection=0.5,
-            assoc_iou_thresh=0.1,
-            det_nms_thresh=0.1,
-            new_det_thresh=0.7,
-            hotstart_delay=15,
-            hotstart_unmatch_thresh=8,
-            hotstart_dup_thresh=8,
-            suppress_unmatched_only_within_hotstart=True,
-            min_trk_keep_alive=-1,
-            max_trk_keep_alive=30,
-            init_trk_keep_alive=30,
-            suppress_overlapping_based_on_recent_occlusion_threshold=0.7,
-            suppress_det_close_to_boundary=False,
-            fill_hole_area=16,
-            recondition_every_nth_frame=16,
-            masklet_confirmation_enable=False,
-            decrease_trk_keep_alive_for_empty_masklets=False,
-            image_size=1008,
-            image_mean=(0.5, 0.5, 0.5),
-            image_std=(0.5, 0.5, 0.5),
-            compile_model=compile,
-        )
-    else:
-        # a version without any heuristics for ablation studies
-        model = Sam3VideoInferenceWithInstanceInteractivity(
-            detector=detector,
-            tracker=tracker,
-            score_threshold_detection=0.5,
-            assoc_iou_thresh=0.1,
-            det_nms_thresh=0.1,
-            new_det_thresh=0.7,
-            hotstart_delay=0,
-            hotstart_unmatch_thresh=0,
-            hotstart_dup_thresh=0,
-            suppress_unmatched_only_within_hotstart=True,
-            min_trk_keep_alive=-1,
-            max_trk_keep_alive=30,
-            init_trk_keep_alive=30,
-            suppress_overlapping_based_on_recent_occlusion_threshold=0.7,
-            suppress_det_close_to_boundary=False,
-            fill_hole_area=16,
-            recondition_every_nth_frame=0,
-            masklet_confirmation_enable=False,
-            decrease_trk_keep_alive_for_empty_masklets=False,
-            image_size=1008,
-            image_mean=(0.5, 0.5, 0.5),
-            image_std=(0.5, 0.5, 0.5),
-            compile_model=compile,
-        )
-
-    # Load checkpoint if provided
     if load_from_HF and checkpoint_path is None:
-        # For EfficientSAM3, you may need to specify a different HuggingFace repo
-        pass  # Implement if needed
-
+        checkpoint_path = download_ckpt_from_hf()
     if checkpoint_path is not None:
-        ckpt = _load_state_dict_from_path(checkpoint_path)
+        with g_pathmgr.open(checkpoint_path, "rb") as f:
+            try:
+                ckpt = torch.load(f, map_location="cpu", weights_only=True)
+            except TypeError:
+                ckpt = torch.load(f, map_location="cpu")
+        if "model" in ckpt and isinstance(ckpt["model"], dict):
+            ckpt = ckpt["model"]
 
-        cleaned_ckpt = {k.replace("student_trunk.", ""): v for k, v in ckpt.items()}
+        cleaned_ckpt = {}
+        for k, v in ckpt.items():
+            new_k = k.replace("student_trunk.", "")
 
-        # Handle EfficientSAM3 checkpoint keys
+            cleaned_ckpt[new_k] = v
+
+        if not any(
+            k.startswith("detector.") or k.startswith("tracker.")
+            for k in cleaned_ckpt.keys()
+        ) and any(k.startswith("backbone.") for k in cleaned_ckpt.keys()):
+            cleaned_ckpt = {f"detector.{k}": v for k, v in cleaned_ckpt.items()}
+
         missing_keys, unexpected_keys = model.load_state_dict(
             cleaned_ckpt, strict=strict_state_dict_loading
         )
@@ -1701,50 +1379,16 @@ def build_efficientsam3_video_model(
         if unexpected_keys:
             print(f"Unexpected keys: {unexpected_keys[:10]}")
 
-    # Truncate text encoder context length after checkpoint loading when the
-    # underlying table is larger than the active tokenization window.
-    if text_encoder_type:
-        _apply_text_context_policy(
-            model.detector.backbone.language_backbone,
-            text_encoder_context_length,
-            text_encoder_pos_embed_table_size,
-            interpolate_pos_embed,
-        )
+    # Truncate text encoder context length after checkpoint loading
+    if text_encoder_type and text_encoder_context_length < 77:
+        model.detector.backbone.language_backbone.set_context_length(text_encoder_context_length)
 
     model.to(device=device)
     return model
 
 
-def build_efficientsam3_video_predictor(
-    checkpoint_path: Optional[str] = None,
-    load_from_HF=False,
-    bpe_path: Optional[str] = None,
-    backbone_type="efficientvit",
-    model_name="b0",
-    text_encoder_type=None,
-    text_encoder_context_length: int = 77,
-    text_encoder_pos_embed_table_size: Optional[int] = None,
-    interpolate_pos_embed: bool = False,
-    efficientvit_model=None,
-    strict_state_dict_loading: bool = False,
-    gpus_to_use=None,
-    **kwargs,
-):
-    model = build_efficientsam3_video_model(
-        checkpoint_path=checkpoint_path,
-        load_from_HF=load_from_HF,
-        bpe_path=bpe_path,
-        backbone_type=backbone_type,
-        model_name=model_name,
-        text_encoder_type=text_encoder_type,
-        text_encoder_context_length=text_encoder_context_length,
-        text_encoder_pos_embed_table_size=text_encoder_pos_embed_table_size,
-        interpolate_pos_embed=interpolate_pos_embed,
-        efficientvit_model=efficientvit_model,
-        strict_state_dict_loading=strict_state_dict_loading,
-        **kwargs,
-    )
-    return Sam3VideoPredictorMultiGPU(
-        model=model,
-        gpus_to_use=gpus_to_use,
-    )
+def build_efficientsam3_video_predictor(*model_args, gpus_to_use=None, **model_kwargs):
+    """Build a video predictor that uses the EfficientSAM3 video model builder."""
+    model_kwargs = dict(model_kwargs)
+    model_kwargs["use_efficientsam3"] = True
+    return Sam3VideoPredictorMultiGPU(*model_args, gpus_to_use=gpus_to_use, **model_kwargs)

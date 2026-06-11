@@ -240,6 +240,20 @@ def train_one_epoch(
                     loss += config.DISTILL.COSINE * text_cosine_loss(
                         preds, saved_embeddings
                     )
+            
+            # Consistency loss (permutation invariance)
+            # Encourages f("red car") ≈ f("car red") since prompts are mostly bag-of-concepts
+            consistency_weight = getattr(config.DISTILL, "CONSISTENCY_LOSS", 0.0)
+            if consistency_weight > 0.0:
+                permuted_samples = [permute_words(s) for s in samples]
+                _, preds_permuted, _ = model(permuted_samples, device="cuda")
+                preds_permuted = preds_permuted.transpose(0, 1)
+                # Use mean-pooled features for consistency (ignore position)
+                preds_pooled = preds.mean(dim=1)  # [B, C]
+                preds_permuted_pooled = preds_permuted.mean(dim=1)  # [B, C]
+                consistency_loss = F.mse_loss(preds_pooled, preds_permuted_pooled)
+                loss += consistency_weight * consistency_loss
+                meters["consistency"].update(consistency_loss.item())
 
             # Consistency loss (permutation invariance)
             # Encourages f("red car") ≈ f("car red") since prompts are mostly bag-of-concepts
