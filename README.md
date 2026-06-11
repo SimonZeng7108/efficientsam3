@@ -40,9 +40,9 @@ EfficientSAM3 compresses both SAM3's vision encoder and text encoder into lightw
 
 | Model | Vision | Text | Decoder | Total | vs SAM3 (1.4B) | Download |
 |-------|--------|------|---------|-------|-----------------|----------|
-| **EV-M** | 4.6M | 4.07M | ~605M | **~614M** | **56% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_efficientvit/efficientsam3_efficientvit_b1_mobileclip_s0_ctx16_5p_full.pt) |
-| **RV-M** | 7.8M | 4.07M | ~605M | **~617M** | **56% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_repvit/efficientsam3_repvit_m1_1_mobileclip_s0_ctx16_5p_full.pt) |
-| **TV-M** | 10.6M | 4.07M | ~605M | **~620M** | **56% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_tinyvit/efficientsam3_tinyvit_11m_mobileclip_s0_ctx16_5p_full.pt) |
+| **EV-M** | 4.6M | 4.07M | ~605M | **~614M** | **56% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/tree/main/efficientsam3_ft/efficientsam3_efficientvit) |
+| **RV-M** | 7.8M | 4.07M | ~605M | **~617M** | **56% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/tree/main/efficientsam3_ft/efficientsam3_repvit) |
+| **TV-M** | 10.6M | 4.07M | ~605M | **~620M** | **56% smaller** | [HF](https://huggingface.co/Simon7108528/EfficientSAM3/tree/main/efficientsam3_ft/efficientsam3_tinyvit) |
 
 > **SAM3 Teacher**: 1.4B total (Vision: 461M + Text: 354M + Decoder/Heads: ~600M)
 
@@ -89,7 +89,7 @@ from PIL import Image
 
 # Load model (TV-M example - student vision + student text)
 model = build_sam3_image_model(
-    checkpoint_path="efficientsam3_tinyvit_11m_mobileclip_s0_ctx16_5p_full.pt",
+    checkpoint_path="efficientsam3_efficientvit.pt",
     load_from_HF=False,
 )
 
@@ -118,7 +118,7 @@ from PIL import Image
 
 # Build model with LiteText encoder (keeps SAM3 ViT, replaces text encoder)
 model = build_sam3_image_model(
-    checkpoint_path="sam3_litetext_mobileclip_s0_ctx16.pt",
+    checkpoint_path="sam3_litetext_mobileclip2_l_ctx16.pt",
     text_encoder_type="MobileCLIP-S0",
     text_encoder_context_length=16,
     load_from_HF=False,
