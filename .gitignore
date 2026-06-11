@@ -160,4 +160,7 @@ sam3_checkpoints
 rf20-vl
 research
 rf100-vl
-ICMR2026
+ICMR2026*.pt
+*.pth
+*.bin
+checkpoints/

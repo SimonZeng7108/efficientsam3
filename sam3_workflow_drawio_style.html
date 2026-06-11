@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EfficientSAM3 Prompt Workflow (Publication Schematic)</title>
+  <style>
+    :root {
+      --bg: #eef2f8;
+      --canvas: #ffffff;
+      --ink: #1d2738;
+      --muted: #4c5f7f;
+      --grid: #dce5f2;
+      --line: #9badc8;
+
+      --entry-bg: #e9f1ff;
+      --entry-bd: #6c93cf;
+      --vision-bg: #fff6dc;
+      --vision-bd: #c7a95d;
+      --prompt-bg: #ffeaf0;
+      --prompt-bd: #c57a93;
+      --out-bg: #e9f8ec;
+      --out-bd: #76b284;
+
+      --chip-bg: #f4f7fc;
+      --chip-bd: #cad7ea;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Avenir Next", "Gill Sans", "Trebuchet MS", sans-serif;
+      color: var(--ink);
+      background: radial-gradient(circle at 15% 10%, #f8fbff 0%, #eef2f8 55%, #e6ecf6 100%);
+    }
+
+    .page {
+      min-height: 100vh;
+      padding: 24px;
+      background-image:
+        linear-gradient(var(--grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+      background-size: 26px 26px;
+    }
+
+    .title,
+    .insight,
+    .legend,
+    .bridge {
+      max-width: 1500px;
+      margin: 0 auto;
+      background: var(--canvas);
+      border: 1px solid #d5deed;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(16, 33, 64, 0.08);
+    }
+
+    .title {
+      padding: 14px 18px;
+      margin-bottom: 12px;
+    }
+
+    .title h1 {
+      margin: 0 0 6px 0;
+      font-size: 22px;
+      letter-spacing: 0.2px;
+    }
+
+    .title p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    .insight {
+      padding: 12px 14px;
+      margin-bottom: 12px;
+    }
+
+    .insight h2 {
+      margin: 0 0 8px 0;
+      font-size: 16px;
+    }
+
+    .insight ul {
+      margin: 0;
+      padding-left: 18px;
+      color: #2a3e5d;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .board {
+      max-width: 1500px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    .lane {
+      background: var(--canvas);
+      border: 1px solid #d5deed;
+      border-radius: 10px;
+      padding: 12px;
+      box-shadow: 0 2px 8px rgba(16, 33, 64, 0.08);
+    }
+
+    .lane h3 {
+      margin: 0;
+      font-size: 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px dashed #c8d4e7;
+    }
+
+    .subtitle {
+      margin: 7px 0 10px 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .flow {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .arrow {
+      text-align: center;
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--line);
+      line-height: 1;
+      user-select: none;
+    }
+
+    .step {
+      border: 2px solid;
+      border-radius: 6px;
+      padding: 8px 9px;
+      font-size: 12.5px;
+      line-height: 1.3;
+      background: #fff;
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03);
+    }
+
+    .entry { background: var(--entry-bg); border-color: var(--entry-bd); }
+    .vision { background: var(--vision-bg); border-color: var(--vision-bd); }
+    .prompt { background: var(--prompt-bg); border-color: var(--prompt-bd); }
+    .out { background: var(--out-bg); border-color: var(--out-bd); }
+
+    .step-title {
+      font-weight: 700;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 3px;
+    }
+
+    .idx {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 1px solid #6d7f9e;
+      background: #f7faff;
+      color: #2e4467;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .desc {
+      color: #2d3f5a;
+      margin-bottom: 4px;
+    }
+
+    .shape-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    .shape {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 999px;
+      border: 1px solid var(--chip-bd);
+      background: var(--chip-bg);
+      color: #2f4568;
+      font-family: "Consolas", "Menlo", monospace;
+      font-size: 11px;
+      line-height: 1.2;
+    }
+
+    .bridge {
+      margin-top: 12px;
+      padding: 10px 12px;
+      font-size: 12.5px;
+      color: #2a3f5f;
+      line-height: 1.4;
+    }
+
+    .legend {
+      margin-top: 12px;
+      padding: 10px 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 12px;
+      color: #334a6d;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid #cfdaeb;
+      border-radius: 999px;
+      padding: 4px 8px;
+      background: #fbfdff;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+      border: 1px solid;
+      display: inline-block;
+    }
+
+    .dot.entry { background: var(--entry-bg); border-color: var(--entry-bd); }
+    .dot.vision { background: var(--vision-bg); border-color: var(--vision-bd); }
+    .dot.prompt { background: var(--prompt-bg); border-color: var(--prompt-bd); }
+    .dot.out { background: var(--out-bg); border-color: var(--out-bd); }
+
+    @media (max-width: 1150px) {
+      .board {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="title">
+      <h1>SAM1-Prompt Route vs SAM3 Grounding Route (Publication Schematic)</h1>
+      <p>
+        Both routes start from the same image backbone cache. The SAM1 interactive branch then injects geometric prompts into SAM prompt encoder/mask decoder,
+        while normal SAM3 grounding fuses text and geometry into detector-style encoder/decoder prompts.
+      </p>
+    </section>
+
+    <section class="insight">
+      <h2>Why SAM1 prompt mode aligns well with Stage-1 distilled image features</h2>
+      <ul>
+        <li>Stage-1 distillation supervises the pre-FPN visual substrate used downstream by the interactive path, so both teacher/student preserve the same core spatial semantics.</li>
+        <li>Interactive prompting is additive: prompt tensors condition decoding, but image embeddings remain the dominant carrier of object boundaries and region evidence.</li>
+        <li>COCO evaluation uses strong geometric priors (box prompts), which reduces ambiguity and makes moderate embedding mismatch less harmful.</li>
+        <li>In code, both paths reuse cached backbone outputs from set_image before branching into either interactive or grounding-specific prompt fusion.</li>
+      </ul>
+    </section>
+
+    <section class="board">
+      <section class="lane">
+        <h3>A) COCO Eval Path with SAM1 Interactive Prompting</h3>
+        <p class="subtitle">Execution chain: eval_coco -> Sam3Processor.set_image -> _prepare_interactive_features -> predict_inst -> SAM3InteractiveImagePredictor.</p>
+
+        <div class="flow">
+          <div class="step entry">
+            <div class="step-title"><span class="idx">1</span>Input image and preprocessing</div>
+            <div class="desc">Image is resized/normalized in set_image and passed to forward_image.</div>
+            <div class="shape-row">
+              <span class="shape">image: [1, 3, 1008, 1008]</span>
+              <span class="shape">state.orig_hw: (H0, W0)</span>
+            </div>
+          </div>
+
+          <div class="arrow">&#8595;</div>
+
+          <div class="step vision">
+            <div class="step-title"><span class="idx">2</span>Backbone cache (shared visual substrate)</div>
+            <div class="desc">backbone.forward_image builds multi-scale features and stores backbone_out.</div>
+            <div class="shape-row">
+              <span class="shape">P0: [1, C0, 288, 288]</span>
+              <span class="shape">P1: [1, C1, 144, 144]</span>
+              <span class="shape">P2: [1, C2, 72, 72]</span>
+            </div>
+          </div>
+
+          <div class="arrow">&#8595;</div>
+
+          <div class="step vision">
+            <div class="step-title"><span class="idx">3</span>Interactive feature adapter</div>
+            <div class="desc">_prepare_interactive_features applies conv_s0/conv_s1 and writes sam2_backbone_out.</div>
+            <div class="shape-row">
+              <span class="shape">sam2_backbone_out.backbone_fpn</span>
+              <span class="shape">spatial: 288/144/72 preserved</span>
+            </div>
+          </div>
+
+          <div class="arrow">&#8595;</div>
+
+          <div class="step entry">
+            <div class="step-title"><span class="idx">4</span>predict_inst feature packing</div>
+            <div class="desc">Backbone tensors are repacked for interactive predictor as image_embed + high_res_feats.</div>
+            <div class="shape-row">
+              <span class="shape">image_embed: [1, Ce, 72, 72]</span>
+              <span class="shape">high_res_feats: [1, Ch, 288, 288], [1, Ch, 144, 144]</span>
+            </div>
+          </div>
+
+          <div class="arrow">&#8595;</div>
+
+          <div class="step prompt">
+            <div class="step-title"><span class="idx">5</span>Prompt tensor construction (_prep_prompts)</div>
+            <div class="desc">Box/point prompts are normalized to model coordinates and concatenated into prompt tokens.</div>
+            <div class="shape-row">
+              <span class="shape">box_coords: [B, 2, 2]</span>
+              <span class="shape">point_coords: [B, N, 2]</span>
+              <span class="shape">point_labels: [B, N]</span>
+            </div>
+          </div>
+
+          <div class="arrow">&#8595;</div>
+
+          <div class="step prompt">
+            <div class="step-title"><span class="idx">6</span>Prompt encoder + SAM mask decoder</div>
+            <div class="desc">sam_prompt_encoder outputs sparse/dense prompts; sam_mask_decoder fuses prompts with image_embed/high_res_feats.</div>
+            <div class="shape-row">
+              <span class="shape">sparse_prompt: [B, Np, D]</span>
+              <span class="shape">low_res_masks: [B, Cm, 256, 256]</span>
+              <span class="shape">iou_pred: [B, Cm]</span>
+            </div>
+          </div>
+
+          <div class="arrow">&#8595;</div>
+
+          <div class="step out">
+            <div class="step-title"><span class="idx">7</span>Postprocess to original image size</div>
+            <div class="desc">low_res masks are upsampled to (H0, W0), thresholded, and scored for COCO IoU evaluation.</div>
+            <div class="shape-row">
+              <span class="shape">masks: [B, Cm, H0, W0]</span>
+              <span class="shape">scores: [B, Cm]</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="lane">
+        <h3>B) Normal SAM3 Grounding (Text + Geometry)</h3>
+        <p class="subtitle">Execution chain: set_image -> set_text_prompt/add_geometric_prompt -> _forward_grounding -> _encode_prompt -> _run_encoder/_run_decoder.</p>
+
+        <div class="flow">
+          <div class="step entry">
+            <div class="step-title"><span class="idx">1</span>Same image preprocessing and backbone cache</div>
+            <div class="desc">set_image uses the same forward_image backbone pipeline as the interactive route.</div>
+            <div class="shape-row">
+              <span class="shape">image: [1, 3, 1008, 1008]</span>
+              <span class="shape">backbone_fpn levels cached</span>
+            </div>
+          </div>
+
+          <div class="arrow">&#8595;</div>
+
+          <div class="step prompt">
+            <div class="step-title"><span class="idx">2</span>Prompt entry (text and/or geometry)</div>
+            <div class="desc">forward_text adds language_features/language_mask; add_geometric_prompt appends normalized boxes.</div>
+            <div class="shape-row">
+              <span class="shape">language_features: [T, B, D]</span>
+              <span class="shape">language_mask: [B, T]</span>
+              <span class="shape">geo_box: [B, G, 4]</span>
+            </div>
+          </div>
+
+          <div class="arrow">&#8595;</div>
+
+          <div class="step prompt">
+            <div class="step-title"><span class="idx">3</span>_encode_prompt: geometry encoder + concat</div>
+            <div class="desc">geo_feats/geo_masks are built from geometric prompts and concatenated with text prompts.</div>
+            <div class="shape-row">
+              <span class="shape">geo_feats: [G, B, D]</span>
+              <span class="shape">prompt: [T + G, B, D]</span>
+              <span class="shape">prompt_mask: [B, T + G]</span>
+            </div>
+          </div>
+
+          <div class="arrow">&#8595;</div>
+
+          <div class="step vision">
+            <div class="step-title"><span class="idx">4</span>_run_encoder: image memory conditioned by prompt</div>
+            <div class="desc">Transformer encoder ingests image pyramid with prompt tokens and returns encoded memory.</div>
+            <div class="shape-row">
+              <span class="shape">encoder_hidden_states: [Nimg, B, D]</span>
+              <span class="shape">spatial_shapes: [[288,288],[144,144],[72,72],...]</span>
+            </div>
+          </div>
+
+          <div class="arrow">&#8595;</div>
+
+          <div class="step vision">
+            <div class="step-title"><span class="idx">5</span>_run_decoder: object queries -> class/box logits</div>
+            <div class="desc">Decoder cross-attends to encoded memory and prompt context to output object-level predictions.</div>
+            <div class="shape-row">
+              <span class="shape">queries: [B, Q, D]</span>
+              <span class="shape">pred_logits: [B, Q, Ccls]</span>
+              <span class="shape">pred_boxes: [B, Q, 4]</span>
+            </div>
+          </div>
+
+          <div class="arrow">&#8595;</div>
+
+          <div class="step vision">
+            <div class="step-title"><span class="idx">6</span>_run_segmentation_heads</div>
+            <div class="desc">Segmentation heads consume backbone_fpn + decoder queries to produce per-query masks.</div>
+            <div class="shape-row">
+              <span class="shape">pred_masks: [B, Q, Hm, Wm]</span>
+              <span class="shape">pred_boxes_xyxy: [B, Q, 4]</span>
+            </div>
+          </div>
+
+          <div class="arrow">&#8595;</div>
+
+          <div class="step out">
+            <div class="step-title"><span class="idx">7</span>Processor postprocess</div>
+            <div class="desc">Thresholding, box conversion, and resize to original coordinates for final masks/boxes/scores.</div>
+            <div class="shape-row">
+              <span class="shape">masks: [K, H0, W0]</span>
+              <span class="shape">boxes: [K, 4]</span>
+              <span class="shape">scores: [K]</span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <section class="bridge">
+      <strong>Interpretation:</strong>
+      The strongest shared interface is the image feature cache produced right after set_image.
+      Stage-1 image distillation improves this interface directly; SAM1 interactive prompting then adds geometric constraints at decode time,
+      which is why interactive box/point tasks can remain robust even when student-teacher trunk metrics are not perfect.
+    </section>
+
+    <section class="legend">
+      <span class="pill"><span class="dot entry"></span> Entry / orchestration steps</span>
+      <span class="pill"><span class="dot vision"></span> Vision backbone or transformer core</span>
+      <span class="pill"><span class="dot prompt"></span> Prompt processing and prompt-model fusion</span>
+      <span class="pill"><span class="dot out"></span> Output and postprocessing</span>
+      <span class="pill">Shape chips use symbolic dims: B(batch), D(channel), T(text tokens), G(geo tokens), Q(queries), H0xW0(original size)</span>
+    </section>
+  </div>
+</body>
+</html>
