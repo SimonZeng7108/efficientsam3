@@ -20,7 +20,8 @@ from sam3.visualization_utils import plot_results
 
 def run_inference():
     # --- Configuration ---
-    checkpoint_path = "output/efficient_sam3_image_encoder_mobileclip_s0_ctx16.pt"
+    # SAM3-LiteText checkpoints in output/sam3_litetext/
+    checkpoint_path = "output/sam3_litetext/sam3_litetext_mobileclip_s0_ctx16.pt"
 
     backbone_type = "MobileCLIP-S0"  # "MobileCLIP-S0", "MobileCLIP-S1", "MobileCLIP2-L"
     target_context_length = 16       # 16, 32, or 77

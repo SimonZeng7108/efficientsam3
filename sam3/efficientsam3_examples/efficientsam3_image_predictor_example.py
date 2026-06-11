@@ -89,12 +89,12 @@ def main():
     image_path = os.path.join(project_root, "sam3", "assets", "dog_person.jpeg")
     
     # Checkpoint path
-    # Default to the fixed ctx16 LiteText checkpoint.
+    # Default to the TV-M full model checkpoint.
     if args.checkpoint:
         checkpoint_path = args.checkpoint
     else:
         checkpoint_path = os.path.join(
-            project_root, "output", "ablation_merged", "efficient_sam3_text_s0_ctx16_fixed.pt"
+            project_root, "output", "full_models", "efficient_sam3_tvm_m_mobileclip_s0_ctx16_5p_full.pt"
         )
 
     if not os.path.exists(image_path):

@@ -22,12 +22,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--checkpoint",
-        default="/output/efficient_sam3_tinyvit_21m_mobileclip_s1.pth",
+        default="output/full_models/efficient_sam3_tvm_m_mobileclip_s0_ctx16_5p_full.pt",
         help="Path to model checkpoint (.pth)",
     )
     parser.add_argument(
         "--image",
-        default="/sam3/assets/images/test_image.jpg",
+        default="sam3/assets/dog_person.jpeg",
         help="Path to input image",
     )
     parser.add_argument(
