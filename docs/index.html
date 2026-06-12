@@ -49,7 +49,7 @@
     <div class="container is-max-desktop">
       <div class="columns is-centered">
         <div class="column has-text-centered">
-          <span class="tag is-success is-light">✓ Stage 3 Fine-tuned Models Released! (56% smaller than SAM3)</span>
+          <span class="tag is-success is-light">✓ Stage 3 Fine-tuned Models Released! (90% smaller than ImageSAM3)</span>
           <h1 class="title is-1 publication-title">EfficientSAM3: Progressive Hierarchical Knowledge Distillation from SAM1, SAM2 &amp; SAM3</h1>
           <p class="is-size-5">Chengxi Simon Zeng, Yuxuan Jiang, Gao Ge, Shuai Wang, Fan Aaron Zhang · Visual Information Lab, University of Bristol; MultiX lab, University of Amsterdam</p>
           <div class="buttons is-centered mt-5">
@@ -113,7 +113,7 @@
         <!-- v0.4.0 Release -->
         <div class="box" style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border-left: 4px solid #0ea5e9;">
           <p><strong>v0.4.0 — Stage 3 Fine-Tuned PCS Models</strong> (2026-06-11)</p>
-          <p style="font-size: 0.9em;">EfficientSAM3 full models (EV-M, RV-M, TV-M) fine-tuned on 5% SA1B data with complete PCS capabilities.</p>
+          <p style="font-size: 0.9em;">EfficientSAM3 full models (EV-M, RV-M, TV-M) fine-tuned on 5% SA1B data with complete PCS capabilities. <strong>Actual params: 89.2M / 92.7M / 95.3M</strong> (90% smaller than ImageSAM3).</p>
           <p><a href="https://huggingface.co/Simon7108528/EfficientSAM3/tree/main/efficientsam3_ft">HuggingFace</a> · <a href="https://github.com/SimonZeng7108/efficientsam3/blob/main/README_stage3.md">Stage 3 Guide</a></p>
         </div>
         
@@ -217,13 +217,17 @@
       <div class="column">
         <h3 class="title is-5">Quick Start</h3>
         <div class="content">
-          <pre><code>from sam3.model_builder import build_sam3_image_model
+          <pre><code>from sam3.model_builder import build_efficientsam3_image_model
 from sam3.model.sam3_image_processor import Sam3Processor
 from PIL import Image
 
-# Load model (TV-M example - student vision + student text)
-model = build_sam3_image_model(
-    checkpoint_path="efficientsam3_tinyvit_11m_mobileclip_s0_ctx16_5p_full.pt",
+# Load EfficientSAM3 TV-M model (uses TinyViT vision encoder + MobileCLIP-S0 text encoder)
+model = build_efficientsam3_image_model(
+    checkpoint_path="efficientsam3_tinyvit.pt",
+    backbone_type="tinyvit",
+    model_name="11m",
+    text_encoder_type="MobileCLIP-S0",
+    text_encoder_context_length=16,
     load_from_HF=False,
 )
 
@@ -259,44 +263,48 @@ print(f"Found {len(masks)} masks")</code></pre>
             <th>Model</th>
             <th>Vision</th>
             <th>Text</th>
-            <th>Decoder</th>
-            <th>Total</th>
-            <th>vs SAM3 (1.4B)</th>
+            <th>Transformer</th>
+            <th>Other</th>
+            <th>Params</th>
+            <th>vs ImageSAM3</th>
             <th>Download</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td><strong>EV-M</strong></td>
-            <td>4.6M</td>
-            <td>4.07M</td>
-            <td>~605M</td>
-            <td><strong>~614M</strong></td>
-            <td><span class="tag is-success">56% smaller</span></td>
+            <td>22.2M</td>
+            <td>42.5M</td>
+            <td>21.0M</td>
+            <td>3.5M</td>
+            <td><strong>89.2M</strong></td>
+            <td><span class="tag is-success">90% smaller</span></td>
             <td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_efficientvit.pt?download=true">HF</a></td>
           </tr>
           <tr>
             <td><strong>RV-M</strong></td>
-            <td>7.8M</td>
-            <td>4.07M</td>
-            <td>~605M</td>
-            <td><strong>~617M</strong></td>
-            <td><span class="tag is-success">56% smaller</span></td>
+            <td>25.6M</td>
+            <td>42.5M</td>
+            <td>21.0M</td>
+            <td>3.5M</td>
+            <td><strong>92.7M</strong></td>
+            <td><span class="tag is-success">89% smaller</span></td>
             <td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_repvit.pt?download=true">HF</a></td>
           </tr>
           <tr>
             <td><strong>TV-M</strong></td>
-            <td>10.6M</td>
-            <td>4.07M</td>
-            <td>~605M</td>
-            <td><strong>~620M</strong></td>
-            <td><span class="tag is-success">56% smaller</span></td>
+            <td>28.3M</td>
+            <td>42.5M</td>
+            <td>21.0M</td>
+            <td>3.5M</td>
+            <td><strong>95.3M</strong></td>
+            <td><span class="tag is-success">89% smaller</span></td>
             <td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/efficientsam3_ft/efficientsam3_tinyvit.pt?download=true">HF</a></td>
           </tr>
         </tbody>
       </table>
     </div>
-    <p class="notification is-info is-light mt-3"><strong>Note:</strong> SAM3 Teacher: 1.4B total (Vision: 461M + Text: 354M + Decoder/Heads: ~600M)</p>
+    <p class="notification is-info is-light mt-3"><strong>Note:</strong> "Text" is the distilled text encoder. "Transformer" is the mask decoder. "Other" includes segmentation head + scoring. ImageSAM3 (for comparison): Vision: 463M + Text: 354M + Transformer: 30.3M + Other: 14.2M = **861.5M**</p>
 
     <h3 class="title is-4 mt-5">SAM3-LiteText Models (Lightweight Text Encoder Only)</h3>
     <p class="mb-3">SAM3-LiteText keeps the SAM3 vision encoder but replaces the text encoder with lightweight MobileCLIP variants.</p>
@@ -305,66 +313,80 @@ print(f"Found {len(masks)} masks")</code></pre>
         <thead>
           <tr>
             <th>Model</th>
-            <th>Text Encoder</th>
-            <th>Context</th>
-            <th>Full Model</th>
-            <th>vs SAM3 (1.4B)</th>
+            <th>Vision</th>
+            <th>Text</th>
+            <th>Transformer</th>
+            <th>Other</th>
+            <th>Params</th>
+            <th>vs ImageSAM3</th>
             <th>Download</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td><strong>LiteText-S0-16</strong></td>
-            <td>MobileCLIP-S0</td>
-            <td>ctx16</td>
-            <td>~1050M</td>
-            <td><span class="tag is-success">25% smaller</span></td>
+            <td>463.0M</td>
+            <td>42.5M</td>
+            <td>30.3M</td>
+            <td>14.2M</td>
+            <td><strong>550.0M</strong></td>
+            <td><span class="tag is-success">36% smaller</span></td>
             <td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip_s0_ctx16.pt">HF</a></td>
           </tr>
           <tr>
             <td><strong>LiteText-S0-32</strong></td>
-            <td>MobileCLIP-S0</td>
-            <td>ctx32</td>
-            <td>~1050M</td>
-            <td><span class="tag is-success">25% smaller</span></td>
+            <td>463.0M</td>
+            <td>42.5M</td>
+            <td>30.3M</td>
+            <td>14.2M</td>
+            <td><strong>550.0M</strong></td>
+            <td><span class="tag is-success">36% smaller</span></td>
             <td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip_s0_ctx32.pt">HF</a></td>
           </tr>
           <tr>
             <td><strong>LiteText-S1-16</strong></td>
-            <td>MobileCLIP-S1</td>
-            <td>ctx16</td>
-            <td>~1051M</td>
-            <td><span class="tag is-success">25% smaller</span></td>
+            <td>463.0M</td>
+            <td>63.5M</td>
+            <td>30.3M</td>
+            <td>14.2M</td>
+            <td><strong>571.0M</strong></td>
+            <td><span class="tag is-success">34% smaller</span></td>
             <td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip_s1_ctx16.pt">HF</a></td>
           </tr>
           <tr>
             <td><strong>LiteText-S1-32</strong></td>
-            <td>MobileCLIP-S1</td>
-            <td>ctx32</td>
-            <td>~1051M</td>
-            <td><span class="tag is-success">25% smaller</span></td>
+            <td>463.0M</td>
+            <td>63.5M</td>
+            <td>30.3M</td>
+            <td>14.2M</td>
+            <td><strong>571.0M</strong></td>
+            <td><span class="tag is-success">34% smaller</span></td>
             <td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip_s1_ctx32.pt">HF</a></td>
           </tr>
           <tr>
             <td><strong>LiteText-L-16</strong></td>
-            <td>MobileCLIP2-L</td>
-            <td>ctx16</td>
-            <td>~1088M</td>
-            <td><span class="tag is-info">22% smaller</span></td>
+            <td>463.0M</td>
+            <td>123.8M</td>
+            <td>30.3M</td>
+            <td>14.2M</td>
+            <td><strong>631.3M</strong></td>
+            <td><span class="tag is-info">27% smaller</span></td>
             <td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip2_l_ctx16.pt">HF</a></td>
           </tr>
           <tr>
             <td><strong>LiteText-L-32</strong></td>
-            <td>MobileCLIP2-L</td>
-            <td>ctx32</td>
-            <td>~1088M</td>
-            <td><span class="tag is-info">22% smaller</span></td>
+            <td>463.0M</td>
+            <td>123.8M</td>
+            <td>30.3M</td>
+            <td>14.2M</td>
+            <td><strong>631.3M</strong></td>
+            <td><span class="tag is-info">27% smaller</span></td>
             <td><a href="https://huggingface.co/Simon7108528/EfficientSAM3/resolve/main/sam3_litetext/sam3_litetext_mobileclip2_l_ctx32.pt">HF</a></td>
           </tr>
         </tbody>
       </table>
     </div>
-    <p class="notification is-info is-light mt-3"><strong>Note:</strong> Full model = Vision (~1050M) + Text encoder + Decoder (~600M). Text encoder: 4.07M (S0), 4.69M (S1), 42.38M (L) replaces 354M SAM3 text encoder.</p>
+    <p class="notification is-info is-light mt-3"><strong>Note:</strong> "Text" is the distilled text encoder (42.5M-123.8M). SAM3-LiteText keeps SAM3's ViT-H vision encoder (~463M) but replaces the text encoder. "Other" includes geometry encoder + segmentation head + scoring.</p>
 
     <h3 class="title is-4 mt-5">Stage 1 Encoder Weights (for training)</h3>
     <p class="mb-3">Stage 1 distilled image encoder and text encoder weights for training. See <a href="https://github.com/SimonZeng7108/efficientsam3/blob/main/README_stage1.md">README_stage1.md</a> for details.</p>
