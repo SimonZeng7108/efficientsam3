@@ -11,7 +11,7 @@
 ---
 
 ## Table of Contents
-1. [Highlights](#highlights)
+1. [Updates](#updates)
 2. [Model Zoo](#model-zoo)
 3. [Installation](#installation)
 4. [Quick Start](#quick-start)
@@ -20,12 +20,20 @@
 
 ---
 
-## Highlights
+## Updates
 
-- **Efficient Vision Encoders**: Distilled into RepViT, TinyViT, and EfficientViT families (22-28M params vs SAM3's 463M)
-- **Efficient Text Encoders**: Distilled into MobileCLIP variants (42-124M vs SAM3's 354M)
-- **Full PCS Models**: Image + text encoders distilled for promptable concept segmentation
-- **LiteText Models**: Keep SAM3 vision encoder, replace text encoder only
+- **[2026/06/11]** **Stage 3 Fine-tuned Models Released!** EfficientSAM3 full models (EV-M, RV-M, TV-M) fine-tuned on 5% SA1B data & SACap labels. README cleaned up. Checkpoints on [HuggingFace](https://huggingface.co/Simon7108528/EfficientSAM3/tree/main/efficientsam3_ft).
+- **[2026/04/19]** **SAM3-LiteText** live on HuggingFace, accepted by [ICMR2026](https://icmr2026.org/)! [[Docs](https://huggingface.co/docs/transformers/main/en/model_doc/sam3_lite_text)] [[Demo](https://huggingface.co/spaces/nielsr/sam-3-lite-text-vs-sam-3)] Thanks @NielsRogge, @yonigozlan!
+
+<details>
+<summary><b>Older updates</b></summary>
+
+- **[2026/02/18]** **SAM3-LiteText** released! Reduces text encoder by 88% with similar performance. [Paper](https://arxiv.org/abs/2602.12173)
+- **[2026/01/11]** Stage 1 geometry-prompt fine-tuned weights released.
+- **[2025/12/08]** Stage 1 text encoder weights released (MobileCLIP S0, S1, MobileCLIP2 L).
+- **[2025/12/02]** Stage 1 image encoder weights released (RepViT, TinyViT, EfficientViT).
+
+</details>
 
 ---
 
