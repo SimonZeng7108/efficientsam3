@@ -135,7 +135,7 @@ class Sam3Processor:
         The label is True for a positive box, False for a negative box.
         """
         if "backbone_out" not in state:
-            raise ValueError("You must call set_image before set_text_prompt")
+            raise ValueError("You must call set_image before add_geometric_prompt")
 
         if "language_features" not in state["backbone_out"]:
             # Looks like we don't have a text prompt yet. This is allowed, but we need to set the text prompt to "visual" for the model to rely only on the geometric prompt
@@ -151,6 +151,40 @@ class Sam3Processor:
         boxes = torch.tensor(box, device=self.device, dtype=torch.float32).view(1, 1, 4)
         labels = torch.tensor([label], device=self.device, dtype=torch.bool).view(1, 1)
         state["geometric_prompt"].append_boxes(boxes, labels)
+
+        return self._forward_grounding(state)
+
+    @torch.inference_mode()
+    def add_point_prompt(self, point: List, label: int, state: Dict):
+        """Adds a point prompt and run the inference.
+        The image needs to be set, but not necessarily the text prompt.
+        The point is in [x, y] pixel coordinates.
+        The label is 1 for positive (foreground) or 0 for negative (background).
+        """
+        if "backbone_out" not in state:
+            raise ValueError("You must call set_image before add_point_prompt")
+
+        if "language_features" not in state["backbone_out"]:
+            # Use "visual" for geometry-only mode
+            dummy_text_outputs = self.model.backbone.forward_text(
+                ["visual"], device=self.device
+            )
+            state["backbone_out"].update(dummy_text_outputs)
+
+        if "geometric_prompt" not in state:
+            state["geometric_prompt"] = self.model._get_dummy_prompt()
+
+        # Convert pixel coords to normalized coords
+        img_w = state["original_width"]
+        img_h = state["original_height"]
+        x_norm = point[0] / img_w
+        y_norm = point[1] / img_h
+        
+        # Adding batch and sequence dimension
+        # Points format: [x_norm, y_norm]
+        points = torch.tensor([[x_norm, y_norm]], device=self.device, dtype=torch.float32).view(1, 1, 2)
+        labels = torch.tensor([label], device=self.device, dtype=torch.bool).view(1, 1)
+        state["geometric_prompt"].append_points(points, labels)
 
         return self._forward_grounding(state)
 

@@ -608,7 +608,7 @@ def _load_checkpoint(model, checkpoint_path):
         cleaned_ckpt[new_k] = v
         
     sam3_image_ckpt = {
-        k: v for k, v in cleaned_ckpt.items() if k in model.state_dict() or "backbone" in k
+        k: v for k, v in cleaned_ckpt.items() if k in model.state_dict()
     }
     
     # Handle tracker/instance predictor if enabled
@@ -841,12 +841,18 @@ def _create_student_vision_backbone(
              raise ValueError(f"Unknown RepViT model: {model_name}")
         
         backbone = name_map[model_name](distillation=False)
-        
+
         class RepViTTrunkWrapper(nn.Module):
             def __init__(self, model):
                 super().__init__()
                 self.model = model
-                # Infer channels
+                # Strip unused ImageNet classifier head (and distill head) so
+                # the state_dict no longer references parameters that the
+                # SAM3 checkpoint will never carry.
+                for _attr in ("classifier", "distill_head"):
+                    if hasattr(model, _attr):
+                        delattr(model, _attr)
+                # Infer channels via a dummy forward pass over the feature trunk.
                 dummy = torch.zeros(1, 3, 224, 224)
                 with torch.no_grad():
                     for f in model.features:
@@ -873,13 +879,16 @@ def _create_student_vision_backbone(
         if model_name not in name_map:
              raise ValueError(f"Unknown TinyViT model: {model_name}")
         
-        backbone = name_map[model_name](img_size=1008)
+        # num_classes=0 disables the unused ImageNet head so the state_dict
+        # has no norm_head/head parameters that the SAM3 checkpoint would
+        # never carry.
+        backbone = name_map[model_name](img_size=1008, num_classes=0)
 
         class TinyViTTrunkWrapper(nn.Module):
-            def __init__(self, model):
+            def __init__(self, model, channel_count):
                 super().__init__()
                 self.model = model
-                self.channel_list = [model.norm_head.normalized_shape[0]]
+                self.channel_list = [channel_count]
 
             def forward(self, x):
                 x = self.model.patch_embed(x)
@@ -892,7 +901,9 @@ def _create_student_vision_backbone(
                 x = x.view(B, side, side, C).permute(0, 3, 1, 2).contiguous()
                 return x
 
-        wrapped_backbone = TinyViTTrunkWrapper(backbone)
+        wrapped_backbone = TinyViTTrunkWrapper(
+            backbone, backbone.layers[-1].dim
+        )
         in_channels = wrapped_backbone.channel_list[0]
 
     else:
@@ -1029,14 +1040,13 @@ def build_efficientsam3_image_model(
         # For EfficientSAM3, you may need to specify a different HuggingFace repo
         # checkpoint_path = download_ckpt_from_hf()  # Update this for EfficientSAM3
         pass
+    # Truncate text encoder context length BEFORE checkpoint loading
+    # This resizes positional embeddings so checkpoint can be loaded
+    if text_encoder_type and text_encoder_context_length < 77:
+        model.backbone.language_backbone.set_context_length(text_encoder_context_length)
     # Load checkpoint if provided
     if checkpoint_path is not None:
         _load_checkpoint(model, checkpoint_path)
-
-    # Truncate text encoder context length after checkpoint loading
-    if text_encoder_type and text_encoder_context_length < 77:
-        model.backbone.language_backbone.set_context_length(text_encoder_context_length)
-
     # Setup device and mode
     model = _setup_device_and_mode(model, device, eval_mode)
 
