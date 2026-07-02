@@ -1,0 +1,498 @@
+# EfficientSAM3 少样本 GPU 验证指南
+
+这份文档用于后续在 GPU 机器上验证当前少样本闭环方案。当前主线是：
+
+```text
+完整 EfficientSAM3 图像模型
+  + efficient_sam3_efficientvit_s.pt
+  + task visual prompt / prompt adapter 少量微调
+  + SAM3 原生 decoder / matcher / loss
+  + 自动筛错并补充下一轮真值
+```
+
+本阶段只验证 GPU 训练闭环效果，不做交互界面，不做 NPU 部署，不做最终量化。
+
+## 1. 验证前准备
+
+### 1.1 GPU 环境
+
+建议优先使用 Linux 或 WSL2 + CUDA。Windows 原生也可以尝试，但 `mmcv`、CUDA 扩展和 SAM3 依赖在 Windows 上更容易踩坑。
+
+需要确认：
+
+- Python 版本满足项目要求，当前 `pyproject.toml` 写的是 `>=3.12`。
+- PyTorch 能正常识别 CUDA。
+- 当前仓库已安装为 editable package。
+- `efficient_sam3_efficientvit_s.pt` checkpoint 路径存在。
+
+推荐从仓库根目录执行：
+
+```powershell
+python -m pip install -U pip
+python -m pip install -e ".[stage1]"
+```
+
+如果 GPU 机器上 `mmcv` 安装失败，先按该机器 CUDA / PyTorch 版本安装匹配的 `mmcv` wheel，再重新执行 editable 安装。
+
+### 1.2 CUDA 自检
+
+```powershell
+python -c "import torch; print('torch:', torch.__version__); print('cuda:', torch.cuda.is_available()); print('gpu:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NONE')"
+```
+
+期望：
+
+- `cuda: True`
+- 能打印出 GPU 名称
+
+如果这里是 `False`，不要继续跑训练，先修 PyTorch / CUDA 环境。
+
+### 1.3 SAM3 包导入自检
+
+```powershell
+python -c "from sam3.model_builder import build_efficientsam3_image_model; print('sam3 import ok')"
+python -c "from fewshot_adapter.native.trainer import NativeFewShotTrainer; print('fewshot import ok')"
+```
+
+如果报 `ModuleNotFoundError: sam3`，通常是没有在仓库根目录执行 `pip install -e ".[stage1]"`，或者当前 Python 环境不是刚才安装的那个环境。
+
+## 2. 数据准备
+
+你的原始数据应至少包含：
+
+```text
+dataset/
+  images/
+    img_001.jpg
+    img_002.jpg
+    ...
+  DataTrain.txt
+```
+
+`DataTrain.txt` 可以使用你当前数据集里的真实格式：
+
+```text
+Version 1.0.0
+90008204_c1s1_00000.bmp.bmp:1 P:4 214 539 938 347 960 430 235 621 "obj"
+1_20241216111158.jpg.bmp:8 R:4 577 518 518 518 518 458 577 458 "obj" R:4 580 423 521 422 522 363 581 364 "obj"
+90008205_c1s1_00088.bmp.bmp:1 P:4 1 1 1 1 1 1 1 1 "obj"
+```
+
+说明：
+
+- `Version 1.0.0` 是文件头，会自动跳过。
+- `图片名:数量` 表示这一行图片名和标注目标数量；`.jpg`、`.jpg.bmp`、`.bmp.bmp` 都只是普通文件名，只要 `--image-dir` 下真实存在即可。
+- `P:4` 和 `R:4` 在你的数据里都是四点标注，都会按 polygon 保存到 `full_gt.json`。
+- `1 1 1 1 1 1 1 1` 是无目标占位，不会写入 `full_gt.json`，但该图片仍会保留在 `image_map.json`，用于后续全量推理和误检检查。
+- `"obj"` 是类别名。多类别数据必须显式传 `--label obj`，避免训练错目标。
+
+转换器也兼容旧的空格格式，例如：
+
+```text
+img_001.jpg 2 R 10 20 30 40 "target" ; P 1 2 5 2 5 6 1 6 "target"
+```
+
+旧格式中的 `R` 表示水平矩形框，后面 4 个坐标；`P` 表示多边形，后面是偶数个坐标点。
+
+把原始数据转换成闭环训练需要的 JSON：
+
+```powershell
+python -m fewshot_adapter.convert_datatrain `
+  --config fewshot_adapter\configs\efficient_sam3_efficientvit_s_fewshot.yaml
+```
+
+默认配置文件在 `fewshot_adapter/configs/efficient_sam3_efficientvit_s_fewshot.yaml`。如果你的路径不是默认的 `dataset/DataTrain.txt` 和 `dataset/images`，优先改这个 YAML；也可以用命令行临时覆盖：
+
+```powershell
+python -m fewshot_adapter.convert_datatrain `
+  --config fewshot_adapter\configs\efficient_sam3_efficientvit_s_fewshot.yaml `
+  --datatrain dataset\DataTrain.txt `
+  --image-dir dataset\images `
+  --output-dir dataset_json
+```
+
+转换成功后会生成：
+
+```text
+dataset_json/
+  full_gt.json
+  image_map.json
+```
+
+含义：
+
+- `full_gt.json`：全量真值标注，每个目标一条记录。
+- `image_map.json`：图片名到图片实际路径的映射。
+
+转换阶段会检查 `DataTrain.txt` 中的图片是否真实存在。如果报 `image file not found`，先修正图片目录或文件名，再进入训练。
+
+如果数据集根目录下有多个子数据集，每个子目录里都有 `DetectTrainData.txt` 和图片，可以直接用批量转换：
+
+```powershell
+python -m fewshot_adapter.convert_datatrain `
+  --batch `
+  --batch-root /home/data/public/datasets/fewshot_test_20260429 `
+  --config fewshot_adapter/configs/efficient_sam3_efficientvit_s_fewshot.yaml
+```
+
+批量转换会自动查找：
+
+```text
+/home/data/public/datasets/fewshot_test_20260429/*/DetectTrainData.txt
+```
+
+并输出为：
+
+```text
+dataset_json/
+  12356_工件定位/
+    full_gt.json
+    image_map.json
+  24q4_jindianmilk/
+    full_gt.json
+    image_map.json
+```
+
+如果想换输出根目录，可加 `--output-dir /path/to/dataset_json`。批量模式会跳过 `Version 1.0.0` 文件头；某个子数据集失败时会继续处理后面的子数据集，并在最后汇总失败列表。
+
+注意：默认配置会先使用 SAM3 原生 box/class/presence loss，便于快速 smoke test。多边形、OBB 和 HBB 标注都会派生 HBB 参与 box loss；如果打开 `MODEL.ENABLE_SEGMENTATION=true` 和 `LOSS.USE_MASKS=true`，同一批标注还会栅格化为粗 mask target，训练 SAM3 原生 mask loss，并在推理后由预测 mask 拟合旋转 OBB。
+
+### 2.1 配置文件优先级
+
+训练和转换都支持 `--config`。推荐先改 `fewshot_adapter/configs/efficient_sam3_efficientvit_s_fewshot.yaml`，再用命令行临时覆盖少数参数。
+
+当前默认值的来源：
+
+- `DATA.IMG_SIZE=1008`：对齐 SAM3 / EfficientSAM3 官方输入分辨率。
+- `MODEL.BACKBONE_TYPE=efficientvit`、`MODEL.MODEL_NAME=b0`：对应 `efficient_sam3_efficientvit_s.pt`。
+- `MODEL.ENABLE_SEGMENTATION=false`、`LOSS.USE_MASKS=false`：默认按官方 detection fine-tune 路线只训 box / class / presence，适合第一次 smoke test。
+- `MODEL.ENABLE_SEGMENTATION=true`、`LOSS.USE_MASKS=true`：启用 SAM3 segmentation head 和官方 `Masks` loss；DataTrain 的 HBB/OBB/Polygon 会生成粗 mask target，推理时优先由 `pred_masks` 拟合真实旋转 OBB。
+- `TRAIN.LEARNING_RATE=0.00008`、`TRAIN.WEIGHT_DECAY=0.1`：学习率和 weight decay 贴近官方 detection 配置的 transformer 参数组。
+- `EVAL.LABEL=null`：单类别数据集会自动从 `full_gt.json` 推断 label，例如 `obj`、`Sample`、`瓶盖`；多类别数据集必须显式传 `--label`。
+- `EVAL.SCORE_THRESHOLD=0.3`：贴近官方 thresholded postprocessor。
+- `EVAL.NMS_IOU_THRESHOLD=0.5`：全量推理后按单图同类做 NMS；优先使用 OBB/rotated IoU，缺少 OBB 时回退 HBB IoU。
+- `EVAL.LOW_CONFIDENCE_THRESHOLD=0.4`：已匹配真值但分数偏低的预测会进入低优先级错误队列，用来补充不稳定正样本。
+- `LOSS.*` 的 matcher / loss 权重来自官方 detection fine-tune 配置；其中 `O2M_*` 对应 EfficientSAM3 训练态 DAC decoder 的 one-to-many 分支，不能随意删掉。
+
+## 3. 先跑 1 步 Smoke Test
+
+第一次不要直接跑 10 轮。先用 1 轮 1 步确认模型能加载、数据能读取、前向和反向能走通。
+
+```powershell
+python -m fewshot_adapter.train_native_efficientsam3_fewshot `
+  --config fewshot_adapter\configs\efficient_sam3_efficientvit_s_fewshot.yaml `
+  --output-root runs\native_fewshot_smoke `
+  --max-rounds 1 `
+  --steps-per-round 1
+```
+
+Smoke test 成功后应看到：
+
+```text
+runs/native_fewshot_smoke/
+  resolved_config.yaml
+  train_round_0.json
+  summary.json
+  round_00/
+    adapter.pt
+    predictions.json
+    errors.json
+    next_train.json
+    summary.json
+    train_inputs/
+    errors_vis/
+    predictions_vis/
+```
+
+重点检查：
+
+- `round_00/adapter.pt` 是否生成。
+- `round_00/predictions.json` 是否生成。
+- `round_00/errors.json` 是否生成。
+- `round_00/train_inputs/` 是否能看到本轮训练输入图片；正样本有绿色真值框，负样本会标注 `NEGATIVE no-object`。
+- `round_00/errors_vis/` 是否能看到筛选出来的错误图片、绿色真值框、红色预测框和错误类型。
+- `round_00/predictions_vis/` 是否覆盖了全量图片；无预测的背景图也应保存原图。
+- `resolved_config.yaml` 是否保存了最终生效配置。
+- 根目录 `summary.json` 是否能打开。
+- `summary.json` 里的 `last_loss.core_loss` 是否是有限数值，不应为 `NaN` 或 `inf`。
+- 如果本轮包含 `sample_type=negative`，重点看 `last_loss.presence_loss` 是否是有限数值；当前 no-object 负样本主要通过 SAM3 decoder 的 presence 分支压低纯背景误检。
+- `summary.json` 里的 `metrics.precision`、`metrics.recall`、`metrics.f1`、`metrics.miou` 是否符合直觉。
+
+训练时终端会实时打印日志。日志走 `stderr`，最终完整 `summary` JSON 仍走 `stdout`，便于后续脚本重定向保存。重点看这些行：
+
+```text
+[fewshot] 本次可微调模块：...
+[fewshot] 开始 round=1/10 | train_images=... | positive_targets=... | negative_images=... | lr=...
+[fewshot] train round=1 step=10/80 | lr=... | core_loss=... | loss_ce=... | loss_bbox=... | loss_giou=... | presence_loss=...
+[fewshot] round=1 训练完成 | lr=... | core_loss=...
+[fewshot] eval round=1 | pred=... | err=... | P=... | R=... | F1=... | mIoU=...
+[fewshot] 下一轮选样：...
+```
+
+快速查看每轮摘要：
+
+```powershell
+python -c "import json; s=json.load(open('runs/native_fewshot_smoke/summary.json', encoding='utf-8')); print(json.dumps(s['rounds'], ensure_ascii=False, indent=2))"
+```
+
+## 4. 正式小规模验证
+
+Smoke test 通过后，建议先用 20 到 100 张图的小数据子集验证闭环趋势。目标不是一开始追求最高精度，而是确认：
+
+- 初始 1 张图训练后能产生合理预测。
+- 错误队列能识别漏检、误检、定位错误。
+- 下一轮训练集会自动增加被选中错误图片的真值。
+- 多轮后 `error_count` 有下降趋势，或错误类型变得更少、更集中。
+
+建议第一组正式参数：
+
+```powershell
+python -m fewshot_adapter.train_native_efficientsam3_fewshot `
+  --config fewshot_adapter\configs\efficient_sam3_efficientvit_s_fewshot.yaml `
+  --output-root runs\native_fewshot_baseline `
+  --seed 0 `
+  --max-rounds 5 `
+  --steps-per-round 30
+```
+
+如果 baseline 能跑通但定位不够好，再尝试开放 bbox head：
+
+```powershell
+python -m fewshot_adapter.train_native_efficientsam3_fewshot `
+  --config fewshot_adapter\configs\efficient_sam3_efficientvit_s_fewshot.yaml `
+  --output-root runs\native_fewshot_bbox_embed `
+  --seed 0 `
+  --max-rounds 5 `
+  --steps-per-round 50 `
+  --learning-rate 5e-4 `
+  --train-bbox-embed
+```
+
+`--train-decoder-cross-attention` 暂时不建议第一轮就打开。它可训练参数更多，可能更强，但也更容易过拟合和爆显存。只有在 prompt + bbox embed 明显不够时再试。
+
+如果要验证真实旋转 OBB 路线，建议复制一份 YAML，例如 `fewshot_adapter/configs/efficient_sam3_efficientvit_s_fewshot_obb.yaml`，只改下面几项：
+
+```yaml
+MODEL:
+  ENABLE_SEGMENTATION: true
+
+LOSS:
+  USE_MASKS: true
+
+EVAL:
+  IOU_MODE: obb
+  NMS_IOU_THRESHOLD: 0.5
+```
+
+然后先跑 1 轮 1 步 smoke test。评估真值侧会把 DataTrain 的四点 polygon 拟合为 OBB；预测侧若模型输出里没有 `pred_masks`，会回退到 HBB 的 angle=0 OBB 兼容字段，这时不要把 `--iou-mode obb` 的结果当成最终旋转框能力。
+
+## 5. 输出文件怎么看
+
+每一轮目录：
+
+```text
+round_00/
+  adapter.pt
+  predictions.json
+  errors.json
+  next_train.json
+  summary.json
+  train_inputs/
+    xxx_gt.jpg
+  errors_vis/
+    xxx_error.jpg
+  predictions_vis/
+    xxx_pred.jpg
+```
+
+文件含义：
+
+- `resolved_config.yaml`：根输出目录下的最终生效配置，已经合并 YAML 和命令行覆盖项。
+- `adapter.pt`：本轮训练后的少样本 adapter 权重，只保存任务相关权重。
+- `predictions.json`：全量图片推理结果；同一图片同一 label 内会先按 `EVAL.NMS_IOU_THRESHOLD` 做 NMS，减少重复 query。
+- `errors.json`：根据全量真值自动筛出的错误队列，包含漏检、误检、定位错误和低置信正确样本。
+- `next_train.json`：下一轮图片级训练样本列表。`sample_type=positive` 表示有目标正样本，`sample_type=negative` 表示纯背景 no-object 负样本。
+- `summary.json`：本轮统计信息。
+- `train_inputs/`：本轮实际输入训练的图片；正样本画绿色真值框或 polygon，纯背景负样本写 `NEGATIVE no-object` 且不画框。
+- `errors_vis/`：本轮错误队列涉及的图片；绿色是真值，红色是预测，左上角写错误类型和风险分数。
+- `predictions_vis/`：全量图片检测结果；每张 `image_map.json` 里的图片都会输出一张，没检测到目标时就是原图。
+
+根目录 `summary.json` 里最重要的是：
+
+- `target_label`：本次实际训练和评估使用的类别；当 YAML 里 `EVAL.LABEL=null` 时，它会记录自动推断出的真实 label。
+- `rounds[].train_count`：本轮训练目标数量。
+- `rounds[].train_image_count`：本轮训练图片数量，包含正样本图和 no-object 负样本图。
+- `rounds[].negative_train_count`：本轮 no-object 负样本图片数量。
+- `rounds[].prediction_count`：本轮全量预测数量。
+- `rounds[].error_count`：本轮错误数量。
+- `rounds[].error_type_counts`：按错误类型统计数量，例如漏检、误检、定位错误、低置信正确。
+- `rounds[].metrics.tp/fp/fn`：当前目标类别的匹配成功数、误检数、漏检数。
+- `rounds[].metrics.precision`：`TP / (TP + FP)`。
+- `rounds[].metrics.recall`：`TP / (TP + FN)`。
+- `rounds[].metrics.f1`：precision 和 recall 的调和平均。
+- `rounds[].metrics.miou`：所有 TP 匹配 IoU 的平均值；没有 TP 时为 `0.0`。
+- `rounds[].selected_image_id`：自动选入下一轮的错误图片。
+- `rounds[].train_inputs`：本轮训练输入可视化目录。
+- `rounds[].errors_vis`：本轮错误图片可视化目录。
+- `rounds[].predictions_vis`：本轮全量检测结果可视化目录。
+- `rounds[].last_loss`：最后一步 loss 字典。
+
+快速打印每轮错误数和指标：
+
+```powershell
+python -c "import json; s=json.load(open('runs/native_fewshot_baseline/summary.json', encoding='utf-8')); [print(r['round'], 'train=', r['train_count'], 'neg=', r['negative_train_count'], 'pred=', r['prediction_count'], 'err=', r['error_count'], 'P=', round(r['metrics']['precision'], 4), 'R=', round(r['metrics']['recall'], 4), 'F1=', round(r['metrics']['f1'], 4), 'mIoU=', round(r['metrics']['miou'], 4), 'next=', r['selected_image_id']) for r in s['rounds']]"
+```
+
+判断是否值得继续：
+
+- 如果 `prediction_count` 长期为 0，优先降低 `--score-threshold` 到 `0.1` 或检查模型输出后处理。
+- 如果 `error_count` 不下降，但预测框位置大致对，尝试 `--train-bbox-embed`。
+- 如果全是误检，先检查 `next_train.json` 是否加入了 `sample_type=negative` 的背景图，再观察下一轮 `negative_train_count` 是否增加；如果同一目标出现大量重复框，调低 `--nms-iou-threshold`；如果误检仍多，再提高 `--score-threshold` 或增加 hard negative 轮数。
+- 如果全是漏检，先降低 `--score-threshold`，并确认初始训练图片确实有该 label。
+
+## 6. HBB、Polygon、OBB 当前验证策略
+
+第一次环境验证推荐先用：
+
+```text
+--iou-mode hbb
+```
+
+原因：
+
+- 原始 `R` 框和 `P` 多边形都会派生 HBB；box loss 和 HBB 匹配最容易先跑通。
+- 当 `EVAL.IOU_MODE=obb` 时，真值 polygon 会先拟合 OBB，再参与 rotated IoU；不会因为 DataTrain 只有四点 polygon 就直接退回 HBB。
+- 不开启 segmentation head 时，预测后处理只能稳定依赖 SAM3 box 输出。
+- 如果没有 `pred_masks`，代码仍会补一个 angle=0 的 OBB 兼容字段，保证 JSON 结构一致。
+
+要验证真实旋转框能力，需要使用 mask 路线：
+
+- 在 YAML 中设置 `MODEL.ENABLE_SEGMENTATION=true` 和 `LOSS.USE_MASKS=true`。
+- 训练时由 HBB/OBB/Polygon 标注生成粗 mask target，同时保留 box loss。
+- 推理时如果 `pred_masks` 存在，会先保留最大连通域，再从二值 mask 提取凸包并拟合最小外接旋转矩形，写入 `predictions.json` 的 `obb` 和 `polygon` 字段。
+- 如果某条预测 mask 为空或模型未输出 mask，该条预测会回退到 HBB 的 angle=0 OBB；检查 `predictions.json` 里 `obb.angle` 是否大量为 0，可以快速判断是否真的走到了 mask OBB 路线。
+
+## 7. 常见问题
+
+### 7.1 `PyTorch is required`
+
+说明当前 Python 环境没有安装 torch，或者运行命令用的不是 GPU 环境的 Python。
+
+先跑：
+
+```powershell
+python -c "import sys; print(sys.executable)"
+python -c "import torch; print(torch.__version__)"
+```
+
+### 7.2 `cuda: False`
+
+说明 PyTorch 没连上 CUDA。先不要改项目代码，优先修环境：
+
+- 检查 NVIDIA 驱动。
+- 检查安装的 torch 是否是 CUDA 版本。
+- 检查是否进入了正确 conda / venv 环境。
+
+### 7.3 `ModuleNotFoundError: sam3`
+
+在仓库根目录重新安装：
+
+```powershell
+python -m pip install -e ".[stage1]"
+```
+
+### 7.4 `KeyError: image_id not found in image_map`
+
+通常是 `DataTrain.txt` 里的图片名和 `--image-dir` 下的文件名对不上。
+
+检查：
+
+- `DataTrain.txt` 里的 `img_001.jpg` 是否真实存在。
+- 图片扩展名大小写是否一致。
+- 是否多了一层子目录。
+
+### 7.5 CUDA out of memory
+
+按顺序尝试：
+
+```text
+1. 不要打开 --train-decoder-cross-attention。
+2. 把 --resolution 1008 降到 768 或 512。
+3. 把 --steps-per-round 从 80 降到 20。
+4. 把 --num-prompt-tokens 从 8 降到 4。
+5. 先用更小的数据子集验证闭环。
+```
+
+### 7.6 训练能跑但效果差
+
+按顺序排查：
+
+- 先看根目录 `summary.json` 的 `target_label`。默认 `EVAL.LABEL=null` 会在单类别数据集上自动推断 label，例如 `obj`、`Sample`、`瓶盖`；如果数据集有多个类别，必须传 `--label`，否则系统会主动报错。
+- 先看 `predictions.json` 是否有预测。如果 `prediction_count=0`，优先降低 `--score-threshold` 到 `0.1`，确认不是阈值太高。
+- 如果预测框大多堆在一个位置或同一目标上重复很多框，先调低 `--nms-iou-threshold`，例如 `0.5 -> 0.3`。当前后处理会在同一图片、同一 label 内做 NMS，优先使用 OBB/rotated IoU，缺少 OBB 时回退 HBB IoU。
+- 如果框数随着 `steps_per_round` 增多而明显变多，通常说明少样本训练把打分头推得过高。可以先降低 `learning_rate`，或在 YAML 中把 `ADAPTER.TRAIN_DOT_PROD_SCORING=false`，先只训 `task_prompt_tokens + prompt_adapter`，减少过拟合。
+- 检查第一轮 `train_round_0.json` 是否选到了有代表性的目标。少样本闭环第一张图影响很大，可以换 `--seed` 多跑几次。
+- 如果定位框大致对但 IoU 不够，尝试 `--train-bbox-embed`；如果一打开就更不稳定，先关掉并降低学习率。
+
+如果可视化结果里的框全是垂直 HBB，而不是旋转 OBB，不一定是 bug。先检查本次配置：
+
+```yaml
+MODEL:
+  ENABLE_SEGMENTATION: true
+
+LOSS:
+  USE_MASKS: true
+
+EVAL:
+  IOU_MODE: obb
+```
+
+只有打开 segmentation head 并启用 mask loss 后，推理阶段才有机会从 `pred_masks` 拟合真实旋转 OBB。如果 `MODEL.ENABLE_SEGMENTATION=false` 或模型没有输出有效 mask，预测 JSON 仍会保留 `obb` 字段，但它只是由 HBB 派生的 `angle=0` 兼容框，不能代表真实旋转框能力。
+
+建议按下面顺序做小实验，不要一开始就开很多轮：
+
+```text
+1. max_rounds=1, steps_per_round=1：确认模型加载、loss、输出文件和可视化都正常。
+2. 固定 seed，steps_per_round=10/20/50 对比 prediction_count 和 error_type_counts。
+3. 如果重复框很多，优先调 NMS 和 score threshold。
+4. 如果低分漏检很多，再降低 score threshold 或增加训练步数。
+5. 如果误检很多，跑多轮让 no-object hard negative 进入 next_train.json。
+6. 如果要看 OBB，必须打开 ENABLE_SEGMENTATION + USE_MASKS + IOU_MODE=obb。
+```
+
+## 8. 推荐记录表
+
+每次 GPU 验证建议记录：
+
+```text
+实验名：
+checkpoint：
+数据集图片数：
+目标类别：
+resolution：
+max_rounds：
+steps_per_round：
+learning_rate：
+score_threshold：
+iou_threshold：
+是否 train_bbox_embed：
+是否 train_decoder_cross_attention：
+每轮 error_count：
+每轮 precision / recall / F1 / mIoU：
+主要失败类型：
+结论：
+```
+
+这样后面决定是否进入 NPU 部署时，有证据判断路线是否值得继续。
+
+## 9. 进入 NPU 前的判断标准
+
+建议至少满足下面条件，再考虑 NPU：
+
+- GPU 上 smoke test 稳定通过。
+- 小规模数据上多轮 `error_count` 有下降趋势。
+- 误检和漏检能通过补样本继续改善。
+- 输出后处理形式已经确定，是 HBB、mask 拟合 OBB，还是额外 OBB 分支。
+- 已经明确哪些参数需要训练，哪些参数部署时固定。
+
+NPU 阶段只部署最终固定推理图，不建议在无 GPU 的边缘设备上做在线训练。GPU 阶段负责少样本学习和 adapter 产出，NPU 阶段负责推理加速和工程部署。
